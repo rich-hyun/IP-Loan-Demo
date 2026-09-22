@@ -228,25 +228,6 @@ a { color: inherit; }
 .badge-rejected { background: var(--danger-soft); color: var(--danger); }
 .badge-verify   { background: var(--brass-soft); color: var(--brass); }
 
-/* ---- Intro banner ---- */
-.intro-banner {
-  display: flex; align-items: flex-start; gap: 14px;
-  background: var(--brass-soft);
-  border: 1px solid #E7D8B8;
-  border-left: 3px solid var(--brass);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  margin-bottom: 18px;
-}
-.intro-banner-text { flex: 1; font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
-.intro-banner-text strong { color: var(--ink); font-weight: 600; }
-.intro-banner-close {
-  border: none; background: transparent; color: var(--ink-faint); cursor: pointer;
-  font-size: 13px; line-height: 1; padding: 2px 4px; flex-shrink: 0;
-}
-.intro-banner-close:hover { color: var(--ink); }
-.intro-banner.hide { display: none; }
-
 /* ---- Sidebar reset link ---- */
 .reset-link {
   margin-top: 10px;

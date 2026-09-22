@@ -56,7 +56,6 @@ const STATIC_EVAL_REPORTS = {
 
 /* ---------------- Persistence ---------------- */
 const STORAGE_KEY = 'iploan_demo_applications_v1';
-const INTRO_KEY = 'iploan_demo_intro_dismissed_v1';
 
 function loadState() {
   try {
@@ -71,7 +70,7 @@ function saveState() {
 }
 
 function resetAllState() {
-  if (!window.confirm('데모 데이터를 초기 상태로 되돌릴까요? 이 브라우저에 저장된 변경사항이 모두 사라집니다.')) return;
+  if (!window.confirm('저장된 데이터를 초기 상태로 되돌릴까요? 이 브라우저에 저장된 변경사항이 모두 사라집니다.')) return;
   try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
   APPLICATIONS = JSON.parse(JSON.stringify(DEFAULT_APPLICATIONS));
   evalInitDone = false;
@@ -143,18 +142,6 @@ function generateEvalReport(app) {
     market: `${app.ipType}이 속한 분야의 최근 시장 동향과 사업화 가능성을 반영해 예비 가치를 산정했습니다.`,
     basis: `수익접근법과 시장접근법을 가중 평균하여 예비 담보가치를 산정했습니다. 평가자 확정 시 세부 근거가 보강됩니다.`,
   };
-}
-
-/* ---------------- Intro banner ---------------- */
-function initIntroBanner() {
-  const banner = document.getElementById('introBanner');
-  let dismissed = false;
-  try { dismissed = localStorage.getItem(INTRO_KEY) === '1'; } catch (e) { /* ignore */ }
-  if (dismissed) banner.classList.add('hide');
-  document.getElementById('introBannerClose').addEventListener('click', () => {
-    banner.classList.add('hide');
-    try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignore */ }
-  });
 }
 
 /* ---------------- Navigation ---------------- */
@@ -628,7 +615,6 @@ function finalizeDecision(btn, label, appId) {
 }
 
 /* ---------------- Init ---------------- */
-initIntroBanner();
 renderDashboard();
 renderFilterChips();
 renderListTable();
