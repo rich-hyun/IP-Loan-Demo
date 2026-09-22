@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM 기반 기술평가 자동대출 시스템 · 주식회사 머스트리</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316233E'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%230E7A6E' stroke-width='1.6'/%3E%3C/svg%3E">
+<meta name="description" content="LLM·블록체인 기반 IP담보 자동대출 시스템 UI 프로토타입">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1.2"></rect>
+          <rect x="14" y="3" width="7" height="7" rx="1.2"></rect>
+          <rect x="3" y="14" width="7" height="7" rx="1.2"></rect>
+          <rect x="14" y="14" width="7" height="7" rx="1.2"></rect>
+          <path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4"></path>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">IP담보 자동대출<br>플랫폼</div>
+        <div class="brand-sub">주식회사 머스트리 · 프로토타입</div>
+      </div>
+    </div>
+
+    <div class="nav-group-label">업무 화면</div>
+    <ul class="nav">
+      <li>
+        <button class="nav-item active" data-view="dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"></rect><rect x="13" y="3" width="8" height="8" rx="1.5"></rect><rect x="3" y="13" width="8" height="8" rx="1.5"></rect><rect x="13" y="13" width="8" height="8" rx="1.5"></rect></svg>
+          대시보드
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-view="list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"></path><circle cx="3.5" cy="6" r="1.4"></circle><circle cx="3.5" cy="12" r="1.4"></circle><circle cx="3.5" cy="18" r="1.4"></circle></svg>
+          대출 신청 리스트
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-view="apply">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M12 12v6M9 15h6"></path></svg>
+          대출 신청
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-view="evaluate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1.6"></rect><path d="M9 3v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V3"></path><path d="m9 13 2 2 4-4"></path></svg>
+          IP 가치평가
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-view="review">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6z"></path><path d="m9.2 12 1.9 1.9 3.7-3.8"></path></svg>
+          대출 심사
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <div class="chain-status">
+        <div class="chain-status-row"><span class="dot"></span> 블록체인 네트워크 정상</div>
+        <div class="chain-status-block" id="blockNo">Block #482,911</div>
+        <div class="chain-status-block">자체 네이티브 네트워크</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1 class="topbar-title" id="topbarTitle">대시보드</h1>
+        <p class="topbar-sub" id="topbarSub">LLM·블록체인 기반 IP담보 자동대출 서비스 현황</p>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-date">2026. 09. 22 (화)</div>
+        <div class="user-chip">
+          <div class="user-avatar">김민</div>
+          <div class="user-meta">
+            <div class="user-name">김민준</div>
+            <div class="user-role">여신심사역 · NH농협은행</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <!-- ============ VIEW: DASHBOARD ============ -->
+      <section id="view-dashboard" class="view active">
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">IP 가치평가 소요시간</div>
+            <div class="kpi-value">10<span class="kpi-unit">분 이내</span></div>
+            <div class="kpi-delta">기존 평가기관 의뢰 <b>3~5일</b> → LLM 자동 생성</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">대출심사 처리시간</div>
+            <div class="kpi-value">500<span class="kpi-unit">ms 이내</span></div>
+            <div class="kpi-delta">스마트컨트랙트 기반 <b>실시간</b> 자동심사</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">서류 위변조 검증율</div>
+            <div class="kpi-value">99<span class="kpi-unit">% 이상</span></div>
+            <div class="kpi-delta">발급기관 원본 해시 <b>대조 검증</b></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">심사 운영비용 절감</div>
+            <div class="kpi-value">90<span class="kpi-unit">% 이상</span></div>
+            <div class="kpi-delta">건당 인건비 기준 <b>자동 처리</b></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-header">
+            <h3>서비스 처리 흐름</h3>
+            <span class="hint">LLM 기반 기술평가 자동대출 시스템 · 5단계 구조</span>
+          </div>
+          <div class="flow">
+            <div class="flow-step">
+              <div class="flow-num">01</div>
+              <div class="flow-step-title">LLM IP 가치평가</div>
+              <div class="flow-step-desc">특허·기업·시장 정보를 분석해 평가보고서를 자동 생성하고 결과 해시를 블록체인에 기록</div>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">02</div>
+              <div class="flow-step-title">IP 자산 RWA화</div>
+              <div class="flow-step-desc">보유 지식재산권을 실물자산으로 전환해 담보로 등록하고 소유권 이전</div>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">03</div>
+              <div class="flow-step-title">서류 등록·해시 기록</div>
+              <div class="flow-step-desc">평가·발급기관이 서류를 직접 업로드, 위변조 방지용 블록체인에 기록</div>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">04</div>
+              <div class="flow-step-title">담보관리·상환 처리</div>
+              <div class="flow-step-desc">등록 담보와 상환 일정을 자동으로 관리</div>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">05</div>
+              <div class="flow-step-title">스마트컨트랙트 자동심사</div>
+              <div class="flow-step-desc">사전 정의된 룰로 대출가능금액을 산정하고 승인·거절을 자동 처리</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>오늘의 처리 현황</h3>
+              <span class="hint">전체 8건</span>
+            </div>
+            <div class="panel-body">
+              <div class="status-row" id="statusRow"></div>
+              <div class="section-title" style="margin-top:20px;">최근 신청 건</div>
+              <div class="table-wrap">
+                <table class="data-table" id="miniTable">
+                  <thead><tr><th>차주기업</th><th>담보 IP</th><th>신청금액</th><th>상태</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div style="margin-top:14px;">
+                <button class="btn btn-outline btn-sm" onclick="goView('list')">전체 신청 리스트 보기</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>핵심 기술</h3></div>
+            <div class="panel-body" style="display:flex; flex-direction:column; gap:14px;">
+              <div>
+                <div style="font-size:13px; font-weight:600; margin-bottom:4px;">자체 블록체인 네트워크</div>
+                <p style="font-size:12.5px; color:var(--ink-soft);">해시 기반 심사서류 위변조 방지, 대출·IP 등록 이력의 투명한 기록 관리, 참여자 누구나 검증 가능</p>
+              </div>
+              <div style="border-top:1px solid var(--line-soft); padding-top:14px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:4px;">스마트컨트랙트</div>
+                <p style="font-size:12.5px; color:var(--ink-soft);">신용평가·담보가치 조건 충족 시 룰 기반 자동심사, 여신심사인력의 재량 개입 최소화</p>
+              </div>
+              <div style="border-top:1px solid var(--line-soft); padding-top:14px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:4px;">NFT 담보 증명</div>
+                <p style="font-size:12.5px; color:var(--ink-soft);">IP를 디지털 자산화해 소유권을 증명하고, 담보 등록·이전 내역을 메타데이터로 관리</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="compliance">
+          <span><b>금융 규제</b> — 은행법·전자금융거래법 기준 망분리·접근통제·전송 암호화 준수</span>
+          <span><b>정보보호</b> — 신용정보 최소수집·가명처리, 온체인에는 해시만 기록(평문 미기록)</span>
+          <span><b>실증 방식</b> — 금융규제 샌드박스 기반 모의환경·시범운영</span>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: LIST ============ -->
+      <section id="view-list" class="view">
+        <div class="panel">
+          <div class="toolbar">
+            <input class="search-input" type="text" placeholder="차주기업명, 신청번호 검색" id="listSearch">
+            <div class="filter-chips" id="filterChips"></div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>신청번호</th><th>차주기업</th><th>담보 IP</th><th>신청금액</th><th>상태</th><th>블록체인 기록</th><th>신청일</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="listTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: APPLY ============ -->
+      <section id="view-apply" class="view">
+        <div class="steps" id="applySteps">
+          <div class="step current" data-step="1"><div class="step-circle">1</div><div class="step-label">IP 자산 등록</div></div>
+          <div class="step-line"></div>
+          <div class="step" data-step="2"><div class="step-circle">2</div><div class="step-label">서류 업로드</div></div>
+          <div class="step-line"></div>
+          <div class="step" data-step="3"><div class="step-circle">3</div><div class="step-label">블록체인 기록</div></div>
+          <div class="step-line"></div>
+          <div class="step" data-step="4"><div class="step-circle">4</div><div class="step-label">심사 대기</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>대출 신청 — 담보 IP 등록</h3>
+            <span class="hint">지식재산권을 담보로 등록하고 대출을 신청합니다</span>
+          </div>
+          <div class="panel-body">
+            <form id="applyForm">
+              <div class="form-grid">
+                <div class="field">
+                  <label>기업명<span class="req">*</span></label>
+                  <input type="text" placeholder="예: (주)그린파머스" required>
+                </div>
+                <div class="field">
+                  <label>사업자등록번호<span class="req">*</span></label>
+                  <input type="text" placeholder="000-00-00000" required>
+                </div>
+                <div class="field">
+                  <label>대표자명<span class="req">*</span></label>
+                  <input type="text" placeholder="대표자 성명" required>
+                </div>
+                <div class="field">
+                  <label>연락처<span class="req">*</span></label>
+                  <input type="text" placeholder="010-0000-0000" required>
+                </div>
+                <div class="field">
+                  <label>담보 IP 유형<span class="req">*</span></label>
+                  <select required>
+                    <option value="">선택</option>
+                    <option>특허권</option>
+                    <option>상표권</option>
+                    <option>실용신안권</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>출원·등록번호<span class="req">*</span></label>
+                  <input type="text" placeholder="예: 10-2024-0012345" required>
+                </div>
+                <div class="field full">
+                  <label>IP 명칭<span class="req">*</span></label>
+                  <input type="text" placeholder="예: 스마트 관수 제어 시스템" required>
+                </div>
+                <div class="field">
+                  <label>대출 희망 금액<span class="req">*</span></label>
+                  <input type="text" placeholder="예: 80,000,000원" required>
+                </div>
+                <div class="field">
+                  <label>상환 희망 기간</label>
+                  <select>
+                    <option>12개월</option>
+                    <option>24개월</option>
+                    <option>36개월</option>
+                  </select>
+                </div>
+                <div class="field full">
+                  <label>심사서류 업로드<span class="req">*</span></label>
+                  <div class="upload-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path><path d="M7 9l5-5 5 5"></path><path d="M12 4v12"></path></svg>
+                    <div>
+                      <div class="file-name">특허등록원부.pdf</div>
+                      <div>사업자등록증.pdf 외 2건 · 발급기관 시스템을 통해 원본이 대조됩니다</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top:20px; display:flex; gap:10px;">
+                <button type="submit" class="btn btn-primary" id="applySubmitBtn">제출하기</button>
+                <button type="reset" class="btn btn-outline">초기화</button>
+              </div>
+            </form>
+
+            <div class="hash-block" id="applyHashBlock">
+              <div class="hash-block-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                블록체인 기록이 완료되었습니다
+              </div>
+              <div class="hash-row"><span class="k">신청번호</span><span class="v" id="genAppId">LN-2026-0109</span></div>
+              <div class="hash-row"><span class="k">문서 해시값</span><span class="v" id="genHash">0x71fa9cd8…e04b2c</span></div>
+              <div class="hash-row"><span class="k">기록 블록</span><span class="v" id="genBlock">#482,912</span></div>
+              <div class="hash-row"><span class="k">기록 시각</span><span class="v" id="genTime">2026-09-22 14:32:07</span></div>
+              <div class="hash-row"><span class="k">현재 상태</span><span class="v">IP 가치평가 대기 중</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: EVALUATE ============ -->
+      <section id="view-evaluate" class="view">
+        <div class="eval-layout">
+          <div class="panel eval-list">
+            <div class="panel-header"><h3>평가 대기 목록</h3></div>
+            <div id="evalListItems"></div>
+          </div>
+          <div class="panel" id="evalReportPanel">
+            <!-- filled by JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: REVIEW ============ -->
+      <section id="view-review" class="view">
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-body" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <label style="font-size:12.5px; font-weight:600; color:var(--ink-soft);">심사 대상 선택</label>
+            <select id="reviewCaseSelect" style="border:1px solid var(--line); border-radius:4px; padding:8px 10px; font-size:13px; min-width:280px;"></select>
+          </div>
+        </div>
+
+        <div id="reviewBody"></div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
