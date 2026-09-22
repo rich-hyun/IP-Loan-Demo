@@ -1,11 +1,15 @@
 /* ==========================================================================
-   LLM 기반 기술평가 자동대출 시스템 — 프로토타입 로직
-   전체 데이터는 데모용 가상의 값입니다. 실제 은행/기업 데이터가 아닙니다.
-   변경사항(신청 제출, 평가 확정, 심사 승인/거절)은 이 브라우저의
-   localStorage에만 저장되며, 서버나 다른 방문자와 공유되지 않습니다.
+   LLM 기반 기술평가 자동대출 시스템 — 프론트엔드 로직
+   모든 신청·평가·심사 데이터는 서버 API(../server/app.py)를 통해
+   저장되고 모든 방문자에게 동일하게 보입니다.
    ========================================================================== */
 
-/* ---------------- Mock data (seed) ---------------- */
+/* 서버 API 주소 — 배포 전 실제 도메인으로 교체하세요.
+   http://IP:포트 는 https 프론트엔드에서 차단되니(mixed content) 반드시
+   https:// 도메인을 사용하세요. 자세한 내용은 server/README.md 참고. */
+const API_BASE = 'https://api.YOUR-DOMAIN.example/api';
+
+/* ---------------- Status labels ---------------- */
 const STATUS_META = {
   pending:    { label: '대기',     badge: 'badge-pending'  },
   doc_verify: { label: '서류검증', badge: 'badge-verify'   },
@@ -15,21 +19,13 @@ const STATUS_META = {
   rejected:   { label: '거절',     badge: 'badge-rejected' },
 };
 
-const DEFAULT_APPLICATIONS = [
-  { id:'LN-2026-0088', company:'에너지테크(주)',     bizNo:'220-87-30984', ipType:'특허권',     ipTitle:'고효율 태양광 인버터',           amount:150000000, status:'approved',   hash:'0x1fa726…c0e94b', appliedDate:'2026-09-08', appraisedValue:214000000, ltv:70,  creditScore:81, rate:3.9 },
-  { id:'LN-2026-0090', company:'(주)헬스케어넷',     bizNo:'308-81-19204', ipType:'특허권',     ipTitle:'원격 재활 모니터링 시스템',       amount:70000000,  status:'rejected',   hash:'0x5c98a4…e7213f', appliedDate:'2026-09-09', appraisedValue:58000000,  ltv:121, creditScore:66,
-    rejectReason:'산정 담보가치(58,000,000원) 대비 신청금액 비율(LTV 121%)이 자동심사 기준(70% 이하)을 초과하여 자동 거절 처리되었습니다.' },
-  { id:'LN-2026-0091', company:'(주)그린파머스',     bizNo:'208-86-41029', ipType:'특허권',     ipTitle:'스마트 관수 제어 시스템',         amount:80000000,  status:'approved',   hash:'0x8c2f71…a93d0e', appliedDate:'2026-09-10', appraisedValue:118000000, ltv:68,  creditScore:78, rate:4.1 },
-  { id:'LN-2026-0094', company:'테크비전(주)',       bizNo:'134-87-22567', ipType:'특허권',     ipTitle:'실시간 객체 추적 알고리즘',       amount:120000000, status:'review',     hash:'0x2af90c…771ac4', appliedDate:'2026-09-12', appraisedValue:171000000, ltv:70,  creditScore:74 },
-  { id:'LN-2026-0097', company:'(주)바이오크래프트', bizNo:'301-88-10945', ipType:'특허권',     ipTitle:'휴대용 혈당측정 센서',           amount:95000000,  status:'evaluating', hash:'0x9d13e0…4bf27a', appliedDate:'2026-09-14' },
-  { id:'LN-2026-0102', company:'스마트팜솔루션(주)', bizNo:'215-81-77320', ipType:'상표권',     ipTitle:'그린팜 GreenFarm®',              amount:40000000,  status:'doc_verify', hash:'0x4e7ac2…f10d93', appliedDate:'2026-09-16' },
-  { id:'LN-2026-0103', company:'(주)로보틱스랩',     bizNo:'129-86-53012', ipType:'실용신안권', ipTitle:'협동로봇 안전 커버 구조',         amount:65000000,  status:'pending',    hash:'0x6b40d1…8ce572', appliedDate:'2026-09-17' },
-  { id:'LN-2026-0106', company:'퓨처모빌리티(주)',   bizNo:'412-88-60371', ipType:'특허권',     ipTitle:'배터리 열관리 모듈',             amount:110000000, status:'review',     hash:'0x33d0f6…9a1c58', appliedDate:'2026-09-19', appraisedValue:143000000, ltv:77,  creditScore:69 },
+/* 서버에 연결할 수 없을 때만 쓰는 최소한의 화면 표시용 대체 데이터.
+   서버가 정상이면 항상 API 응답으로 대체됩니다. */
+const FALLBACK_APPLICATIONS = [
+  { id:'LN-2026-0088', company:'에너지테크(주)', bizNo:'220-87-30984', ipType:'특허권', ipTitle:'고효율 태양광 인버터', amount:150000000, status:'approved', hash:'0x1fa726…c0e94b', appliedDate:'2026-09-08', appraisedValue:214000000, ltv:70, creditScore:81, rate:3.9 },
 ];
 
-/* Curated, hand-written reports for the three seed companies still in queue.
-   Any other application (including new ones submitted through the form)
-   gets a generated-but-plausible report from generateEvalReport(). */
+/* 큐레이션된 예시 3건 + 신규 신청은 자동 생성되는 예비 평가보고서 */
 const STATIC_EVAL_REPORTS = {
   'LN-2026-0097': {
     genDate:'2026-09-21 09:14', genTime:'8분 42초', appraisedValue:132000000, similarity:0.91,
@@ -54,42 +50,35 @@ const STATIC_EVAL_REPORTS = {
   },
 };
 
-/* ---------------- Persistence ---------------- */
-const STORAGE_KEY = 'iploan_demo_applications_v1';
-
-function loadState() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch (e) { /* storage unavailable or corrupted — fall back to seed data */ }
-  return JSON.parse(JSON.stringify(DEFAULT_APPLICATIONS));
+/* ---------------- API 통신 ---------------- */
+async function apiFetchApplications() {
+  const res = await fetch(`${API_BASE}/applications`);
+  if (!res.ok) throw new Error('fetch failed');
+  return res.json();
 }
-
-function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(APPLICATIONS)); } catch (e) { /* ignore */ }
+async function apiCreateApplication(payload) {
+  const res = await fetch(`${API_BASE}/applications`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('create failed');
+  return res.json();
 }
-
-function resetAllState() {
-  if (!window.confirm('저장된 데이터를 초기 상태로 되돌릴까요? 이 브라우저에 저장된 변경사항이 모두 사라집니다.')) return;
-  try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
-  APPLICATIONS = JSON.parse(JSON.stringify(DEFAULT_APPLICATIONS));
-  evalInitDone = false;
-  reviewInitDone = false;
-  activeFilter = 'all';
-  const searchEl = document.getElementById('listSearch');
-  if (searchEl) searchEl.value = '';
-
-  renderDashboard();
-  renderFilterChips();
-  renderListTable();
-  renderEvalList();
-  updateReviewSelectOptions();
-  document.getElementById('evalReportPanel').innerHTML = '';
-  document.getElementById('reviewBody').innerHTML = '';
-  goView('dashboard');
+async function apiPatchApplication(id, fields) {
+  const res = await fetch(`${API_BASE}/applications/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) throw new Error('update failed');
+  return res.json();
 }
-
-let APPLICATIONS = loadState();
+async function apiReset() {
+  const res = await fetch(`${API_BASE}/reset`, { method: 'POST' });
+  if (!res.ok) throw new Error('reset failed');
+  return res.json();
+}
 
 /* ---------------- Helpers ---------------- */
 function won(n) { return n.toLocaleString('ko-KR') + '원'; }
@@ -109,15 +98,8 @@ function hashCode(str) {
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return h;
 }
-function generateAppId() {
-  let id;
-  do {
-    id = 'LN-2026-' + String(110 + Math.floor(Math.random() * 890)).padStart(4, '0');
-  } while (APPLICATIONS.some(a => a.id === id));
-  return id;
-}
 
-/* ---------------- LLM 가치평가보고서: 큐레이션 3건 + 신규 신청 자동 생성 ---------------- */
+/* ---------------- 평가보고서: 큐레이션 3건 + 신규 신청 자동 생성 ---------------- */
 function evalQueue() {
   return APPLICATIONS.filter(a => !a.appraisedValue);
 }
@@ -128,9 +110,9 @@ function getEvalReport(app) {
 }
 function generateEvalReport(app) {
   const h = hashCode(app.id);
-  const multiplier = 1.15 + (h % 30) / 100;                     // 1.15 ~ 1.44
+  const multiplier = 1.15 + (h % 30) / 100;
   const appraisedValue = Math.round(app.amount * multiplier / 100000) * 100000;
-  const similarity = ((84 + (h % 11)) / 100).toFixed(2);        // 0.84 ~ 0.94
+  const similarity = ((84 + (h % 11)) / 100).toFixed(2);
   const minutes = 5 + (h % 6);
   const seconds = h % 60;
   return {
@@ -143,6 +125,10 @@ function generateEvalReport(app) {
     basis: `수익접근법과 시장접근법을 가중 평균하여 예비 담보가치를 산정했습니다. 평가자 확정 시 세부 근거가 보강됩니다.`,
   };
 }
+
+/* ---------------- 연결 오류 알림 ---------------- */
+function showConnNotice() { document.getElementById('connNotice').classList.add('show'); }
+function hideConnNotice() { document.getElementById('connNotice').classList.remove('show'); }
 
 /* ---------------- Navigation ---------------- */
 const VIEW_META = {
@@ -169,7 +155,10 @@ function goView(name) {
     else document.getElementById('evalReportPanel').innerHTML = `<div class="empty-hint">평가 대기 중인 건이 없습니다.</div>`;
     evalInitDone = true;
   }
-  if (name === 'review' && !reviewInitDone) { loadReviewCase('LN-2026-0094'); reviewInitDone = true; }
+  if (name === 'review' && !reviewInitDone && findApp('LN-2026-0094')) {
+    loadReviewCase('LN-2026-0094');
+    reviewInitDone = true;
+  }
 }
 
 document.querySelectorAll('.nav-item').forEach(btn => {
@@ -180,7 +169,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 function renderDashboard() {
   const counts = {};
   Object.keys(STATUS_META).forEach(k => counts[k] = 0);
-  APPLICATIONS.forEach(a => counts[a.status]++);
+  APPLICATIONS.forEach(a => counts[a.status] = (counts[a.status] || 0) + 1);
 
   const order = ['pending','doc_verify','evaluating','review','approved','rejected'];
   document.getElementById('statusRow').innerHTML = order.map(k => `
@@ -275,43 +264,52 @@ applyForm.addEventListener('submit', (e) => {
   steps[0].classList.add('done'); steps[0].classList.remove('current');
   steps[1].classList.add('current');
 
+  const company = (document.getElementById('fCompany').value || '').trim() || '미입력 기업';
+  const bizNo = (document.getElementById('fBizNo').value || '').trim();
+  const ipType = document.getElementById('fIpType').value || '특허권';
+  const ipTitle = (document.getElementById('fIpTitle').value || '').trim() || '미입력 IP 자산';
+  const amountRaw = document.getElementById('fAmount').value || '';
+  const amount = parseInt(amountRaw.replace(/[^0-9]/g, ''), 10) || 50000000;
+  const files = Array.from(fileInput.files);
+  const hash = '0x' + randHex(8) + '…' + randHex(6);
+
+  const createPromise = apiCreateApplication({ company, bizNo, ipType, ipTitle, amount, hash });
+
   setTimeout(() => { steps[1].classList.add('done'); steps[1].classList.remove('current'); steps[2].classList.add('current'); }, 500);
   setTimeout(() => { steps[2].classList.add('done'); steps[2].classList.remove('current'); steps[3].classList.add('current'); }, 1200);
-  setTimeout(() => {
-    steps[3].classList.add('done'); steps[3].classList.remove('current');
 
-    const company = (document.getElementById('fCompany').value || '').trim() || '미입력 기업';
-    const bizNo = (document.getElementById('fBizNo').value || '').trim();
-    const ipType = document.getElementById('fIpType').value || '특허권';
-    const ipTitle = (document.getElementById('fIpTitle').value || '').trim() || '미입력 IP 자산';
-    const amountRaw = document.getElementById('fAmount').value || '';
-    const amount = parseInt(amountRaw.replace(/[^0-9]/g, ''), 10) || 50000000;
-    const files = Array.from(fileInput.files);
+  setTimeout(async () => {
+    try {
+      const created = await createPromise;
+      hideConnNotice();
+      steps[3].classList.add('done'); steps[3].classList.remove('current');
 
-    const newId = generateAppId();
-    const hash = '0x' + randHex(8) + '…' + randHex(6);
+      APPLICATIONS.push(created);
 
-    APPLICATIONS.push({ id:newId, company, bizNo, ipType, ipTitle, amount, status:'pending', hash, appliedDate:'2026-09-22' });
-    saveState();
+      document.getElementById('genAppId').textContent = created.id;
+      document.getElementById('genFiles').textContent = files.length
+        ? (files[0].name + (files.length > 1 ? ` 외 ${files.length - 1}건` : ''))
+        : '특허등록원부.pdf (샘플)';
+      document.getElementById('genHash').textContent = created.hash;
+      document.getElementById('genBlock').textContent = '#' + (482912 + Math.floor(Math.random()*20));
+      document.getElementById('genTime').textContent = '2026-09-22 ' +
+        String(14 + Math.floor(Math.random()*3)).padStart(2,'0') + ':' +
+        String(Math.floor(Math.random()*60)).padStart(2,'0') + ':' +
+        String(Math.floor(Math.random()*60)).padStart(2,'0');
 
-    document.getElementById('genAppId').textContent = newId;
-    document.getElementById('genFiles').textContent = files.length
-      ? (files[0].name + (files.length > 1 ? ` 외 ${files.length - 1}건` : ''))
-      : '특허등록원부.pdf (샘플)';
-    document.getElementById('genHash').textContent = hash;
-    document.getElementById('genBlock').textContent = '#' + (482912 + Math.floor(Math.random()*20));
-    document.getElementById('genTime').textContent = '2026-09-22 ' +
-      String(14 + Math.floor(Math.random()*3)).padStart(2,'0') + ':' +
-      String(Math.floor(Math.random()*60)).padStart(2,'0') + ':' +
-      String(Math.floor(Math.random()*60)).padStart(2,'0');
+      document.getElementById('applyHashBlock').classList.add('show');
+      btn.textContent = '제출 완료';
 
-    document.getElementById('applyHashBlock').classList.add('show');
-    btn.textContent = '제출 완료';
-
-    renderDashboard();
-    renderListTable();
-    renderEvalList();
-    updateReviewSelectOptions();
+      renderDashboard();
+      renderListTable();
+      renderEvalList();
+      updateReviewSelectOptions();
+    } catch (err) {
+      showConnNotice();
+      steps[3].classList.remove('current');
+      btn.disabled = false;
+      btn.textContent = '다시 시도';
+    }
   }, 1900);
 });
 
@@ -404,23 +402,38 @@ function selectEvalItem(id) {
       <div style="font-size:11.5px; color:var(--ink-faint); margin-bottom:16px;">생성 일시 ${r.genDate} · 결과 해시는 확정 시 블록체인에 기록됩니다</div>
 
       <div style="display:flex; gap:10px;">
-        <button class="btn btn-primary" onclick="confirmEval('${id}')">가치평가 확정</button>
+        <button class="btn btn-primary" id="confirmEvalBtn" onclick="confirmEval('${id}')">가치평가 확정</button>
         <button class="btn btn-outline">재산정 요청</button>
       </div>
       <div id="evalConfirmMsg" style="display:none; margin-top:12px; font-size:12.5px; color:var(--teal); font-weight:600;">✓ 평가가 확정되어 대출 심사 단계로 전달되었습니다.</div>
     </div>`;
 }
 
-function confirmEval(id) {
+async function confirmEval(id) {
   const app = findApp(id);
   if (!app) return;
   const r = getEvalReport(app);
 
-  app.appraisedValue = r.appraisedValue;
-  app.ltv = Math.min(999, Math.round((app.amount / app.appraisedValue) * 100));
-  if (app.creditScore == null) app.creditScore = 65 + (hashCode(app.id + 'c') % 21); // 65~85
-  app.status = 'review';
-  saveState();
+  const btn = document.getElementById('confirmEvalBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '처리 중…'; }
+
+  const patch = {
+    appraisedValue: r.appraisedValue,
+    ltv: Math.min(999, Math.round((app.amount / r.appraisedValue) * 100)),
+    status: 'review',
+  };
+  if (app.creditScore == null) patch.creditScore = 65 + (hashCode(app.id + 'c') % 21);
+
+  let updated;
+  try {
+    updated = await apiPatchApplication(id, patch);
+    hideConnNotice();
+  } catch (err) {
+    showConnNotice();
+    if (btn) { btn.disabled = false; btn.textContent = '가치평가 확정'; }
+    return;
+  }
+  Object.assign(app, updated);
 
   const msg = document.getElementById('evalConfirmMsg');
   if (msg) msg.style.display = 'block';
@@ -595,32 +608,99 @@ function showDecision(app, approved, approvedAmount, alreadyDecided) {
   }
 }
 
-function finalizeDecision(btn, label, appId) {
+async function finalizeDecision(btn, label, appId) {
   const area = btn.closest('.decision-actions');
-  area.innerHTML = `<span style="font-size:12.5px; color:var(--ink-soft);">✓ ${label} 처리되었습니다 · 2026-09-22 처리</span>`;
+  area.innerHTML = `<span style="font-size:12.5px; color:var(--ink-soft);">처리 중…</span>`;
 
   const app = findApp(appId);
-  if (app) {
-    if (label === '승인') {
-      app.status = 'approved';
-      if (!app.rate) app.rate = ((3.8 + (hashCode(app.id + 'r') % 8) / 10)).toFixed(1);
-    } else if (label === '거절 확정') {
-      app.status = 'rejected';
+  if (!app) return;
+
+  const patch = {};
+  if (label === '승인') {
+    patch.status = 'approved';
+    if (!app.rate) patch.rate = Number((3.8 + (hashCode(app.id + 'r') % 8) / 10).toFixed(1));
+  } else if (label === '거절 확정') {
+    patch.status = 'rejected';
+  }
+
+  try {
+    if (Object.keys(patch).length) {
+      const updated = await apiPatchApplication(appId, patch);
+      Object.assign(app, updated);
     }
-    saveState();
+    hideConnNotice();
+    area.innerHTML = `<span style="font-size:12.5px; color:var(--ink-soft);">✓ ${label} 처리되었습니다</span>`;
     renderDashboard();
     renderListTable();
     updateReviewSelectOptions();
+  } catch (err) {
+    showConnNotice();
+    area.innerHTML = `<span style="font-size:12.5px; color:var(--danger);">처리에 실패했습니다. 다시 시도해주세요.</span>`;
   }
 }
 
+/* ---------------- 데이터 초기화 (서버의 모든 방문자 데이터를 초기 상태로) ---------------- */
+async function resetAllState() {
+  if (!window.confirm('저장된 데이터를 초기 상태로 되돌릴까요? 이 사이트를 보는 모든 사람에게 적용되며, 되돌릴 수 없습니다.')) return;
+  try {
+    APPLICATIONS = await apiReset();
+    hideConnNotice();
+  } catch (err) {
+    showConnNotice();
+    return;
+  }
+  evalInitDone = false;
+  reviewInitDone = false;
+  activeFilter = 'all';
+  const searchEl = document.getElementById('listSearch');
+  if (searchEl) searchEl.value = '';
+
+  renderDashboard();
+  renderFilterChips();
+  renderListTable();
+  renderEvalList();
+  updateReviewSelectOptions();
+  document.getElementById('evalReportPanel').innerHTML = '';
+  document.getElementById('reviewBody').innerHTML = '';
+  goView('dashboard');
+}
+
 /* ---------------- Init ---------------- */
-renderDashboard();
-renderFilterChips();
-renderListTable();
-renderEvalList();
-renderReviewSelect();
+let APPLICATIONS = [];
+
+async function initApp() {
+  try {
+    APPLICATIONS = await apiFetchApplications();
+    hideConnNotice();
+  } catch (err) {
+    APPLICATIONS = JSON.parse(JSON.stringify(FALLBACK_APPLICATIONS));
+    showConnNotice();
+  }
+  renderDashboard();
+  renderFilterChips();
+  renderListTable();
+  renderEvalList();
+  renderReviewSelect();
+}
+
+document.getElementById('connNoticeRetry').addEventListener('click', async () => {
+  try {
+    APPLICATIONS = await apiFetchApplications();
+    hideConnNotice();
+    evalInitDone = false;
+    reviewInitDone = false;
+    renderDashboard();
+    renderListTable();
+    renderEvalList();
+    updateReviewSelectOptions();
+  } catch (err) {
+    showConnNotice();
+  }
+});
+
 document.getElementById('resetDemoBtn').addEventListener('click', resetAllState);
+
+initApp();
 
 /* Live-ish block counter for atmosphere */
 setInterval(() => {

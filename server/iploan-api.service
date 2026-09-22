@@ -1,0 +1,16 @@
+[Unit]
+Description=IP-loan API (Flask + gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+# TODO: 실제 리눅스 사용자명으로 교체
+User=REPLACE_WITH_YOUR_LINUX_USER
+WorkingDirectory=/opt/iploan-api
+Environment="IPLOAN_DB_PATH=/opt/iploan-api/iploan.db"
+ExecStart=/opt/iploan-api/venv/bin/gunicorn -w 2 -b 127.0.0.1:5000 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
