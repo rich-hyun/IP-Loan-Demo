@@ -1,9 +1,11 @@
 /* ==========================================================================
    LLM 기반 기술평가 자동대출 시스템 — 프로토타입 로직
    전체 데이터는 데모용 가상의 값입니다. 실제 은행/기업 데이터가 아닙니다.
+   변경사항(신청 제출, 평가 확정, 심사 승인/거절)은 이 브라우저의
+   localStorage에만 저장되며, 서버나 다른 방문자와 공유되지 않습니다.
    ========================================================================== */
 
-/* ---------------- Mock data ---------------- */
+/* ---------------- Mock data (seed) ---------------- */
 const STATUS_META = {
   pending:    { label: '대기',     badge: 'badge-pending'  },
   doc_verify: { label: '서류검증', badge: 'badge-verify'   },
@@ -13,7 +15,7 @@ const STATUS_META = {
   rejected:   { label: '거절',     badge: 'badge-rejected' },
 };
 
-const APPLICATIONS = [
+const DEFAULT_APPLICATIONS = [
   { id:'LN-2026-0088', company:'에너지테크(주)',     bizNo:'220-87-30984', ipType:'특허권',     ipTitle:'고효율 태양광 인버터',           amount:150000000, status:'approved',   hash:'0x1fa726…c0e94b', appliedDate:'2026-09-08', appraisedValue:214000000, ltv:70,  creditScore:81, rate:3.9 },
   { id:'LN-2026-0090', company:'(주)헬스케어넷',     bizNo:'308-81-19204', ipType:'특허권',     ipTitle:'원격 재활 모니터링 시스템',       amount:70000000,  status:'rejected',   hash:'0x5c98a4…e7213f', appliedDate:'2026-09-09', appraisedValue:58000000,  ltv:121, creditScore:66,
     rejectReason:'산정 담보가치(58,000,000원) 대비 신청금액 비율(LTV 121%)이 자동심사 기준(70% 이하)을 초과하여 자동 거절 처리되었습니다.' },
@@ -25,7 +27,10 @@ const APPLICATIONS = [
   { id:'LN-2026-0106', company:'퓨처모빌리티(주)',   bizNo:'412-88-60371', ipType:'특허권',     ipTitle:'배터리 열관리 모듈',             amount:110000000, status:'review',     hash:'0x33d0f6…9a1c58', appliedDate:'2026-09-19', appraisedValue:143000000, ltv:77,  creditScore:69 },
 ];
 
-const EVAL_REPORTS = {
+/* Curated, hand-written reports for the three seed companies still in queue.
+   Any other application (including new ones submitted through the form)
+   gets a generated-but-plausible report from generateEvalReport(). */
+const STATIC_EVAL_REPORTS = {
   'LN-2026-0097': {
     genDate:'2026-09-21 09:14', genTime:'8분 42초', appraisedValue:132000000, similarity:0.91,
     summary:'출원번호 10-2024-0088231, 등록번호 10-2601122호로 등록된 비침습 방식 혈당측정 센서 특허입니다. 청구항은 총 12개항으로 구성되며, 피부 접촉면의 다중 전극 배열과 신호보정 알고리즘을 핵심 구성으로 합니다. 등록일 기준 잔존 권리기간은 약 17년입니다.',
@@ -49,6 +54,44 @@ const EVAL_REPORTS = {
   },
 };
 
+/* ---------------- Persistence ---------------- */
+const STORAGE_KEY = 'iploan_demo_applications_v1';
+const INTRO_KEY = 'iploan_demo_intro_dismissed_v1';
+
+function loadState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch (e) { /* storage unavailable or corrupted — fall back to seed data */ }
+  return JSON.parse(JSON.stringify(DEFAULT_APPLICATIONS));
+}
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(APPLICATIONS)); } catch (e) { /* ignore */ }
+}
+
+function resetAllState() {
+  if (!window.confirm('데모 데이터를 초기 상태로 되돌릴까요? 이 브라우저에 저장된 변경사항이 모두 사라집니다.')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+  APPLICATIONS = JSON.parse(JSON.stringify(DEFAULT_APPLICATIONS));
+  evalInitDone = false;
+  reviewInitDone = false;
+  activeFilter = 'all';
+  const searchEl = document.getElementById('listSearch');
+  if (searchEl) searchEl.value = '';
+
+  renderDashboard();
+  renderFilterChips();
+  renderListTable();
+  renderEvalList();
+  updateReviewSelectOptions();
+  document.getElementById('evalReportPanel').innerHTML = '';
+  document.getElementById('reviewBody').innerHTML = '';
+  goView('dashboard');
+}
+
+let APPLICATIONS = loadState();
+
 /* ---------------- Helpers ---------------- */
 function won(n) { return n.toLocaleString('ko-KR') + '원'; }
 function findApp(id) { return APPLICATIONS.find(a => a.id === id); }
@@ -61,6 +104,57 @@ function randHex(len) {
   let s = '';
   for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * 16)];
   return s;
+}
+function hashCode(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
+}
+function generateAppId() {
+  let id;
+  do {
+    id = 'LN-2026-' + String(110 + Math.floor(Math.random() * 890)).padStart(4, '0');
+  } while (APPLICATIONS.some(a => a.id === id));
+  return id;
+}
+
+/* ---------------- LLM 가치평가보고서: 큐레이션 3건 + 신규 신청 자동 생성 ---------------- */
+function evalQueue() {
+  return APPLICATIONS.filter(a => !a.appraisedValue);
+}
+function getEvalReport(app) {
+  if (STATIC_EVAL_REPORTS[app.id]) return STATIC_EVAL_REPORTS[app.id];
+  if (!app._report) app._report = generateEvalReport(app);
+  return app._report;
+}
+function generateEvalReport(app) {
+  const h = hashCode(app.id);
+  const multiplier = 1.15 + (h % 30) / 100;                     // 1.15 ~ 1.44
+  const appraisedValue = Math.round(app.amount * multiplier / 100000) * 100000;
+  const similarity = ((84 + (h % 11)) / 100).toFixed(2);        // 0.84 ~ 0.94
+  const minutes = 5 + (h % 6);
+  const seconds = h % 60;
+  return {
+    genDate: '2026-09-22 ' + String(10 + (h % 8)).padStart(2, '0') + ':' + String(h % 60).padStart(2, '0'),
+    genTime: `${minutes}분 ${String(seconds).padStart(2, '0')}초`,
+    appraisedValue, similarity,
+    summary: `${app.ipTitle}(${app.ipType})의 출원·등록 정보를 기반으로 권리범위와 청구항 구성을 LLM이 1차 분석했습니다. 신청 시 등록된 서류를 기준으로 한 예비 검토 결과입니다.`,
+    similar: `관련 기술·상품 분류 내 선행 IP를 검색해 유사도를 비교했습니다. 신청 정보만으로 산출한 예비 결과이며, 정식 심사 단계에서 세부 비교가 추가로 진행됩니다.`,
+    market: `${app.ipType}이 속한 분야의 최근 시장 동향과 사업화 가능성을 반영해 예비 가치를 산정했습니다.`,
+    basis: `수익접근법과 시장접근법을 가중 평균하여 예비 담보가치를 산정했습니다. 평가자 확정 시 세부 근거가 보강됩니다.`,
+  };
+}
+
+/* ---------------- Intro banner ---------------- */
+function initIntroBanner() {
+  const banner = document.getElementById('introBanner');
+  let dismissed = false;
+  try { dismissed = localStorage.getItem(INTRO_KEY) === '1'; } catch (e) { /* ignore */ }
+  if (dismissed) banner.classList.add('hide');
+  document.getElementById('introBannerClose').addEventListener('click', () => {
+    banner.classList.add('hide');
+    try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignore */ }
+  });
 }
 
 /* ---------------- Navigation ---------------- */
@@ -82,7 +176,12 @@ function goView(name) {
   document.getElementById('topbarTitle').textContent = VIEW_META[name].title;
   document.getElementById('topbarSub').textContent = VIEW_META[name].sub;
 
-  if (name === 'evaluate' && !evalInitDone) { selectEvalItem(Object.keys(EVAL_REPORTS)[0]); evalInitDone = true; }
+  if (name === 'evaluate' && !evalInitDone) {
+    const first = evalQueue()[0];
+    if (first) selectEvalItem(first.id);
+    else document.getElementById('evalReportPanel').innerHTML = `<div class="empty-hint">평가 대기 중인 건이 없습니다.</div>`;
+    evalInitDone = true;
+  }
   if (name === 'review' && !reviewInitDone) { loadReviewCase('LN-2026-0094'); reviewInitDone = true; }
 }
 
@@ -136,7 +235,7 @@ function renderListTable() {
   document.getElementById('listTableBody').innerHTML = rows.map(a => `
     <tr data-id="${a.id}">
       <td class="cell-hash">${a.id}</td>
-      <td class="cell-company">${a.company}<div class="cell-sub">${a.bizNo}</div></td>
+      <td class="cell-company">${a.company}<div class="cell-sub">${a.bizNo || '-'}</div></td>
       <td>${a.ipTitle}<div class="cell-sub">${a.ipType}</div></td>
       <td class="cell-amount">${won(a.amount)}</td>
       <td>${statusBadge(a.status)}</td>
@@ -159,6 +258,26 @@ document.getElementById('listSearch').addEventListener('input', renderListTable)
 
 /* ---------------- Apply form ---------------- */
 const applyForm = document.getElementById('applyForm');
+const uploadBox = document.getElementById('uploadBox');
+const fileInput = document.getElementById('fileInput');
+
+uploadBox.addEventListener('click', () => fileInput.click());
+uploadBox.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+});
+fileInput.addEventListener('change', () => {
+  const files = Array.from(fileInput.files);
+  const nameEl = document.getElementById('fileNameDisplay');
+  const helpEl = document.getElementById('fileHelpText');
+  if (files.length === 0) {
+    nameEl.textContent = '클릭해서 파일 선택';
+    helpEl.textContent = '특허등록원부, 사업자등록증 등 심사서류를 첨부하세요 · 발급기관 시스템을 통해 원본이 대조됩니다';
+    return;
+  }
+  nameEl.textContent = files[0].name + (files.length > 1 ? ` 외 ${files.length - 1}건` : '');
+  helpEl.textContent = '발급기관 시스템을 통해 원본이 대조됩니다';
+});
+
 applyForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const btn = document.getElementById('applySubmitBtn');
@@ -174,9 +293,25 @@ applyForm.addEventListener('submit', (e) => {
   setTimeout(() => {
     steps[3].classList.add('done'); steps[3].classList.remove('current');
 
-    const newId = 'LN-2026-01' + Math.floor(10 + Math.random()*89);
+    const company = (document.getElementById('fCompany').value || '').trim() || '미입력 기업';
+    const bizNo = (document.getElementById('fBizNo').value || '').trim();
+    const ipType = document.getElementById('fIpType').value || '특허권';
+    const ipTitle = (document.getElementById('fIpTitle').value || '').trim() || '미입력 IP 자산';
+    const amountRaw = document.getElementById('fAmount').value || '';
+    const amount = parseInt(amountRaw.replace(/[^0-9]/g, ''), 10) || 50000000;
+    const files = Array.from(fileInput.files);
+
+    const newId = generateAppId();
+    const hash = '0x' + randHex(8) + '…' + randHex(6);
+
+    APPLICATIONS.push({ id:newId, company, bizNo, ipType, ipTitle, amount, status:'pending', hash, appliedDate:'2026-09-22' });
+    saveState();
+
     document.getElementById('genAppId').textContent = newId;
-    document.getElementById('genHash').textContent = '0x' + randHex(8) + '…' + randHex(6);
+    document.getElementById('genFiles').textContent = files.length
+      ? (files[0].name + (files.length > 1 ? ` 외 ${files.length - 1}건` : ''))
+      : '특허등록원부.pdf (샘플)';
+    document.getElementById('genHash').textContent = hash;
     document.getElementById('genBlock').textContent = '#' + (482912 + Math.floor(Math.random()*20));
     document.getElementById('genTime').textContent = '2026-09-22 ' +
       String(14 + Math.floor(Math.random()*3)).padStart(2,'0') + ':' +
@@ -185,22 +320,44 @@ applyForm.addEventListener('submit', (e) => {
 
     document.getElementById('applyHashBlock').classList.add('show');
     btn.textContent = '제출 완료';
+
+    renderDashboard();
+    renderListTable();
+    renderEvalList();
+    updateReviewSelectOptions();
   }, 1900);
 });
 
+applyForm.addEventListener('reset', () => { setTimeout(resetApplyUI, 0); });
+
+function resetApplyUI() {
+  const steps = document.querySelectorAll('#applySteps .step');
+  steps.forEach(s => s.classList.remove('done', 'current'));
+  steps[0].classList.add('current');
+  document.getElementById('applyHashBlock').classList.remove('show');
+  const btn = document.getElementById('applySubmitBtn');
+  btn.disabled = false;
+  btn.textContent = '제출하기';
+  document.getElementById('fileNameDisplay').textContent = '클릭해서 파일 선택';
+  document.getElementById('fileHelpText').textContent = '특허등록원부, 사업자등록증 등 심사서류를 첨부하세요 · 발급기관 시스템을 통해 원본이 대조됩니다';
+}
+
 /* ---------------- Evaluate view ---------------- */
 function renderEvalList() {
-  document.getElementById('evalListItems').innerHTML = Object.keys(EVAL_REPORTS).map(id => {
-    const app = findApp(id);
-    return `
-    <div class="eval-item" data-id="${id}">
+  const queue = evalQueue();
+  const container = document.getElementById('evalListItems');
+  if (queue.length === 0) {
+    container.innerHTML = `<div class="empty-hint">평가 대기 중인 건이 없습니다.</div>`;
+    return;
+  }
+  container.innerHTML = queue.map(app => `
+    <div class="eval-item" data-id="${app.id}">
       <div class="eval-item-top">
         <span class="eval-item-company">${app.company}</span>
         ${statusBadge(app.status)}
       </div>
       <div class="eval-item-sub">${app.ipTitle} · ${app.ipType}</div>
-    </div>`;
-  }).join('');
+    </div>`).join('');
 
   document.querySelectorAll('.eval-item').forEach(el => {
     el.addEventListener('click', () => selectEvalItem(el.dataset.id));
@@ -209,7 +366,8 @@ function renderEvalList() {
 
 function selectEvalItem(id) {
   const app = findApp(id);
-  const r = EVAL_REPORTS[id];
+  if (!app) return;
+  const r = getEvalReport(app);
 
   document.querySelectorAll('.eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
 
@@ -267,18 +425,47 @@ function selectEvalItem(id) {
 }
 
 function confirmEval(id) {
-  document.getElementById('evalConfirmMsg').style.display = 'block';
+  const app = findApp(id);
+  if (!app) return;
+  const r = getEvalReport(app);
+
+  app.appraisedValue = r.appraisedValue;
+  app.ltv = Math.min(999, Math.round((app.amount / app.appraisedValue) * 100));
+  if (app.creditScore == null) app.creditScore = 65 + (hashCode(app.id + 'c') % 21); // 65~85
+  app.status = 'review';
+  saveState();
+
+  const msg = document.getElementById('evalConfirmMsg');
+  if (msg) msg.style.display = 'block';
+
+  renderDashboard();
+  renderListTable();
+  updateReviewSelectOptions();
+
+  setTimeout(() => {
+    renderEvalList();
+    const next = evalQueue()[0];
+    if (next) selectEvalItem(next.id);
+    else document.getElementById('evalReportPanel').innerHTML = `<div class="empty-hint">평가 대기 중인 건이 없습니다. 새 신청이 들어오면 왼쪽 목록에 표시됩니다.</div>`;
+  }, 1100);
 }
 
 /* ---------------- Review view ---------------- */
-function renderReviewSelect() {
+function updateReviewSelectOptions() {
   const sel = document.getElementById('reviewCaseSelect');
+  const prev = sel.value;
   sel.innerHTML = APPLICATIONS.map(a => `<option value="${a.id}">${a.id} · ${a.company} · ${won(a.amount)}</option>`).join('');
-  sel.addEventListener('change', () => loadReviewCase(sel.value));
+  if (prev && APPLICATIONS.some(a => a.id === prev)) sel.value = prev;
+}
+
+function renderReviewSelect() {
+  updateReviewSelectOptions();
+  document.getElementById('reviewCaseSelect').addEventListener('change', (e) => loadReviewCase(e.target.value));
 }
 
 function loadReviewCase(id) {
   const app = findApp(id);
+  if (!app) return;
   document.getElementById('reviewCaseSelect').value = id;
   const body = document.getElementById('reviewBody');
 
@@ -401,8 +588,8 @@ function showDecision(app, approved, approvedAmount, alreadyDecided) {
       <div class="decision-actions">
         ${alreadyDecided
           ? `<span style="font-size:12.5px; color:var(--ink-soft);">최종 승인 처리 완료 건입니다</span>`
-          : `<button class="btn btn-primary btn-sm" onclick="finalizeDecision(this,'승인')">최종 승인 확정</button>
-             <button class="btn btn-outline btn-sm" onclick="finalizeDecision(this,'보류')">보류하고 재검토</button>`}
+          : `<button class="btn btn-primary btn-sm" onclick="finalizeDecision(this,'승인','${app.id}')">최종 승인 확정</button>
+             <button class="btn btn-outline btn-sm" onclick="finalizeDecision(this,'보류','${app.id}')">보류하고 재검토</button>`}
       </div>`;
   } else {
     const reason = app.rejectReason || '스마트컨트랙트 자동심사 기준(LTV 70% 이하)을 충족하지 못해 자동 거절 처리되었습니다.';
@@ -415,23 +602,39 @@ function showDecision(app, approved, approvedAmount, alreadyDecided) {
       <div class="decision-actions">
         ${alreadyDecided
           ? `<span style="font-size:12.5px; color:var(--ink-soft);">거절 처리 완료 건입니다</span>`
-          : `<button class="btn btn-outline btn-sm" onclick="finalizeDecision(this,'거절 확정')">거절 확정 통지</button>
-             <button class="btn btn-danger-outline btn-sm" onclick="finalizeDecision(this,'재심사 요청')">재심사 요청</button>`}
+          : `<button class="btn btn-outline btn-sm" onclick="finalizeDecision(this,'거절 확정','${app.id}')">거절 확정 통지</button>
+             <button class="btn btn-danger-outline btn-sm" onclick="finalizeDecision(this,'재심사 요청','${app.id}')">재심사 요청</button>`}
       </div>`;
   }
 }
 
-function finalizeDecision(btn, label) {
+function finalizeDecision(btn, label, appId) {
   const area = btn.closest('.decision-actions');
   area.innerHTML = `<span style="font-size:12.5px; color:var(--ink-soft);">✓ ${label} 처리되었습니다 · 2026-09-22 처리</span>`;
+
+  const app = findApp(appId);
+  if (app) {
+    if (label === '승인') {
+      app.status = 'approved';
+      if (!app.rate) app.rate = ((3.8 + (hashCode(app.id + 'r') % 8) / 10)).toFixed(1);
+    } else if (label === '거절 확정') {
+      app.status = 'rejected';
+    }
+    saveState();
+    renderDashboard();
+    renderListTable();
+    updateReviewSelectOptions();
+  }
 }
 
 /* ---------------- Init ---------------- */
+initIntroBanner();
 renderDashboard();
 renderFilterChips();
 renderListTable();
 renderEvalList();
 renderReviewSelect();
+document.getElementById('resetDemoBtn').addEventListener('click', resetAllState);
 
 /* Live-ish block counter for atmosphere */
 setInterval(() => {

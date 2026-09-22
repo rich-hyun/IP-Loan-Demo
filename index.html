@@ -69,6 +69,7 @@
         <div class="chain-status-block" id="blockNo">Block #482,911</div>
         <div class="chain-status-block">자체 네이티브 네트워크</div>
       </div>
+      <button class="reset-link" id="resetDemoBtn" type="button">데모 데이터 초기화</button>
     </div>
   </aside>
 
@@ -95,6 +96,13 @@
 
       <!-- ============ VIEW: DASHBOARD ============ -->
       <section id="view-dashboard" class="view active">
+
+        <div class="intro-banner" id="introBanner">
+          <div class="intro-banner-text">
+            <strong>프로토타입 안내</strong> — 이 화면은 NH농협은행과 준비 중인 「LLM 기반 기술평가 자동대출 시스템」의 UI 흐름을 보여주는 목업입니다. 실제 서비스 데이터·블록체인·LLM은 연동되어 있지 않으며, 입력·처리 결과는 이 브라우저에만 임시로 저장됩니다.
+          </div>
+          <button class="intro-banner-close" id="introBannerClose" aria-label="안내 닫기">✕</button>
+        </div>
 
         <div class="kpi-grid">
           <div class="kpi-card">
@@ -242,23 +250,23 @@
               <div class="form-grid">
                 <div class="field">
                   <label>기업명<span class="req">*</span></label>
-                  <input type="text" placeholder="예: (주)그린파머스" required>
+                  <input type="text" id="fCompany" placeholder="예: (주)그린파머스" required>
                 </div>
                 <div class="field">
                   <label>사업자등록번호<span class="req">*</span></label>
-                  <input type="text" placeholder="000-00-00000" required>
+                  <input type="text" id="fBizNo" placeholder="000-00-00000" required>
                 </div>
                 <div class="field">
                   <label>대표자명<span class="req">*</span></label>
-                  <input type="text" placeholder="대표자 성명" required>
+                  <input type="text" id="fCeo" placeholder="대표자 성명" required>
                 </div>
                 <div class="field">
                   <label>연락처<span class="req">*</span></label>
-                  <input type="text" placeholder="010-0000-0000" required>
+                  <input type="text" id="fPhone" placeholder="010-0000-0000" required>
                 </div>
                 <div class="field">
                   <label>담보 IP 유형<span class="req">*</span></label>
-                  <select required>
+                  <select id="fIpType" required>
                     <option value="">선택</option>
                     <option>특허권</option>
                     <option>상표권</option>
@@ -267,19 +275,19 @@
                 </div>
                 <div class="field">
                   <label>출원·등록번호<span class="req">*</span></label>
-                  <input type="text" placeholder="예: 10-2024-0012345" required>
+                  <input type="text" id="fIpNo" placeholder="예: 10-2024-0012345" required>
                 </div>
                 <div class="field full">
                   <label>IP 명칭<span class="req">*</span></label>
-                  <input type="text" placeholder="예: 스마트 관수 제어 시스템" required>
+                  <input type="text" id="fIpTitle" placeholder="예: 스마트 관수 제어 시스템" required>
                 </div>
                 <div class="field">
                   <label>대출 희망 금액<span class="req">*</span></label>
-                  <input type="text" placeholder="예: 80,000,000원" required>
+                  <input type="text" id="fAmount" placeholder="예: 80,000,000원" required>
                 </div>
                 <div class="field">
                   <label>상환 희망 기간</label>
-                  <select>
+                  <select id="fTerm">
                     <option>12개월</option>
                     <option>24개월</option>
                     <option>36개월</option>
@@ -287,11 +295,12 @@
                 </div>
                 <div class="field full">
                   <label>심사서류 업로드<span class="req">*</span></label>
-                  <div class="upload-box">
+                  <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+                  <div class="upload-box" id="uploadBox" role="button" tabindex="0">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path><path d="M7 9l5-5 5 5"></path><path d="M12 4v12"></path></svg>
                     <div>
-                      <div class="file-name">특허등록원부.pdf</div>
-                      <div>사업자등록증.pdf 외 2건 · 발급기관 시스템을 통해 원본이 대조됩니다</div>
+                      <div class="file-name" id="fileNameDisplay">클릭해서 파일 선택</div>
+                      <div id="fileHelpText">특허등록원부, 사업자등록증 등 심사서류를 첨부하세요 · 발급기관 시스템을 통해 원본이 대조됩니다</div>
                     </div>
                   </div>
                 </div>
@@ -309,6 +318,7 @@
                 블록체인 기록이 완료되었습니다
               </div>
               <div class="hash-row"><span class="k">신청번호</span><span class="v" id="genAppId">LN-2026-0109</span></div>
+              <div class="hash-row"><span class="k">제출 서류</span><span class="v" id="genFiles">특허등록원부.pdf</span></div>
               <div class="hash-row"><span class="k">문서 해시값</span><span class="v" id="genHash">0x71fa9cd8…e04b2c</span></div>
               <div class="hash-row"><span class="k">기록 블록</span><span class="v" id="genBlock">#482,912</span></div>
               <div class="hash-row"><span class="k">기록 시각</span><span class="v" id="genTime">2026-09-22 14:32:07</span></div>
