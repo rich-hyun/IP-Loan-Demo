@@ -7,7 +7,7 @@
 /* 서버 API 주소 — 배포 전 실제 도메인으로 교체하세요.
    http://IP:포트 는 https 프론트엔드에서 차단되니(mixed content) 반드시
    https:// 도메인을 사용하세요. 자세한 내용은 server/README.md 참고. */
-const API_BASE = 'https://api.YOUR-DOMAIN.example/api';
+const API_BASE = 'https://iploan-api.mustree.kr/api';
 
 /* ---------------- Status labels ---------------- */
 const STATUS_META = {
