@@ -82,11 +82,20 @@
       </div>
       <div class="topbar-right">
         <div class="topbar-date">2026. 09. 22 (화)</div>
-        <div class="user-chip">
-          <div class="user-avatar">김민</div>
-          <div class="user-meta">
-            <div class="user-name">김민준</div>
-            <div class="user-role">여신심사역 · NH농협은행</div>
+        <div class="profile" id="profile">
+          <button class="user-chip" id="userChip" type="button" aria-haspopup="menu" aria-expanded="false">
+            <div class="user-avatar" id="userAvatar">김민</div>
+            <div class="user-meta">
+              <div class="user-name" id="userName">김민준</div>
+              <div class="user-role" id="userRole">여신심사역 · NH농협은행</div>
+            </div>
+            <svg class="user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </button>
+          <div class="role-menu" id="roleMenu" role="menu" hidden>
+            <div class="role-menu-title">역할 전환</div>
+            <button class="role-option" type="button" role="menuitemradio" data-role="lender">여신심사역 · NH농협은행</button>
+            <button class="role-option" type="button" role="menuitemradio" data-role="evaluator">IP 가치평가자 · 지정 평가기관</button>
+            <button class="role-option" type="button" role="menuitemradio" data-role="borrower">차주기업 담당자</button>
           </div>
         </div>
       </div>
@@ -162,8 +171,8 @@
         <div class="grid-2">
           <div class="panel">
             <div class="panel-header">
-              <h3>오늘의 처리 현황</h3>
-              <span class="hint">전체 8건</span>
+              <h3 id="statusPanelTitle">오늘의 처리 현황</h3>
+              <span class="hint" id="statusTotal">전체 8건</span>
             </div>
             <div class="panel-body">
               <div class="status-row" id="statusRow"></div>
@@ -175,7 +184,7 @@
                 </table>
               </div>
               <div style="margin-top:14px;">
-                <button class="btn btn-outline btn-sm" onclick="goView('list')">전체 신청 리스트 보기</button>
+                <button class="btn btn-outline btn-sm" id="dashListBtn" onclick="goView('list')">전체 신청 리스트 보기</button>
               </div>
             </div>
           </div>
@@ -238,6 +247,26 @@
               </thead>
               <tbody id="listTableBody"></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: DETAIL (차주기업 신청 진행 상황) ============ -->
+      <section id="view-detail" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <h3 id="detailTitle"></h3>
+            <span class="hint" id="detailHint"></span>
+          </div>
+          <div class="panel-body">
+            <div class="detail-status" id="detailStatus"></div>
+            <div class="steps steps-detail" id="detailSteps"></div>
+
+            <div class="section-title">대출 신청 정보</div>
+            <div class="review-summary" id="detailInfo"></div>
+            <div class="detail-docs" id="detailDocs"></div>
+
+            <button class="btn btn-outline btn-sm" type="button" onclick="goView('list')">목록으로</button>
           </div>
         </div>
       </section>
@@ -331,7 +360,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
                 블록체인 기록이 완료되었습니다
               </div>
-              <div class="hash-row"><span class="k">신청번호</span><span class="v" id="genAppId">LN-2026-0109</span></div>
+              <div class="hash-row"><span class="k">신청번호</span><span class="v" id="genAppId">—</span></div>
               <div class="hash-row"><span class="k">제출 서류</span><span class="v" id="genFiles">특허등록원부.pdf</span></div>
               <div class="hash-row"><span class="k">문서 해시값</span><span class="v" id="genHash">0x71fa9cd8…e04b2c</span></div>
               <div class="hash-row"><span class="k">기록 블록</span><span class="v" id="genBlock">#482,912</span></div>
@@ -357,19 +386,36 @@
 
       <!-- ============ VIEW: REVIEW ============ -->
       <section id="view-review" class="view">
-        <div class="panel" style="margin-bottom:16px;">
-          <div class="panel-body" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-            <label style="font-size:12.5px; font-weight:600; color:var(--ink-soft);">심사 대상 선택</label>
-            <select id="reviewCaseSelect" style="border:1px solid var(--line); border-radius:4px; padding:8px 10px; font-size:13px; min-width:280px;"></select>
+        <div class="eval-layout">
+          <div class="panel eval-list">
+            <div class="panel-header"><h3>심사 대기 목록</h3></div>
+            <div id="reviewListItems"></div>
           </div>
+          <div id="reviewBody"></div>
         </div>
-
-        <div id="reviewBody"></div>
       </section>
 
     </main>
   </div>
 </div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- 재산정 요청 팝업 -->
+<dialog class="modal" id="reevalDialog" aria-labelledby="reevalTitle">
+  <form method="dialog" id="reevalForm">
+    <h3 id="reevalTitle">재산정 요청</h3>
+    <p class="modal-desc" id="reevalDesc"></p>
+    <div class="field">
+      <label for="reevalReason">사유</label>
+      <textarea id="reevalReason" rows="4" placeholder="재산정이 필요한 사유를 입력하세요 (선택)"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button type="submit" class="btn btn-primary">재산정 요청</button>
+      <button type="button" class="btn btn-outline" id="reevalCancel">취소</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="js/app.js"></script>
 </body>

@@ -6,8 +6,10 @@
 
 /* 서버 API 주소 — 배포 전 실제 도메인으로 교체하세요.
    http://IP:포트 는 https 프론트엔드에서 차단되니(mixed content) 반드시
-   https:// 도메인을 사용하세요. 자세한 내용은 server/README.md 참고. */
-const API_BASE = 'https://iploan-api.mustree.kr/api';
+   https:// 도메인을 사용하세요. 자세한 내용은 server/README.md 참고.
+   localhost에서 열면 로컬 API(server/app.py, 5000번 포트)를 사용합니다. */
+const IS_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
+const API_BASE = IS_LOCAL ? 'http://127.0.0.1:5000/api' : 'https://iploan-api.mustree.kr/api';
 
 /* ---------------- Status labels ---------------- */
 const STATUS_META = {
@@ -19,11 +21,10 @@ const STATUS_META = {
   rejected:   { label: '거절',     badge: 'badge-rejected' },
 };
 
-/* 서버에 연결할 수 없을 때만 쓰는 최소한의 화면 표시용 대체 데이터.
+/* 서버에 연결할 수 없을 때만 쓰는 화면 표시용 대체 데이터(js/seed-data.js).
    서버가 정상이면 항상 API 응답으로 대체됩니다. */
-const FALLBACK_APPLICATIONS = [
-  { id:'LN-2026-0088', company:'에너지테크(주)', bizNo:'220-87-30984', ipType:'특허권', ipTitle:'고효율 태양광 인버터', amount:150000000, status:'approved', hash:'0x1fa726…c0e94b', appliedDate:'2026-09-08', appraisedValue:214000000, ltv:70, creditScore:81, rate:3.9 },
-];
+const SEED_APPS = typeof SEED_APPLICATIONS !== 'undefined' ? SEED_APPLICATIONS : [];  // js/seed-data.js를 불러오지 않으면 빈 목록
+const FALLBACK_APPLICATIONS = SEED_APPS;
 
 /* 큐레이션된 예시 3건 + 신규 신청은 자동 생성되는 예비 평가보고서 */
 const STATIC_EVAL_REPORTS = {
@@ -81,7 +82,20 @@ async function apiReset() {
 }
 
 /* ---------------- Helpers ---------------- */
-function won(n) { return n.toLocaleString('ko-KR') + '원'; }
+function won(n) { return n == null || isNaN(n) ? NA_HTML : n.toLocaleString('ko-KR') + '원'; }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+/* ---------------- 값 표시 ---------------- */
+const NA_HTML = '<span class="val-na">-</span>';
+
+/* 필드 값을 HTML로: 값이 없으면 "-". fmt는 HTML을 돌려주는 포맷 함수 */
+function fieldHTML(app, key, fmt) {
+  const v = appField(app, key);
+  if (v == null || v === '') return NA_HTML;
+  return fmt ? fmt(v) : escapeHtml(v);
+}
 function findApp(id) { return APPLICATIONS.find(a => a.id === id); }
 function statusBadge(status) {
   const m = STATUS_META[status];
@@ -100,25 +114,28 @@ function hashCode(str) {
 }
 
 /* ---------------- 평가보고서: 큐레이션 3건 + 신규 신청 자동 생성 ---------------- */
+/* 평가 대기 목록: 평가중 건만 */
 function evalQueue() {
-  return APPLICATIONS.filter(a => !a.appraisedValue);
+  return APPLICATIONS.filter(a => a.status === 'evaluating');
 }
 function getEvalReport(app) {
+  if (app._report) return app._report;  // 재산정으로 다시 만든 초안이 있으면 우선
+  if (typeof SEED_EVAL_REPORTS !== 'undefined' && SEED_EVAL_REPORTS[app.id]) return SEED_EVAL_REPORTS[app.id];
   if (STATIC_EVAL_REPORTS[app.id]) return STATIC_EVAL_REPORTS[app.id];
-  if (!app._report) app._report = generateEvalReport(app);
+  app._report = generateEvalReport(app);
   return app._report;
 }
 function generateEvalReport(app) {
   const h = hashCode(app.id);
   const multiplier = 1.15 + (h % 30) / 100;
-  const appraisedValue = Math.round(app.amount * multiplier / 100000) * 100000;
+  const appraisedValue = app.amount == null ? null : Math.round(app.amount * multiplier / 100000) * 100000;  // 금액이 없으면 산정 안 함
   const similarity = ((84 + (h % 11)) / 100).toFixed(2);
   const minutes = 5 + (h % 6);
   const seconds = h % 60;
   return {
     genDate: '2026-09-22 ' + String(10 + (h % 8)).padStart(2, '0') + ':' + String(h % 60).padStart(2, '0'),
     genTime: `${minutes}분 ${String(seconds).padStart(2, '0')}초`,
-    appraisedValue, similarity,
+    appraisedValue, similarity, generated: true,
     summary: `${app.ipTitle}(${app.ipType})의 출원·등록 정보를 기반으로 권리범위와 청구항 구성을 LLM이 1차 분석했습니다. 신청 시 등록된 서류를 기준으로 한 예비 검토 결과입니다.`,
     similar: `관련 기술·상품 분류 내 선행 IP를 검색해 유사도를 비교했습니다. 신청 정보만으로 산출한 예비 결과이며, 정식 심사 단계에서 세부 비교가 추가로 진행됩니다.`,
     market: `${app.ipType}이 속한 분야의 최근 시장 동향과 사업화 가능성을 반영해 예비 가치를 산정했습니다.`,
@@ -137,15 +154,123 @@ const VIEW_META = {
   apply:     { title:'대출 신청',        sub:'지식재산권을 담보로 등록하고 대출을 신청합니다' },
   evaluate:  { title:'IP 가치평가',      sub:'LLM이 자동 생성한 IP 가치평가보고서를 검토·확정합니다' },
   review:    { title:'대출 심사',        sub:'스마트컨트랙트 기반 자동심사 결과를 확인하고 최종 승인합니다' },
+  detail:    { title:'신청 진행 상황',   sub:'' },
 };
 
 let evalInitDone = false;
 let reviewInitDone = false;
 
+/* ---------------- 역할(프로필) ---------------- */
+/* 차주기업 역할의 시연 회사: js/seed-data.js가 있으면 DEMO_BORROWERS 첫 회사, 없으면 서버 데이터의 (주)그린파머스. 회사 식별은 기업명으로만 한다 */
+const BORROWER_COMPANY = (typeof DEMO_BORROWERS !== 'undefined' && DEMO_BORROWERS[0] && DEMO_BORROWERS[0].company) || '(주)그린파머스';
+
+/* 대시보드는 모든 역할 공통. 역할별 대시보드는 추후 분리 예정 */
+const ROLES = {
+  lender:    { name:'김민준', avatar:'김민', role:'여신심사역 · NH농협은행',            views:['dashboard','list','review'] },
+  evaluator: { name:'박도윤', avatar:'박도', role:'IP 가치평가자 · 지정 평가기관', views:['dashboard','evaluate'] },
+  borrower:  { name:'이서연', avatar:'이서', role:`차주기업 담당자 · ${BORROWER_COMPANY}`, views:['dashboard','list','apply','detail'] },
+};
+const ROLE_STORAGE_KEY = 'iploan-role';
+
+/* 차주기업 기본 정보는 시연 회사의 최근 신청 건(서버 데이터)에서 가져온다. 서버에 없는 칸(대표자·연락처)은 appField로 시드에서 찾는다 */
+function borrowerProfile() {
+  const latest = APPLICATIONS
+    .filter(a => a.company === BORROWER_COMPANY)
+    .sort((a, b) => (b.appliedDate || '').localeCompare(a.appliedDate || ''))[0];
+  return latest && { company: latest.company, bizNo: appField(latest, 'bizNo'), ceo: appField(latest, 'ceo'), contact: appField(latest, 'contact') };
+}
+
+/* 차주기업은 자기 회사 건만 본다 */
+function visibleApps() {
+  return currentRole === 'borrower' ? APPLICATIONS.filter(a => a.company === BORROWER_COMPANY) : APPLICATIONS;
+}
+
+/* 대출 신청 폼에 저장된 차주기업 정보를 미리 채운다(직접 수정 가능).
+   차주기업의 사업자번호·대표자·연락처가 없으면(null) 빈칸을 선택 입력으로 바꾼다 */
+function fillBorrowerInfo() {
+  const profile = borrowerProfile();
+  if (currentRole !== 'borrower' || !profile) return;
+  document.getElementById('fCompany').value = profile.company;
+  [['fBizNo', 'bizNo'], ['fCeo', 'ceo'], ['fPhone', 'contact']].forEach(([id, key]) => {
+    const input = document.getElementById(id);
+    const value = profile[key];
+    if (input.dataset.placeholder == null) input.dataset.placeholder = input.placeholder;
+    input.value = value == null ? '' : value;
+    input.required = value != null;
+    input.placeholder = value == null ? '선택 입력' : input.dataset.placeholder;
+    const req = input.closest('.field').querySelector('.req');
+    if (req) req.hidden = value == null;
+  });
+}
+
+let currentRole = 'lender';
+try {
+  const saved = localStorage.getItem(ROLE_STORAGE_KEY);
+  if (ROLES[saved]) currentRole = saved;
+} catch (err) { /* 저장소를 쓸 수 없으면 기본 역할 */ }
+
+function canView(name) { return ROLES[currentRole].views.includes(name); }
+
+function applyRole() {
+  const r = ROLES[currentRole];
+  document.getElementById('userAvatar').textContent = r.avatar;
+  document.getElementById('userName').textContent = r.name;
+  document.getElementById('userRole').textContent = r.role;
+  document.querySelector('.role-option[data-role="borrower"]').textContent = ROLES.borrower.role;
+  document.querySelectorAll('.nav-item').forEach(b => { b.parentElement.hidden = !canView(b.dataset.view); });
+  document.querySelectorAll('.role-option').forEach(o => o.setAttribute('aria-checked', String(o.dataset.role === currentRole)));
+  document.getElementById('dashListBtn').hidden = !canView('list');
+  document.getElementById('statusPanelTitle').textContent = currentRole === 'borrower' ? '대출 신청 현황' : '오늘의 처리 현황';
+  fillBorrowerInfo();
+}
+
+function setRole(key) {
+  currentRole = key;
+  try { localStorage.setItem(ROLE_STORAGE_KEY, key); } catch (err) { /* 무시 */ }
+  applyRole();
+  renderDashboard();
+  renderListTable();
+  goView('dashboard');
+  showToast(`${ROLES[key].role.split(' · ')[0]}(으)로 전환했습니다`);
+}
+
+const userChip = document.getElementById('userChip');
+const roleMenu = document.getElementById('roleMenu');
+
+function toggleRoleMenu(open) {
+  roleMenu.hidden = !open;
+  userChip.setAttribute('aria-expanded', String(open));
+}
+
+userChip.addEventListener('click', () => toggleRoleMenu(roleMenu.hidden));
+roleMenu.querySelectorAll('.role-option').forEach(o => {
+  o.addEventListener('click', () => { toggleRoleMenu(false); setRole(o.dataset.role); });
+});
+document.addEventListener('click', (e) => {
+  if (!roleMenu.hidden && !document.getElementById('profile').contains(e.target)) toggleRoleMenu(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !roleMenu.hidden) { toggleRoleMenu(false); userChip.focus(); }
+});
+
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
 function goView(name) {
+  if (!canView(name)) {
+    showToast('현재 역할에서는 볼 수 없는 화면입니다');
+    name = 'dashboard';
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  const navName = name === 'detail' ? 'list' : name;  // 진행 상황 화면은 리스트 메뉴를 강조
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === navName));
   document.getElementById('topbarTitle').textContent = VIEW_META[name].title;
   document.getElementById('topbarSub').textContent = VIEW_META[name].sub;
 
@@ -155,8 +280,10 @@ function goView(name) {
     else document.getElementById('evalReportPanel').innerHTML = `<div class="empty-hint">평가 대기 중인 건이 없습니다.</div>`;
     evalInitDone = true;
   }
-  if (name === 'review' && !reviewInitDone && findApp('LN-2026-0094')) {
-    loadReviewCase('LN-2026-0094');
+  if (name === 'review' && !reviewInitDone) {
+    const first = reviewQueue()[0];
+    if (first) loadReviewCase(first.id);
+    else document.getElementById('reviewBody').innerHTML = `<div class="panel"><div class="empty-hint">심사 대기 중인 건이 없습니다.</div></div>`;
     reviewInitDone = true;
   }
 }
@@ -167,9 +294,11 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
 /* ---------------- Dashboard ---------------- */
 function renderDashboard() {
+  const apps = visibleApps();
   const counts = {};
   Object.keys(STATUS_META).forEach(k => counts[k] = 0);
-  APPLICATIONS.forEach(a => counts[a.status] = (counts[a.status] || 0) + 1);
+  apps.forEach(a => counts[a.status] = (counts[a.status] || 0) + 1);
+  document.getElementById('statusTotal').textContent = `전체 ${apps.length}건`;
 
   const order = ['pending','doc_verify','evaluating','review','approved','rejected'];
   document.getElementById('statusRow').innerHTML = order.map(k => `
@@ -178,12 +307,12 @@ function renderDashboard() {
       <div class="status-pill-label">${STATUS_META[k].label}</div>
     </div>`).join('');
 
-  const recent = [...APPLICATIONS].sort((a,b) => b.appliedDate.localeCompare(a.appliedDate)).slice(0,4);
+  const recent = [...apps].sort((a,b) => (b.appliedDate || '').localeCompare(a.appliedDate || '')).slice(0,4);
   document.querySelector('#miniTable tbody').innerHTML = recent.map(a => `
     <tr onclick="goView('list')">
       <td class="cell-company">${a.company}</td>
       <td>${a.ipTitle}</td>
-      <td class="cell-amount">${won(a.amount)}</td>
+      <td class="cell-amount">${fieldHTML(a, 'amount', won)}</td>
       <td>${statusBadge(a.status)}</td>
     </tr>`).join('');
 }
@@ -202,7 +331,7 @@ function renderFilterChips() {
 
 function renderListTable() {
   const term = (document.getElementById('listSearch').value || '').trim().toLowerCase();
-  const rows = APPLICATIONS.filter(a => {
+  const rows = visibleApps().filter(a => {
     const matchesStatus = activeFilter === 'all' || a.status === activeFilter;
     const matchesTerm = !term || a.company.toLowerCase().includes(term) || a.id.toLowerCase().includes(term);
     return matchesStatus && matchesTerm;
@@ -211,19 +340,20 @@ function renderListTable() {
   document.getElementById('listTableBody').innerHTML = rows.map(a => `
     <tr data-id="${a.id}">
       <td class="cell-hash">${a.id}</td>
-      <td class="cell-company">${a.company}<div class="cell-sub">${a.bizNo || '-'}</div></td>
-      <td>${a.ipTitle}<div class="cell-sub">${a.ipType}</div></td>
-      <td class="cell-amount">${won(a.amount)}</td>
+      <td class="cell-company">${a.company}<div class="cell-sub">${fieldHTML(a, 'bizNo')}</div></td>
+      <td>${a.ipTitle}<div class="cell-sub">${a.ipType} · ${fieldHTML(a, 'ipRegNo')}</div></td>
+      <td class="cell-amount">${fieldHTML(a, 'amount', won)}</td>
       <td>${statusBadge(a.status)}</td>
       <td class="cell-hash">${a.hash}</td>
-      <td>${a.appliedDate}</td>
+      <td>${fieldHTML(a, 'appliedDate')}</td>
       <td class="row-arrow">›</td>
     </tr>`).join('');
 
   document.querySelectorAll('#listTableBody tr').forEach(tr => {
     tr.addEventListener('click', () => {
+      if (currentRole === 'borrower') { openDetail(tr.dataset.id); return; }
+      if (!canView('review')) return;
       goView('review');
-      document.getElementById('reviewCaseSelect').value = tr.dataset.id;
       loadReviewCase(tr.dataset.id);
       reviewInitDone = true;
     });
@@ -231,6 +361,93 @@ function renderListTable() {
 }
 
 document.getElementById('listSearch').addEventListener('input', renderListTable);
+
+/* ---------------- 신청 진행 상황 (차주기업) ---------------- */
+const BORROWER_STATUS_DESC = {
+  pending:    '신청이 접수되었습니다',
+  doc_verify: '발급기관 원본과 서류를 대조하고 있습니다',
+  evaluating: 'IP 가치평가가 진행 중입니다',
+  review:     '은행 심사가 진행 중입니다',
+  approved:   '대출이 승인되었습니다',
+  rejected:   '대출이 승인되지 않았습니다',
+};
+/* 단계별 완료 시각은 처리 기록(history)에서 해당 단계를 끝낸 항목(doneBy)을 찾아 표시.
+   owner(담당)는 IP 가치평가, 대출 심사 단계에만 표시하며 <br>로 줄을 나눈다 */
+const PROGRESS_STEPS = [
+  { label:'신청 접수',   doneBy:['대출 신청 접수'] },
+  { label:'서류 검증',   doneBy:['서류검증 완료'] },
+  { label:'IP 가치평가', doneBy:['가치평가 확정'],
+    owner:'LLM 평가 에이전트<br>→ IP 가치평가자 (지정 평가기관)' },
+  { label:'대출 심사',   doneBy:['자동심사 통과', '자동심사 불통과'],
+    owner:'스마트컨트랙트<br>→ 여신심사역 (NH농협은행)' },
+  { label:'결과',        doneBy:['최종 승인 확정', '거절 확정 통지'] },
+];
+/* 상태별 완료된 단계 수 */
+const STATUS_DONE_STEPS = { pending:1, doc_verify:1, evaluating:2, review:3, approved:5, rejected:5 };
+
+/* 서버 스키마에 없는 필드(처리 기록, 상환기간, 제출 서류 등)는 시드 데이터(js/seed-data.js)가 있으면 거기서 찾는다 */
+function appField(app, key) {
+  if (app[key] != null) return app[key];
+  const seed = SEED_APPS.find(a => a.id === app.id);
+  return seed ? seed[key] : undefined;
+}
+function appHistory(app) {
+  const history = appField(app, 'history');
+  return Array.isArray(history) ? history : [];
+}
+/* 'YYYY-MM-DD HH:MM' → 'M월 D일 HH:MM' */
+function formatStepTime(at) {
+  const m = /^\d{4}-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/.exec(at || '');
+  if (!m) return '';
+  return `${+m[1]}월 ${+m[2]}일` + (m[3] ? ` ${m[3]}` : '');
+}
+
+function openDetail(id) {
+  const app = findApp(id);
+  if (!app) return;
+  const history = appHistory(app);
+  const doneCount = STATUS_DONE_STEPS[app.status] || 0;
+
+  document.getElementById('detailTitle').textContent = app.ipTitle;
+  document.getElementById('detailHint').textContent = `${app.id} · ${app.ipType}`;
+  document.getElementById('detailStatus').innerHTML = `${statusBadge(app.status)}<span>${BORROWER_STATUS_DESC[app.status]}</span>`;
+  document.getElementById('detailSteps').innerHTML = PROGRESS_STEPS.map((s, i) => {
+    const state = i < doneCount ? 'done' : (i === doneCount ? 'current' : '');
+    let time = '';
+    if (state === 'done') {
+      const h = history.find(x => s.doneBy.some(p => x.action.startsWith(p)));
+      time = h ? formatStepTime(h.at) : (i === 0 ? formatStepTime(app.appliedDate) : '완료');
+    } else if (state === 'current') {
+      time = app.status === 'pending' ? '대기 중' : '진행 중';
+    }
+    return (i ? '<div class="step-line"></div>' : '') + `
+      <div class="step ${state}">
+        <div class="step-circle">${i + 1}</div>
+        <div class="step-label">${s.label}${s.owner ? `<div class="step-owner">${s.owner}</div>` : ''}<div class="step-time">${time}</div></div>
+      </div>`;
+  }).join('');
+
+  const info = [
+    ['신청번호', app.id],
+    ['신청일', fieldHTML(app, 'appliedDate')],
+    ['신청금액', fieldHTML(app, 'amount', won)],
+    ['상환기간', fieldHTML(app, 'termMonths', v => `${escapeHtml(v)}개월`)],
+    ['담보 IP 유형', app.ipType],
+    ['출원·등록번호', fieldHTML(app, 'ipRegNo')],
+    ['대표자', fieldHTML(app, 'ceo')],
+    ['연락처', fieldHTML(app, 'contact')],
+  ];
+  document.getElementById('detailInfo').innerHTML = info.map(([k, v]) => `
+    <div class="item"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+
+  const docs = appField(app, 'documents') || [];
+  document.getElementById('detailDocs').innerHTML = docs.length
+    ? `<div class="k">제출 서류 ${docs.length}건</div>` + docs.map(d => `<span>${d}</span>`).join('')
+    : '';
+
+  VIEW_META.detail.sub = `${app.id} 신청의 진행 상황을 확인합니다`;
+  goView('detail');
+}
 
 /* ---------------- Apply form ---------------- */
 const applyForm = document.getElementById('applyForm');
@@ -303,7 +520,7 @@ applyForm.addEventListener('submit', (e) => {
       renderDashboard();
       renderListTable();
       renderEvalList();
-      updateReviewSelectOptions();
+      renderReviewList();
     } catch (err) {
       showConnNotice();
       steps[3].classList.remove('current');
@@ -325,6 +542,7 @@ function resetApplyUI() {
   btn.textContent = '제출하기';
   document.getElementById('fileNameDisplay').textContent = '클릭해서 파일 선택';
   document.getElementById('fileHelpText').textContent = '특허등록원부, 사업자등록증 등 심사서류를 첨부하세요 · 발급기관 시스템을 통해 원본이 대조됩니다';
+  fillBorrowerInfo();
 }
 
 /* ---------------- Evaluate view ---------------- */
@@ -344,7 +562,7 @@ function renderEvalList() {
       <div class="eval-item-sub">${app.ipTitle} · ${app.ipType}</div>
     </div>`).join('');
 
-  document.querySelectorAll('.eval-item').forEach(el => {
+  document.querySelectorAll('#evalListItems .eval-item').forEach(el => {
     el.addEventListener('click', () => selectEvalItem(el.dataset.id));
   });
 }
@@ -354,7 +572,32 @@ function selectEvalItem(id) {
   if (!app) return;
   const r = getEvalReport(app);
 
-  document.querySelectorAll('.eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
+  document.querySelectorAll('#evalListItems .eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
+
+  /* 재산정 요청된 건은 보고서 대신 재산정 중 안내를 보여 준다 */
+  if (app._reevaluating) {
+    document.getElementById('evalReportPanel').innerHTML = `
+      <div class="panel-body">
+        <div class="report-head">
+          <div>
+            <div class="report-title">${app.ipTitle}</div>
+            <div class="report-meta">${app.company} · ${app.ipType} · 신청번호 ${app.id}</div>
+          </div>
+          ${statusBadge(app.status)}
+        </div>
+        <div class="reeval-notice">
+          <div class="reeval-notice-title"><span class="pulse"></span> 재산정 중입니다</div>
+          <p>LLM이 가치평가보고서 초안을 다시 생성하고 있습니다. 새 초안이 준비되면 이 화면에서 검토·확정할 수 있습니다.</p>
+          <div class="reeval-reason" id="reevalReasonView" hidden><span class="k">요청 사유</span><span class="v"></span></div>
+        </div>
+      </div>`;
+    if (app._reevalReason) {
+      const el = document.getElementById('reevalReasonView');
+      el.querySelector('.v').textContent = app._reevalReason;
+      el.hidden = false;
+    }
+    return;
+  }
 
   document.getElementById('evalReportPanel').innerHTML = `
     <div class="panel-body">
@@ -362,6 +605,7 @@ function selectEvalItem(id) {
         <div>
           <div class="report-title">${app.ipTitle}</div>
           <div class="report-meta">${app.company} · ${app.ipType} · 신청번호 ${app.id}</div>
+          <div class="report-meta">출원·등록번호 ${fieldHTML(app, 'ipRegNo')} · 신청금액 ${fieldHTML(app, 'amount', won)}</div>
         </div>
         <span class="llm-tag"><span class="pulse"></span> LLM 자동 생성</span>
       </div>
@@ -403,10 +647,62 @@ function selectEvalItem(id) {
 
       <div style="display:flex; gap:10px;">
         <button class="btn btn-primary" id="confirmEvalBtn" onclick="confirmEval('${id}')">가치평가 확정</button>
-        <button class="btn btn-outline">재산정 요청</button>
+        <button class="btn btn-outline" onclick="openReevalDialog('${id}')">재산정 요청</button>
       </div>
       <div id="evalConfirmMsg" style="display:none; margin-top:12px; font-size:12.5px; color:var(--teal); font-weight:600;">✓ 평가가 확정되어 대출 심사 단계로 전달되었습니다.</div>
     </div>`;
+}
+
+/* 재산정 요청 팝업 (사유는 선택 입력) */
+const reevalDialog = document.getElementById('reevalDialog');
+let reevalTargetId = null;
+
+function openReevalDialog(id) {
+  const app = findApp(id);
+  if (!app) return;
+  reevalTargetId = id;
+  document.getElementById('reevalDesc').textContent = `${app.company} · ${app.ipTitle} (${app.id})`;
+  document.getElementById('reevalReason').value = '';
+  reevalDialog.showModal();
+}
+
+document.getElementById('reevalCancel').addEventListener('click', () => reevalDialog.close());
+reevalDialog.addEventListener('click', (e) => { if (e.target === reevalDialog) reevalDialog.close(); });  // 바깥(배경) 클릭 시 닫기
+document.getElementById('reevalForm').addEventListener('submit', async () => {
+  const app = findApp(reevalTargetId);
+  if (!app) return;
+  const reason = document.getElementById('reevalReason').value.trim();
+  app._reevaluating = true;  // 상태값은 평가중 그대로 두고 이 화면에서만 재산정 중으로 표시(새로고침 시 사라짐)
+  app._reevalReason = reason;  // 서버에 사유 칸이 없어 이 화면에서만 보관(새로고침 시 사라짐)
+  showToast('재산정 요청이 접수되었습니다');
+  scheduleReevalFinish(app.id);
+
+  renderEvalList();
+  selectEvalItem(app.id);
+});
+
+/* 재산정 완료: 몇 초 뒤 LLM 초안을 다시 만들고 보고서를 다시 보여 준다 */
+const REEVAL_DURATION_MS = 5000;  // 시연용 재산정 소요시간
+
+function nowString() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function scheduleReevalFinish(id) {
+  setTimeout(() => {
+    const app = findApp(id);
+    if (!app || !app._reevaluating) return;
+    delete app._reevaluating;
+    delete app._reevalReason;
+    app._report = { ...generateEvalReport(app), genDate: nowString() };
+    showToast('LLM 초안을 다시 생성했습니다');
+
+    const activeId = document.querySelector('#evalListItems .eval-item.active')?.dataset.id;
+    renderEvalList();
+    if (activeId) selectEvalItem(activeId);
+  }, REEVAL_DURATION_MS);
 }
 
 async function confirmEval(id) {
@@ -419,7 +715,7 @@ async function confirmEval(id) {
 
   const patch = {
     appraisedValue: r.appraisedValue,
-    ltv: Math.min(999, Math.round((app.amount / r.appraisedValue) * 100)),
+    ltv: app.amount == null || !r.appraisedValue ? null : Math.min(999, Math.round((app.amount / r.appraisedValue) * 100)),  // 금액·평가액이 없으면 계산하지 않음
     status: 'review',
   };
   if (app.creditScore == null) patch.creditScore = 65 + (hashCode(app.id + 'c') % 21);
@@ -440,7 +736,7 @@ async function confirmEval(id) {
 
   renderDashboard();
   renderListTable();
-  updateReviewSelectOptions();
+  renderReviewList();
 
   setTimeout(() => {
     renderEvalList();
@@ -451,37 +747,71 @@ async function confirmEval(id) {
 }
 
 /* ---------------- Review view ---------------- */
-function updateReviewSelectOptions() {
-  const sel = document.getElementById('reviewCaseSelect');
-  const prev = sel.value;
-  sel.innerHTML = APPLICATIONS.map(a => `<option value="${a.id}">${a.id} · ${a.company} · ${won(a.amount)}</option>`).join('');
-  if (prev && APPLICATIONS.some(a => a.id === prev)) sel.value = prev;
+/* 심사 대기 목록: 심사중 건만 (IP 가치평가 화면의 평가 대기 목록과 같은 구성) */
+let currentReviewId = null;
+
+function reviewQueue() {
+  return APPLICATIONS.filter(a => a.status === 'review');
 }
 
-function renderReviewSelect() {
-  updateReviewSelectOptions();
-  document.getElementById('reviewCaseSelect').addEventListener('change', (e) => loadReviewCase(e.target.value));
+function renderReviewList() {
+  const queue = reviewQueue();
+  const container = document.getElementById('reviewListItems');
+  if (queue.length === 0) {
+    container.innerHTML = `<div class="empty-hint">심사 대기 중인 건이 없습니다.</div>`;
+    return;
+  }
+  container.innerHTML = queue.map(app => `
+    <div class="eval-item ${app.id === currentReviewId ? 'active' : ''}" data-id="${app.id}">
+      <div class="eval-item-top">
+        <span class="eval-item-company">${app.company}</span>
+        ${statusBadge(app.status)}
+      </div>
+      <div class="eval-item-sub">${app.ipTitle} · ${won(app.amount)}</div>
+    </div>`).join('');
+
+  container.querySelectorAll('.eval-item').forEach(el => {
+    el.addEventListener('click', () => loadReviewCase(el.dataset.id));
+  });
 }
 
 function loadReviewCase(id) {
   const app = findApp(id);
   if (!app) return;
-  document.getElementById('reviewCaseSelect').value = id;
+  currentReviewId = id;
+  document.querySelectorAll('#reviewListItems .eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
   const body = document.getElementById('reviewBody');
 
-  if (!app.appraisedValue) {
+  const beforeReview = ['pending', 'doc_verify', 'evaluating'].includes(app.status);
+  if (!app.appraisedValue && beforeReview) {
     body.innerHTML = `
       <div class="panel">
         <div class="empty-hint">
           <p style="margin-bottom:14px;">${app.company}의 <b>${app.ipTitle}</b> 건은 아직 IP 가치평가가 완료되지 않아<br>스마트컨트랙트 자동심사를 실행할 수 없습니다.</p>
-          <button class="btn btn-outline" onclick="goView('evaluate')">IP 가치평가로 이동</button>
+          ${canView('evaluate') ? `<button class="btn btn-outline" onclick="goView('evaluate')">IP 가치평가로 이동</button>` : ''}
+        </div>
+      </div>`;
+    return;
+  }
+  /* 심사 단계인데 평가액(또는 신청금액)이 없어 LTV를 계산할 수 없는 건: 판정하지 않고 안내만 */
+  if (!app.appraisedValue || app.amount == null || app.ltv == null) {
+    body.innerHTML = `
+      <div class="panel">
+        <div class="panel-header"><h3>${app.company} · ${app.ipTitle}</h3><span class="hint">${app.id}</span></div>
+        <div class="panel-body">
+          <div class="review-summary">
+            <div class="item"><div class="k">신청금액</div><div class="v">${fieldHTML(app, 'amount', won)}</div></div>
+            <div class="item"><div class="k">산정 담보가치</div><div class="v">${fieldHTML(app, 'appraisedValue', won)}</div></div>
+          </div>
+          <div class="empty-hint"><b>평가액 없음 → 판정 불가</b><br>담보가치(또는 신청금액)가 없어 담보인정비율(LTV)을 계산할 수 없으므로 자동심사를 판정하지 않습니다.</div>
         </div>
       </div>`;
     return;
   }
 
   const ltvOk = app.ltv <= 70;
-  const creditOk = app.creditScore >= 60;
+  const creditOk = app.creditScore != null && app.creditScore >= 60;
+  const hashOk = appField(app, 'hashMatch') !== 0;  // 0=발급기관 원본과 불일치, null·1은 통과
   const alreadyDecided = app.status === 'approved' || app.status === 'rejected';
   const approvedAmount = Math.min(app.amount, Math.round(app.appraisedValue * 0.7 / 100000) * 100000);
 
@@ -490,10 +820,12 @@ function loadReviewCase(id) {
       <div class="panel-header"><h3>${app.company} · ${app.ipTitle}</h3><span class="hint">${app.id}</span></div>
       <div class="panel-body">
         <div class="review-summary">
-          <div class="item"><div class="k">신청금액</div><div class="v">${won(app.amount)}</div></div>
-          <div class="item"><div class="k">산정 담보가치</div><div class="v">${won(app.appraisedValue)}</div></div>
-          <div class="item"><div class="k">담보인정비율(LTV)</div><div class="v">${app.ltv}%</div></div>
-          <div class="item"><div class="k">신용평가 점수</div><div class="v">${app.creditScore}점</div></div>
+          <div class="item"><div class="k">신청금액</div><div class="v">${fieldHTML(app, 'amount', won)}</div></div>
+          <div class="item"><div class="k">산정 담보가치</div><div class="v">${fieldHTML(app, 'appraisedValue', won)}</div></div>
+          <div class="item"><div class="k">담보인정비율(LTV)</div><div class="v">${fieldHTML(app, 'ltv', v => `${v}%`)}</div></div>
+          <div class="item"><div class="k">신용평가 점수</div><div class="v">${fieldHTML(app, 'creditScore', v => `${v}점`)}</div></div>
+          <div class="item"><div class="k">출원·등록번호</div><div class="v">${fieldHTML(app, 'ipRegNo')}</div></div>
+          <div class="item"><div class="k">상환기간</div><div class="v">${fieldHTML(app, 'termMonths', v => `${escapeHtml(v)}개월`)}</div></div>
         </div>
 
         <div class="section-title">스마트컨트랙트 자동심사 조건</div>
@@ -518,9 +850,9 @@ function loadReviewCase(id) {
               <div class="check-title">신용평가 점수 기준 충족</div>
               <div class="check-desc">기술신용평가(TCB) 연동 점수 60점 이상 여부 확인</div>
             </div>
-            <div class="check-status">${app.creditScore}점</div>
+            <div class="check-status">${app.creditScore == null ? '-' : app.creditScore + '점'}</div>
           </div>
-          <div class="check-item" data-ok="true">
+          <div class="check-item" data-ok="${hashOk}">
             <div class="check-icon">
               <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
               <svg class="icon-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
@@ -529,13 +861,13 @@ function loadReviewCase(id) {
               <div class="check-title">서류 해시 무결성 검증</div>
               <div class="check-desc">발급기관 원본 해시와 등록 서류 해시 대조</div>
             </div>
-            <div class="check-status">일치</div>
+            <div class="check-status">${hashOk ? '일치' : '불일치'}</div>
           </div>
         </div>
 
         <div id="reviewActionArea">
           ${alreadyDecided
-            ? `<div style="font-size:12.5px; color:var(--ink-faint);">이미 처리된 건입니다 · ${app.appliedDate} 접수</div>`
+            ? `<div style="font-size:12.5px; color:var(--ink-faint);">이미 처리된 건입니다 · ${fieldHTML(app, 'appliedDate')} 접수</div>`
             : `<button class="btn btn-primary" id="runReviewBtn">스마트컨트랙트 자동심사 실행</button>`}
         </div>
       </div>
@@ -548,9 +880,9 @@ function loadReviewCase(id) {
     document.querySelectorAll('#checkList .check-item').forEach(el => {
       el.classList.add(el.dataset.ok === 'true' ? 'verified' : 'failed');
     });
-    showDecision(app, ltvOk && creditOk, approvedAmount, true);
+    showDecision(app, ltvOk && creditOk && hashOk, approvedAmount, true);
   } else {
-    document.getElementById('runReviewBtn').addEventListener('click', () => runAutoReview(app, ltvOk, creditOk, approvedAmount));
+    document.getElementById('runReviewBtn').addEventListener('click', () => runAutoReview(app, ltvOk, creditOk && hashOk, approvedAmount));
   }
 }
 
@@ -592,7 +924,9 @@ function showDecision(app, approved, approvedAmount, alreadyDecided) {
              <button class="btn btn-outline btn-sm" onclick="finalizeDecision(this,'보류','${app.id}')">보류하고 재검토</button>`}
       </div>`;
   } else {
-    const reason = app.rejectReason || '스마트컨트랙트 자동심사 기준(LTV 70% 이하)을 충족하지 못해 자동 거절 처리되었습니다.';
+    const reason = app.rejectReason || (appField(app, 'hashMatch') === 0
+      ? '제출 서류 해시가 발급기관 원본과 일치하지 않아(서류 해시 무결성 검증 실패) 자동 거절 처리되었습니다.'
+      : '스마트컨트랙트 자동심사 기준(LTV 70% 이하)을 충족하지 못해 자동 거절 처리되었습니다.');
     banner.innerHTML = `
       <div class="decision-head">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m9.5 9.5 5 5m0-5-5 5"></path></svg>
@@ -632,7 +966,7 @@ async function finalizeDecision(btn, label, appId) {
     area.innerHTML = `<span style="font-size:12.5px; color:var(--ink-soft);">✓ ${label} 처리되었습니다</span>`;
     renderDashboard();
     renderListTable();
-    updateReviewSelectOptions();
+    renderReviewList();
   } catch (err) {
     showConnNotice();
     area.innerHTML = `<span style="font-size:12.5px; color:var(--danger);">처리에 실패했습니다. 다시 시도해주세요.</span>`;
@@ -651,6 +985,7 @@ async function resetAllState() {
   }
   evalInitDone = false;
   reviewInitDone = false;
+  currentReviewId = null;
   activeFilter = 'all';
   const searchEl = document.getElementById('listSearch');
   if (searchEl) searchEl.value = '';
@@ -659,7 +994,7 @@ async function resetAllState() {
   renderFilterChips();
   renderListTable();
   renderEvalList();
-  updateReviewSelectOptions();
+  renderReviewList();
   document.getElementById('evalReportPanel').innerHTML = '';
   document.getElementById('reviewBody').innerHTML = '';
   goView('dashboard');
@@ -680,7 +1015,7 @@ async function initApp() {
   renderFilterChips();
   renderListTable();
   renderEvalList();
-  renderReviewSelect();
+  renderReviewList();
 }
 
 document.getElementById('connNoticeRetry').addEventListener('click', async () => {
@@ -692,7 +1027,7 @@ document.getElementById('connNoticeRetry').addEventListener('click', async () =>
     renderDashboard();
     renderListTable();
     renderEvalList();
-    updateReviewSelectOptions();
+    renderReviewList();
   } catch (err) {
     showConnNotice();
   }
@@ -700,6 +1035,7 @@ document.getElementById('connNoticeRetry').addEventListener('click', async () =>
 
 document.getElementById('resetDemoBtn').addEventListener('click', resetAllState);
 
+applyRole();
 initApp();
 
 /* Live-ish block counter for atmosphere */
