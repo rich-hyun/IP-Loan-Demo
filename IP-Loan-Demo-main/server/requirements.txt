@@ -1,0 +1,4 @@
+Flask>=3.0,<4
+flask-cors>=4.0,<7
+openai>=2.0,<4
+gunicorn>=22,<26

@@ -1,0 +1,21 @@
+[Unit]
+Description=IP Loan Demo Flask API
+After=network.target
+
+[Service]
+Type=simple
+User=REPLACE_WITH_YOUR_LINUX_USER
+WorkingDirectory=/opt/IP-Loan-Demo-main/server
+Environment="IPLOAN_DEMO_MODE=true"
+Environment="IPLOAN_DB_PATH=/opt/IP-Loan-Demo-main/server/iploan.db"
+Environment="IPLOAN_UPLOAD_DIR=/opt/IP-Loan-Demo-main/server/uploads"
+# 민감한 키는 별도 root 권한 파일을 사용해야 합니다:
+# EnvironmentFile=/etc/iploan/iploan.env
+ExecStart=/opt/IP-Loan-Demo-main/server/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 app:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
