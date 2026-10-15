@@ -69,3 +69,9 @@ npm test
 
 실제 EVM 통합 테스트는 임시 DB·임시 Flask 서버·mock IPFS를 사용한다.
 수동 프론트 테스트는 실제 회사 IPFS를 호출하므로 반드시 가상 PDF만 사용한다.
+
+## 특허 공고전문 평가 API
+
+`patent_app.py`를 `/api/patent`에 연결하여 기존 지갑·IPFS API와 함께 제공합니다. 기존 대출 DB와 별도로 `patent-iploan.db`, `patent-uploads/`를 사용하며, 접수 및 생성 상태와 결과를 보존합니다. 서버 전용 `.env`에서 `IPLOAN_PATENT_API_URL`, `IPLOAN_PATENT_API_TOKEN`을 읽습니다. 자세한 사용법은 [PATENT_API.md](PATENT_API.md)를 참고하세요.
+
+현재 운영 서버의 `gunicorn.conf.py`는 4개 스레드와 120초 timeout을 설정합니다. 기존 unit의 작업 디렉터리가 이 폴더이면 Gunicorn HUP으로 코드와 이 설정을 함께 읽습니다. Nginx에는 저장소의 `nginx-iploan-api.conf`에 있는 `client_max_body_size 51m`과 120초 프록시 timeout을 적용해야 50MiB PDF를 접수할 수 있습니다.

@@ -139,7 +139,7 @@ function goView(name) {
   }
 }
 
-document.querySelectorAll('.nav-item').forEach(btn => {
+document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
   btn.addEventListener('click', () => goView(btn.dataset.view));
 });
 

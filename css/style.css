@@ -618,6 +618,18 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 .compliance b { color: var(--ink); font-weight: 600; }
 
+/* ---- Patent report entry ---- */
+.patent-entry { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 26px; margin-bottom: 22px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--teal); border-radius: var(--radius-md); }
+.patent-entry-label { font: 500 10px var(--font-mono); letter-spacing: .14em; color: var(--teal); margin-bottom: 9px; }
+.patent-entry h2 { font-size: 21px; margin-bottom: 8px; }
+.patent-entry p { font-size: 12px; color: var(--ink-soft); }
+.patent-entry-actions { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.patent-entry-actions a { text-decoration: none; }
+.patent-nav-link { display: flex; justify-content: space-between; align-items: center; color: var(--sidebar-text); font-size: 12px; text-decoration: none; padding: 10px 12px; margin-top: 8px; border: 1px solid var(--sidebar-line); border-radius: var(--radius-sm); }
+.patent-nav-link:hover { color: white; background: rgba(14,122,110,.18); }
+@media (max-width: 1100px) { .patent-entry { flex-direction: column; align-items: flex-start; } }
+@media (max-width: 760px) { .patent-nav-link { white-space: nowrap; margin-top: 0; } .patent-entry { padding: 20px; } .patent-entry h2 { font-size: 19px; } }
+
 /* ---- Responsive ---- */
 @media (max-width: 1100px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }

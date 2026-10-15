@@ -35,3 +35,14 @@ server/.venv/bin/python -m http.server 8001 --bind 127.0.0.1
 ```
 
 Python 의존성 설치와 IPFS 환경변수 준비는 server/README.md를 참고한다.
+
+## 특허 공고전문 평가보고서
+
+메인 화면의 **특허평가 신청** 또는 [특허평가 화면](patent.html#apply)에서 사업자등록번호와 공고전문 PDF로 보고서 생성을 신청합니다. [평가자 보고서함](patent.html#evaluate)에서 생성 상태, PDF/HTML, 근거자료를 확인하고 담보가치를 확정합니다.
+
+기존 역할 전환·지갑·IPFS 업무 화면과 API를 유지하며 특허평가 API는 `/api/patent`에서 제공합니다. 원본 PDF와 작업번호는 별도 `server/patent-iploan.db`, `server/patent-uploads/`에 저장합니다. API 인증값은 Git에서 제외한 `server/.env`에 설정합니다. [특허평가 연동 가이드](server/PATENT_API.md)를 참고하세요.
+
+```bash
+cd server
+./venv/bin/python -m unittest -q test_server_compat test_evaluations
+```

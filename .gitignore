@@ -44,3 +44,9 @@ js/vendor/*.map
 *.key
 *.pem
 keystore/
+
+# Patent evaluation runtime files and the credential-bearing customer guide
+server/patent-uploads/
+server/uploads/
+server/*.backup-*
+특허평가_API_고객연동안내.pdf

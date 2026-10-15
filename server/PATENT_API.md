@@ -47,6 +47,8 @@ server/venv/bin/python server/patent_app.py
 
 ## 추가 API
 
+아래 표의 `/api`는 단독 실행 경로입니다. 통합 운영에서는 `/api/patent`로 바꾸어 호출합니다.
+
 | 메서드·경로 | 동작 |
 | --- | --- |
 | `GET /api/health` | 서버 및 평가 연동 설정 여부 |

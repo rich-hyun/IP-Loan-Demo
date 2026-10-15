@@ -149,6 +149,18 @@ def profile_timestamp():
     return datetime.now(timezone.utc).isoformat()
 
 
+def insert_profile(conn, record):
+    # 이전 운영 DB에는 createdAt NOT NULL 컬럼이 있으므로 함께 보존한다.
+    columns = ["id", "company", "bizNo", "ceo", "contact", "updatedAt"]
+    if any(column[1] == "createdAt" for column in conn.execute("PRAGMA table_info(borrower_profiles)")):
+        columns.append("createdAt")
+        record = {**record, "createdAt": record["updatedAt"]}
+    conn.execute(
+        "INSERT INTO borrower_profiles (" + ", ".join(columns) + ") VALUES (" +
+        ", ".join(":" + column for column in columns) + ")", record,
+    )
+
+
 def migrate_borrower_profiles(conn):
     """연결되지 않은 기존 신청만 이관하고, 저장된 프로필은 덮어쓰지 않는다."""
     conn.row_factory = sqlite3.Row
@@ -166,11 +178,7 @@ def migrate_borrower_profiles(conn):
         profile = conn.execute("SELECT id FROM borrower_profiles WHERE company = ?", (company,)).fetchone()
         profile_id = profile["id"] if profile else str(uuid4())
         if not profile:
-            conn.execute(
-                "INSERT INTO borrower_profiles (id, company, bizNo, ceo, contact, updatedAt) "
-                "VALUES (:id, :company, :bizNo, :ceo, :contact, :updatedAt)",
-                {**values, "id": profile_id, "updatedAt": profile_timestamp()},
-            )
+            insert_profile(conn, {**values, "id": profile_id, "updatedAt": profile_timestamp()})
         conn.execute(
             "UPDATE applications SET borrowerProfileId = ? WHERE company = ? AND borrowerProfileId IS NULL",
             (profile_id, company),
@@ -197,10 +205,7 @@ def write_profile(conn, values, profile_id=None):
             "contact=:contact, updatedAt=:updatedAt WHERE id=:id", record,
         )
     else:
-        conn.execute(
-            "INSERT INTO borrower_profiles (id, company, bizNo, ceo, contact, updatedAt) "
-            "VALUES (:id, :company, :bizNo, :ceo, :contact, :updatedAt)", record,
-        )
+        insert_profile(conn, record)
     return record
 
 
@@ -238,21 +243,30 @@ def seed(conn):
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(SCHEMA)
-    conn.execute(PROFILE_SCHEMA)
-    conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
-    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
-    for column, column_type in MIGRATION_COLUMNS.items():
-        if column not in existing_columns:
-            conn.execute(f"ALTER TABLE applications ADD COLUMN {column} {column_type}")
-    count = conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0]
-    if count == 0:
-        seed(conn)
-    else:
-        migrate_borrower_profiles(conn)
-    conn.commit()
-    conn.close()
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(SCHEMA)
+        conn.execute(PROFILE_SCHEMA)
+        conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
+        existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
+        for column, column_type in MIGRATION_COLUMNS.items():
+            if column not in existing_columns:
+                conn.execute(f"ALTER TABLE applications ADD COLUMN {column} {column_type}")
+        duplicates = conn.execute("SELECT 1 FROM borrower_profiles GROUP BY company HAVING COUNT(*)>1 LIMIT 1").fetchone()
+        if duplicates is None:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_company ON borrower_profiles(company)")
+        count = conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0]
+        if count == 0:
+            seed(conn)
+        else:
+            migrate_borrower_profiles(conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def application_to_public(row):
@@ -707,6 +721,10 @@ def read_document(app_id):
 def reset_applications():
     if chain.MANAGER_ADDRESS:
         return error_response("온체인 계약 연결 중에는 DB 초기화를 막습니다. 체인 기록은 초기화되지 않습니다.", 409, "chain_reset_forbidden")
+    key = os.environ.get("IPLOAN_ADMIN_KEY", "")
+    if not (key and os.environ.get("IPLOAN_ENABLE_RESET") == "1"
+            and secrets.compare_digest(request.headers.get("X-Admin-Key", ""), key)):
+        return error_response("데이터 초기화가 비활성화되어 있습니다.", 403, "reset_disabled")
     db = get_db()
     seed(db)
     db.commit()
@@ -720,6 +738,23 @@ def request_too_large(_error):
 
 
 init_db()
+
+
+# 기존 지갑·IPFS API를 유지하며 특허 공고전문 평가 앱을 별도 경로에 연결한다.
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+if __package__:
+    from . import patent_app
+else:
+    import patent_app
+
+
+def patent_wsgi(environ, start_response):
+    forwarded = dict(environ)
+    forwarded["PATH_INFO"] = "/api" + environ.get("PATH_INFO", "")
+    return patent_app.app(forwarded, start_response)
+
+
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {"/api/patent": patent_wsgi})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5001)))
