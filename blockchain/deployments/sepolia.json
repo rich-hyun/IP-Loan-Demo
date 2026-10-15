@@ -1,0 +1,29 @@
+{
+  "network": "Sepolia",
+  "chainId": 11155111,
+  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "managerAddress": "0x385D93904D2231B59a87282c1dC9b777b3F31b57",
+  "accessSBTAddress": "0x47D02f9Fb3Ff06753D44CF273F28f871912b9454",
+  "debtNFTAddress": "0x240FE7b4D95545d27ec13cB5958963B951ea5839",
+  "admin": "0xB3Ec5f2bbB80e90ec457165d13EF469893a54951",
+  "bank": "0xB3Ec5f2bbB80e90ec457165d13EF469893a54951",
+  "evaluator": "0x28b53A7a9ce4905F81F258913E6056a53c670cdE",
+  "borrower": "0x5C921C1a2A25a05996Ce465Dbc36262bcdEfb207",
+  "compiler": {
+    "version": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+    "evmVersion": "paris",
+    "viaIR": true,
+    "optimizerRuns": 200
+  },
+  "deploymentTransactionHash": "0x1b6ecca8e355790657e9717c4ca075de310791cdfbae79210387b0cbfaee8efe",
+  "borrowerRoleTransactionHash": "0xde067d96464bb14b6661317198eded24fc13621684a77142d9eb9412a768e262",
+  "deploymentBlock": 11911491,
+  "borrowerRoleBlock": 11911516,
+  "verifiedDate": "2026-10-14",
+  "verification": {
+    "bytecodeAndConstructor": true,
+    "borrowerRoleEvent": true,
+    "allRoles": true,
+    "tokenManagers": true
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ip-loan-wallet-mvp", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "compile": "node scripts/compile.mjs", "test": "node --test test/*.test.mjs", "build:web": "node scripts/build-web.mjs" },
+  "devDependencies": { "@openzeppelin/contracts": "5.0.2", "ethers": "6.15.0", "hardhat": "3.0.0", "solc": "0.8.24" }
+}

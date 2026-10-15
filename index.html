@@ -6,7 +6,7 @@
 <title>LLM 기반 기술평가 자동대출 시스템 · 주식회사 머스트리</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316233E'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%230E7A6E' stroke-width='1.6'/%3E%3C/svg%3E">
 <meta name="description" content="LLM·블록체인 기반 IP담보 자동대출 서비스">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20261015-review">
 </head>
 <body>
 <div class="app">
@@ -207,7 +207,7 @@
                 </div>
                 <div>
                   <div class="tech-title">스마트컨트랙트</div>
-                  <p class="tech-desc">신용평가·담보가치 조건 충족 시 룰 기반 자동심사, 여신심사인력의 재량 개입 최소화</p>
+                  <p class="tech-desc">MVP에서는 신청금액이 평가액의 70% 이하인지 계약이 판정하고, 은행 지갑이 최종 승인·거절</p>
                 </div>
               </div>
               <div class="tech-item">
@@ -215,8 +215,8 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2.5 20.5,7.5 20.5,16.5 12,21.5 3.5,16.5 3.5,7.5"></polygon><circle cx="12" cy="12" r="3"></circle></svg>
                 </div>
                 <div>
-                  <div class="tech-title">NFT 담보 증명</div>
-                  <p class="tech-desc">IP를 디지털 자산화해 소유권을 증명하고, 담보 등록·이전 내역을 메타데이터로 관리</p>
+                  <div class="tech-title">평가 SBT · 시연 채권 NFT</div>
+                  <p class="tech-desc">신청 시 평가 SBT, 평가 확정 시 소각, 은행 최종 승인 시 채권 NFT 발급. 법적 권리·실제 자금 이동 없음</p>
                 </div>
               </div>
             </div>
@@ -273,14 +273,19 @@
 
       <!-- ============ VIEW: APPLY ============ -->
       <section id="view-apply" class="view">
+        <div class="panel" style="margin-bottom:16px;padding:16px;">
+          <button id="walletConnect" type="button" class="btn btn-outline">MetaMask 연결 / 네트워크 전환</button>
+          <p id="walletState">지갑 상태 확인 중…</p><p id="chainConfigHint" class="hint"></p>
+          <p class="hint">시범 MVP: 각 담당자가 자신의 지갑으로 서명합니다. 실제 대출금·상환금은 이동하지 않습니다.</p>
+        </div>
         <div class="steps" id="applySteps">
-          <div class="step current" data-step="1"><div class="step-circle">1</div><div class="step-label">IP 자산 등록</div></div>
+          <div class="step current" data-step="1"><div class="step-circle">1</div><div class="step-label">신청 정보 입력</div></div>
           <div class="step-line"></div>
-          <div class="step" data-step="2"><div class="step-circle">2</div><div class="step-label">서류 업로드</div></div>
+          <div class="step" data-step="2"><div class="step-circle">2</div><div class="step-label">원부 대조</div></div>
           <div class="step-line"></div>
-          <div class="step" data-step="3"><div class="step-circle">3</div><div class="step-label">블록체인 기록</div></div>
+          <div class="step" data-step="3"><div class="step-circle">3</div><div class="step-label">암호화·IPFS 업로드</div></div>
           <div class="step-line"></div>
-          <div class="step" data-step="4"><div class="step-circle">4</div><div class="step-label">심사 대기</div></div>
+          <div class="step" data-step="4"><div class="step-circle">4</div><div class="step-label">신청 기록·평가 SBT</div></div>
         </div>
 
         <div class="panel">
@@ -291,21 +296,28 @@
           <div class="panel-body">
             <form id="applyForm">
               <div class="form-grid">
+                <div class="field full">
+                  <label for="borrowerProfileSelect">차주기업 프로필</label>
+                  <select id="borrowerProfileSelect" disabled>
+                    <option value="">프로필 불러오는 중…</option>
+                  </select>
+                  <span class="help" id="borrowerProfileHelp" role="status">제출이 완료되면 기업정보가 자동 저장되어 다음 신청에 입력됩니다.</span>
+                </div>
                 <div class="field">
                   <label>기업명<span class="req">*</span></label>
-                  <input type="text" id="fCompany" placeholder="예: (주)그린파머스" required>
+                  <input type="text" id="fCompany" placeholder="예: (주)그린파머스" maxlength="200" required>
                 </div>
                 <div class="field">
                   <label>사업자등록번호<span class="req">*</span></label>
-                  <input type="text" id="fBizNo" placeholder="000-00-00000" required>
+                  <input type="text" id="fBizNo" placeholder="000-00-00000" maxlength="50" required>
                 </div>
                 <div class="field">
                   <label>대표자명<span class="req">*</span></label>
-                  <input type="text" id="fCeo" placeholder="대표자 성명" required>
+                  <input type="text" id="fCeo" placeholder="대표자 성명" maxlength="100" required>
                 </div>
                 <div class="field">
                   <label>연락처<span class="req">*</span></label>
-                  <input type="text" id="fPhone" placeholder="010-0000-0000" required>
+                  <input type="text" id="fPhone" placeholder="010-0000-0000" maxlength="100" required>
                 </div>
                 <div class="field">
                   <label>담보 IP 유형<span class="req">*</span></label>
@@ -337,13 +349,13 @@
                   </select>
                 </div>
                 <div class="field full">
-                  <label>심사서류 업로드<span class="req">*</span></label>
-                  <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+                  <label>특허등록원부 업로드<span class="req">*</span></label>
+                  <input type="file" id="fileInput" accept="application/pdf,.pdf" style="display:none">
                   <div class="upload-box" id="uploadBox" role="button" tabindex="0">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path><path d="M7 9l5-5 5 5"></path><path d="M12 4v12"></path></svg>
                     <div>
-                      <div class="file-name" id="fileNameDisplay">클릭해서 파일 선택</div>
-                      <div id="fileHelpText">특허등록원부, 사업자등록증 등 심사서류를 첨부하세요 · 발급기관 시스템을 통해 원본이 대조됩니다</div>
+                      <div class="file-name" id="fileNameDisplay">클릭해서 PDF 선택</div>
+                      <div id="fileHelpText">특허등록원부 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다</div>
                     </div>
                   </div>
                 </div>
@@ -358,14 +370,18 @@
             <div class="hash-block" id="applyHashBlock">
               <div class="hash-block-title">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
-                블록체인 기록이 완료되었습니다
+                암호화·IPFS 업로드가 완료되었습니다
               </div>
               <div class="hash-row"><span class="k">신청번호</span><span class="v" id="genAppId">—</span></div>
               <div class="hash-row"><span class="k">제출 서류</span><span class="v" id="genFiles">특허등록원부.pdf</span></div>
               <div class="hash-row"><span class="k">문서 해시값</span><span class="v" id="genHash">0x71fa9cd8…e04b2c</span></div>
-              <div class="hash-row"><span class="k">기록 블록</span><span class="v" id="genBlock">#482,912</span></div>
-              <div class="hash-row"><span class="k">기록 시각</span><span class="v" id="genTime">2026-09-22 14:32:07</span></div>
-              <div class="hash-row"><span class="k">현재 상태</span><span class="v">IP 가치평가 대기 중</span></div>
+              <div class="hash-row"><span class="k">IPFS CID</span><span class="v" id="genCid">—</span></div>
+              <div class="hash-row"><span class="k">암호화 방식</span><span class="v">AES-256-GCM</span></div>
+              <div class="hash-row"><span class="k">현재 상태</span><span class="v" id="genChainState">신청 온체인 등록 대기</span></div>
+              <div class="hash-row"><span class="k">거래 해시</span><span class="v" id="genTxHash">—</span></div>
+              <div class="hash-row"><span class="k">평가 SBT 번호</span><span class="v" id="genSbtId">—</span></div>
+              <button id="retryChainBtn" type="button" class="btn btn-outline" hidden>신청 등록 다시 시도</button>
+              <button id="syncChainBtn" type="button" class="btn btn-outline" hidden>체인 확인·복구</button>
             </div>
           </div>
         </div>
@@ -417,6 +433,8 @@
   </form>
 </dialog>
 
-<script src="js/app.js"></script>
+<script src="js/vendor/ethers.umd.min.js"></script>
+<script src="js/chain.js"></script>
+<script src="js/app.js?v=20261015-review"></script>
 </body>
 </html>

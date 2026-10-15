@@ -7,23 +7,44 @@ LLM 기반 기술평가 자동대출 시스템 — 백엔드 API
 실행 방법(로컬 테스트):
     pip install -r requirements.txt
     python3 app.py
-    # http://127.0.0.1:5000/api/applications 로 확인
+    # http://127.0.0.1:5001/api/applications 로 확인
 
 운영 배포는 이 폴더의 README.md를 참고하세요 (systemd + gunicorn + nginx + HTTPS).
 """
 
+import base64
+import hashlib
+import json
 import os
 import random
+import re
 import sqlite3
-import string
-from datetime import date
+import secrets
+import time
+from threading import Lock
+from datetime import date, datetime, timezone
+from uuid import uuid4
 
-from flask import Flask, g, jsonify, request
+import requests
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from flask import Flask, g, jsonify, request, Response
+from eth_account import Account
+from eth_account.messages import encode_defunct
+from web3 import Web3
+if __package__:
+    from . import chain
+else:
+    import chain
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 DB_PATH = os.environ.get("IPLOAN_DB_PATH", os.path.join(os.path.dirname(__file__), "iploan.db"))
+IPFS_UPLOAD_URL = os.environ.get("IPLOAN_IPFS_UPLOAD_URL", "https://api.mustree.kr/upload")
+MAX_DOCUMENT_BYTES = int(os.environ.get("IPLOAN_MAX_DOCUMENT_BYTES", 20 * 1024 * 1024))
+CID_PATTERN = re.compile(r"^[A-Za-z0-9]{10,128}$")
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = MAX_DOCUMENT_BYTES + (1024 * 1024)
 # TODO(운영 전환 시): 아래를 실제 프론트엔드 도메인으로 제한하세요.
 # 예: CORS(app, origins=["https://your-username.github.io"])
 CORS(app)
@@ -72,13 +93,123 @@ CREATE TABLE IF NOT EXISTS applications (
     ltv INTEGER,
     creditScore INTEGER,
     rate REAL,
-    rejectReason TEXT
+    rejectReason TEXT,
+    docCid TEXT,
+    docIpfsUri TEXT,
+    docFileHash TEXT,
+    docKey TEXT,
+    docSalt TEXT,
+    docFileName TEXT,
+    hashMatch INTEGER,
+    ipRegNo TEXT
 );
 """
+
+MIGRATION_COLUMNS = {
+    "appKey": "TEXT", "borrowerWallet": "TEXT", "evaluatorWallet": "TEXT", "bankWallet": "TEXT",
+    "managerAddress": "TEXT", "chainId": "INTEGER", "chainStatus": "TEXT", "chainBlock": "INTEGER",
+    "sbtTokenId": "TEXT", "debtTokenId": "TEXT", "reportCid": "TEXT", "reportHash": "TEXT", "repaidAmount": "INTEGER",
+    "borrowerProfileId": "TEXT",
+    "ceo": "TEXT",
+    "contact": "TEXT",
+    "docCid": "TEXT",
+    "docIpfsUri": "TEXT",
+    "docFileHash": "TEXT",
+    "docKey": "TEXT",
+    "docSalt": "TEXT",
+    "docFileName": "TEXT",
+    "hashMatch": "INTEGER",
+    "ipRegNo": "TEXT",
+}
 
 FIELDS = ["id", "company", "bizNo", "ipType", "ipTitle", "amount", "status", "hash",
           "appliedDate", "appraisedValue", "ltv", "creditScore", "rate", "rejectReason"]
 ALLOWED_PATCH_FIELDS = {"status", "appraisedValue", "ltv", "creditScore", "rate", "rejectReason"}
+PUBLIC_FIELDS = set(FIELDS) | {
+    "appKey", "borrowerWallet", "evaluatorWallet", "bankWallet", "managerAddress", "chainId", "chainStatus", "chainBlock",
+    "sbtTokenId", "debtTokenId", "reportCid", "reportHash", "repaidAmount",
+    "docCid", "docIpfsUri", "docFileHash", "docFileName", "hashMatch", "ipRegNo",
+    "borrowerProfileId", "ceo", "contact"
+}
+
+PROFILE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS borrower_profiles (
+    id TEXT PRIMARY KEY,
+    company TEXT NOT NULL UNIQUE,
+    bizNo TEXT NOT NULL DEFAULT '',
+    ceo TEXT NOT NULL DEFAULT '',
+    contact TEXT NOT NULL DEFAULT '',
+    updatedAt TEXT NOT NULL
+);
+"""
+PROFILE_LIMITS = {"company": 200, "bizNo": 50, "ceo": 100, "contact": 100}
+
+
+def profile_timestamp():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def migrate_borrower_profiles(conn):
+    """연결되지 않은 기존 신청만 이관하고, 저장된 프로필은 덮어쓰지 않는다."""
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM applications WHERE borrowerProfileId IS NULL "
+        "AND (hashMatch IS NULL OR hashMatch != 0) ORDER BY appliedDate, rowid"
+    ).fetchall()
+    legacy = {}
+    for row in rows:
+        values = legacy.setdefault(row["company"], {key: "" for key in PROFILE_LIMITS})
+        for key in PROFILE_LIMITS:
+            if row[key]:
+                values[key] = row[key]
+    for company, values in legacy.items():
+        profile = conn.execute("SELECT id FROM borrower_profiles WHERE company = ?", (company,)).fetchone()
+        profile_id = profile["id"] if profile else str(uuid4())
+        if not profile:
+            conn.execute(
+                "INSERT INTO borrower_profiles (id, company, bizNo, ceo, contact, updatedAt) "
+                "VALUES (:id, :company, :bizNo, :ceo, :contact, :updatedAt)",
+                {**values, "id": profile_id, "updatedAt": profile_timestamp()},
+            )
+        conn.execute(
+            "UPDATE applications SET borrowerProfileId = ? WHERE company = ? AND borrowerProfileId IS NULL",
+            (profile_id, company),
+        )
+
+
+def profile_values(data, existing=None):
+    values = {}
+    for key, limit in PROFILE_LIMITS.items():
+        value = data.get(key, existing[key] if existing is not None else "")
+        if not isinstance(value, str) or len(value.strip()) > limit:
+            raise ValueError(f"{key} 입력값을 확인해 주세요. (최대 {limit}자)")
+        values[key] = value.strip()
+    if not values["company"]:
+        raise ValueError("기업명을 입력해 주세요.")
+    return values
+
+
+def write_profile(conn, values, profile_id=None):
+    record = {**values, "id": profile_id or str(uuid4()), "updatedAt": profile_timestamp()}
+    if profile_id:
+        conn.execute(
+            "UPDATE borrower_profiles SET company=:company, bizNo=:bizNo, ceo=:ceo, "
+            "contact=:contact, updatedAt=:updatedAt WHERE id=:id", record,
+        )
+    else:
+        conn.execute(
+            "INSERT INTO borrower_profiles (id, company, bizNo, ceo, contact, updatedAt) "
+            "VALUES (:id, :company, :bizNo, :ceo, :contact, :updatedAt)", record,
+        )
+    return record
+
+
+class IpfsUploadError(Exception):
+    """사용자에게 노출 가능한 IPFS 업로드 오류."""
+
+    def __init__(self, message, status_code=502):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def get_db():
@@ -97,26 +228,100 @@ def close_db(exception=None):
 
 def seed(conn):
     conn.execute("DELETE FROM applications")
+    conn.execute("DELETE FROM borrower_profiles")
     placeholders = ", ".join(f":{f}" for f in FIELDS)
     conn.executemany(
         f"INSERT INTO applications ({', '.join(FIELDS)}) VALUES ({placeholders})",
         DEFAULT_APPLICATIONS,
     )
+    migrate_borrower_profiles(conn)
 
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute(SCHEMA)
+    conn.execute(PROFILE_SCHEMA)
+    conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
+    for column, column_type in MIGRATION_COLUMNS.items():
+        if column not in existing_columns:
+            conn.execute(f"ALTER TABLE applications ADD COLUMN {column} {column_type}")
     count = conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0]
     if count == 0:
         seed(conn)
+    else:
+        migrate_borrower_profiles(conn)
     conn.commit()
     conn.close()
 
 
-def filter_none(row):
-    """sqlite3.Row나 dict를 받아 None 값을 제거한 JSON-safe dict로 변환."""
-    return {k: v for k, v in dict(row).items() if v is not None}
+def application_to_public(row):
+    """서버 전용 AES 키와 salt를 제외한 신청 데이터만 반환."""
+    public = {k: v for k, v in dict(row).items() if k in PUBLIC_FIELDS and v is not None}
+    if public.get("docFileName"):
+        public["documents"] = [public["docFileName"]]
+    return public
+
+
+def verify_registry(reg_no, biz_no, demo_mismatch=False):
+    """특허청 연동 전까지 사용하는 원부 대조 mock."""
+    if demo_mismatch:
+        return {"match": False, "mismatches": ["권리자"]}
+    return {"match": True, "mismatches": []}
+
+
+def encrypt_registry_document(plaintext):
+    """설계 규격에 맞춰 IV(12) | 암호문 | 태그(16)를 만든다."""
+    key = AESGCM.generate_key(bit_length=256)
+    salt = os.urandom(32)
+    iv = os.urandom(12)
+    file_hash = "0x" + hashlib.sha256(salt + plaintext).hexdigest()
+    ciphertext_and_tag = AESGCM(key).encrypt(iv, plaintext, None)
+    return {
+        "payload": iv + ciphertext_and_tag,
+        "key": key,
+        "salt": salt,
+        "file_hash": file_hash,
+    }
+
+
+def upload_ipfs_payload(payload, filename, content_type):
+    """mustsem RWA 페이지와 같은 multipart file 형식으로 암호문을 업로드."""
+    try:
+        response = requests.post(
+            IPFS_UPLOAD_URL,
+            files={"file": (filename, payload, content_type)},
+            timeout=(10, 600),
+        )
+    except requests.Timeout as exc:
+        raise IpfsUploadError("IPFS 업로드 시간이 초과되었습니다. 잠시 후 다시 시도하세요.", 504) from exc
+    except requests.RequestException as exc:
+        raise IpfsUploadError("IPFS 업로드 서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요.") from exc
+
+    if response.status_code == 413:
+        raise IpfsUploadError("파일이 너무 큽니다. 더 작은 PDF로 다시 시도하세요.", 413)
+    if not response.ok:
+        raise IpfsUploadError("IPFS 업로드에 실패했습니다. 잠시 후 다시 시도하세요.")
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise IpfsUploadError("IPFS 업로드 결과를 확인하지 못했습니다.") from exc
+
+    cid = str(data.get("cid") or "").strip()
+    if not CID_PATTERN.fullmatch(cid):
+        raise IpfsUploadError("IPFS 업로드 결과의 CID가 올바르지 않습니다.")
+    ipfs_uri = f"ipfs://{cid}"
+    return {"cid": cid, "ipfs": ipfs_uri}
+
+
+def upload_encrypted_document(payload, original_filename):
+    safe_name = secure_filename(original_filename) or "patent-registry.pdf"
+    return upload_ipfs_payload(payload, f"{safe_name}.enc", "application/octet-stream")
+
+
+def error_response(message, status_code, code):
+    return jsonify({"error": code, "message": message}), status_code
 
 
 def generate_id(conn):
@@ -136,29 +341,114 @@ def health():
 def list_applications():
     db = get_db()
     rows = db.execute("SELECT * FROM applications ORDER BY appliedDate DESC, id DESC").fetchall()
-    return jsonify([filter_none(r) for r in rows])
+    return jsonify([application_to_public(r) for r in rows])
+
+
+@app.route("/api/borrower-profiles", methods=["GET"])
+def list_borrower_profiles():
+    rows = get_db().execute("SELECT * FROM borrower_profiles ORDER BY company").fetchall()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route("/api/borrower-profiles", methods=["POST"])
+@app.route("/api/borrower-profiles/<profile_id>", methods=["PATCH"])
+def save_borrower_profile(profile_id=None):
+    db = get_db()
+    existing = None
+    if profile_id:
+        existing = db.execute("SELECT * FROM borrower_profiles WHERE id = ?", (profile_id,)).fetchone()
+        if existing is None:
+            return error_response("차주기업 프로필을 찾을 수 없습니다.", 404, "profile_not_found")
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("기업정보를 JSON 객체로 보내 주세요.", 400, "invalid_profile")
+    try:
+        values = profile_values(data, existing)
+    except ValueError as exc:
+        return error_response(str(exc), 400, "invalid_profile")
+    try:
+        profile = write_profile(db, values, profile_id)
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.rollback()
+        return error_response("이미 등록된 기업명입니다. 해당 기업 프로필을 선택해 주세요.", 409, "duplicate_company")
+    return jsonify(profile), 200 if profile_id else 201
 
 
 @app.route("/api/applications", methods=["POST"])
 def create_application():
-    data = request.get_json(force=True, silent=True) or {}
+    if not request.content_type or "multipart/form-data" not in request.content_type:
+        return error_response("특허등록원부 PDF를 첨부해 주세요.", 415, "multipart_required")
+
+    data = request.form
+    chain_fields = {}
+    if chain.MANAGER_ADDRESS:
+        try:
+            cfg = chain.config()
+            borrower = chain.address(data.get("borrowerWallet"))
+            chain.require_role(borrower, "BORROWER_ROLE")
+            chain_fields = {"borrowerWallet": borrower, "evaluatorWallet": cfg["evaluatorWallet"], "bankWallet": cfg["bankWallet"],
+                            "managerAddress": cfg["managerAddress"], "chainId": cfg["chainId"], "chainStatus": "None", "repaidAmount": 0}
+        except chain.ChainError as exc:
+            return error_response(str(exc), 400, "chain_not_ready")
+    document = request.files.get("registryDocument")
+    if document is None or not document.filename:
+        return error_response("특허등록원부 PDF를 첨부해 주세요.", 400, "document_required")
+    if not document.filename.lower().endswith(".pdf"):
+        return error_response("특허등록원부는 PDF 파일만 업로드할 수 있습니다.", 400, "pdf_required")
+
+    plaintext = document.read(MAX_DOCUMENT_BYTES + 1)
+    if len(plaintext) > MAX_DOCUMENT_BYTES:
+        return error_response("파일이 너무 큽니다. 더 작은 PDF로 다시 시도하세요.", 413, "file_too_large")
+    if not plaintext.lstrip().startswith(b"%PDF-"):
+        return error_response("올바른 PDF 파일인지 확인해 주세요.", 400, "invalid_pdf")
+
     db = get_db()
+    profile_id = data.get("borrowerProfileId") or None
+    if profile_id:
+        profile = db.execute("SELECT * FROM borrower_profiles WHERE id = ?", (profile_id,)).fetchone()
+        if profile is None:
+            return error_response("차주기업 프로필을 다시 선택해 주세요.", 404, "profile_not_found")
+    else:
+        # 기존 API 클라이언트도 기업별 프로필에 연결한다.
+        profile = db.execute(
+            "SELECT * FROM borrower_profiles WHERE company = ?", ((data.get("company") or "").strip(),)
+        ).fetchone()
+        profile_id = profile["id"] if profile else None
+    try:
+        values = profile_values(data, profile)
+    except ValueError as exc:
+        return error_response(str(exc), 400, "invalid_profile")
+    duplicate = db.execute(
+        "SELECT id FROM borrower_profiles WHERE company = ?", (values["company"],)
+    ).fetchone()
+    if duplicate and duplicate["id"] != profile_id:
+        return error_response("이미 등록된 기업명입니다. 해당 기업 프로필을 선택해 주세요.", 409, "duplicate_company")
     new_id = generate_id(db)
 
     try:
-        amount = int(data.get("amount") or 0) or 50000000
+        amount = int(data.get("amount") or 0)
+        if amount <= 0 or amount > 9_000_000_000_000_000:
+            raise ValueError()
     except (TypeError, ValueError):
-        amount = 50000000
+        return error_response("신청금액을 허용 범위의 양의 정수로 입력하세요.", 400, "invalid_amount")
 
-    record = {
+    registry_result = verify_registry(
+        data.get("ipRegNo", ""),
+        values["bizNo"],
+        str(data.get("demoHashMismatch", "")).lower() in {"1", "true", "on"},
+    )
+
+    base_record = {
         "id": new_id,
-        "company": (data.get("company") or "미입력 기업")[:200],
-        "bizNo": (data.get("bizNo") or "")[:50],
+        **chain_fields,
+        **values,
+        "borrowerProfileId": profile_id,
         "ipType": (data.get("ipType") or "특허권")[:50],
         "ipTitle": (data.get("ipTitle") or "미입력 IP 자산")[:200],
         "amount": amount,
-        "status": "pending",
-        "hash": (data.get("hash") or "")[:100],
+        "status": "doc_verify",
+        "hash": "",
         "appliedDate": date.today().isoformat(),
         "appraisedValue": None,
         "ltv": None,
@@ -166,10 +456,66 @@ def create_application():
         "rate": None,
         "rejectReason": None,
     }
-    placeholders = ", ".join(f":{f}" for f in FIELDS)
-    db.execute(f"INSERT INTO applications ({', '.join(FIELDS)}) VALUES ({placeholders})", record)
+
+    if chain_fields:
+        base_record["appKey"] = Web3.to_hex(Web3.keccak(text=new_id))
+
+    if not registry_result["match"]:
+        mismatch_record = {
+            **base_record,
+            "hashMatch": 0,
+            "docFileName": document.filename[:255],
+            "ipRegNo": (data.get("ipRegNo") or "")[:100],
+        }
+        columns = list(mismatch_record)
+        db.execute(
+            f"INSERT INTO applications ({', '.join(columns)}) VALUES ({', '.join(':' + c for c in columns)})",
+            mismatch_record,
+        )
+        db.commit()
+        response = application_to_public(mismatch_record)
+        response["error"] = "registry_mismatch"
+        response["message"] = "발급기관 정보와 일치하지 않는 항목이 있습니다: " + ", ".join(
+            registry_result["mismatches"]
+        )
+        response["mismatches"] = registry_result["mismatches"]
+        return jsonify(response), 422
+
+    encrypted = encrypt_registry_document(plaintext)
+    try:
+        uploaded = upload_encrypted_document(encrypted["payload"], document.filename)
+    except IpfsUploadError as exc:
+        return error_response(str(exc), exc.status_code, "ipfs_upload_failed")
+
+    # 신청 저장과 프로필 갱신은 같은 트랜잭션. 업로드 실패/원부 불일치 시 갱신하지 않는다.
+    try:
+        updated_profile = write_profile(db, values, profile_id)
+    except sqlite3.IntegrityError:
+        db.rollback()
+        return error_response("기업정보가 변경되었습니다. 프로필을 다시 선택해 주세요.", 409, "duplicate_company")
+
+    record = {
+        **base_record,
+        "borrowerProfileId": updated_profile["id"],
+        "hash": encrypted["file_hash"],
+        "docCid": uploaded["cid"],
+        "docIpfsUri": uploaded["ipfs"],
+        "docFileHash": encrypted["file_hash"],
+        "docKey": base64.b64encode(encrypted["key"]).decode("ascii"),
+        "docSalt": base64.b64encode(encrypted["salt"]).decode("ascii"),
+        "docFileName": document.filename[:255],
+        "hashMatch": 1,
+        "ipRegNo": (data.get("ipRegNo") or "")[:100],
+    }
+    columns = list(record)
+    db.execute(
+        f"INSERT INTO applications ({', '.join(columns)}) VALUES ({', '.join(':' + c for c in columns)})",
+        record,
+    )
     db.commit()
-    return jsonify(filter_none(record)), 201
+    response = application_to_public(record)
+    response["borrowerProfile"] = updated_profile
+    return jsonify(response), 201
 
 
 @app.route("/api/applications/<app_id>", methods=["PATCH"])
@@ -180,6 +526,9 @@ def patch_application(app_id):
     if existing is None:
         return jsonify({"error": "not found"}), 404
 
+    if existing["appKey"]:
+        return error_response("지갑으로 트랜잭션을 실행한 뒤 체인 동기화를 사용하세요.", 409, "chain_is_authority")
+
     updates = {k: v for k, v in data.items() if k in ALLOWED_PATCH_FIELDS}
     if updates:
         updates["id"] = app_id
@@ -188,19 +537,189 @@ def patch_application(app_id):
         db.commit()
 
     updated = db.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
-    return jsonify(filter_none(updated))
+    return jsonify(application_to_public(updated))
+
+
+@app.route("/api/chain/config")
+def chain_config():
+    try:
+        return jsonify(chain.config())
+    except chain.ChainError as exc:
+        return error_response(str(exc), 503, "chain_unavailable")
+
+
+def find_application(app_id):
+    row = get_db().execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+    return dict(row) if row else None
+
+
+@app.route("/api/applications/<app_id>/sync", methods=["POST"])
+def sync_application(app_id):
+    application = find_application(app_id)
+    if not application:
+        return error_response("신청을 찾을 수 없습니다.", 404, "not_found")
+    if not application.get("appKey") or application.get("hashMatch") != 1:
+        return error_response("등록 가능한 원부 업로드 신청이 아닙니다.", 409, "not_ready")
+    try:
+        state = chain.snapshot(application)
+        stage = state["chainStatus"]
+        if stage == "None":
+            if application.get("chainStatus") not in {None, "None"}:
+                raise chain.ChainError("이전에 확인한 체인 기록이 없습니다. RPC·로컬 체인 재시작 여부를 확인하세요.")
+            return jsonify(application_to_public(application))
+        if stage != "Evaluating":
+            report = get_db().execute("SELECT * FROM evaluation_reports WHERE applicationId = ? AND hash = ? AND cid = ?",
+                                      (app_id, state["reportHash"], state["reportCid"])).fetchone()
+            if not report or report["value"] != state["appraisedValue"]:
+                raise chain.ChainError("체인의 평가보고서가 이 신청에서 준비한 보고서와 다릅니다.")
+        # Never accept caller-provided status, tokenId, repayment or a receipt as proof.
+        state["status"] = {"Evaluating": "evaluating", "Eligible": "review", "RuleRejected": "rejected",
+                           "Approved": "approved", "Rejected": "rejected", "Repaid": "approved"}[stage]
+        if state["appraisedValue"]:
+            state["ltv"] = round(application["amount"] / state["appraisedValue"] * 100)
+        if stage == "RuleRejected":
+            state["rejectReason"] = "컨트랙트 자동심사: 신청금액이 평가액의 70%를 초과했습니다."
+        elif stage == "Rejected":
+            state["rejectReason"] = "은행 지갑이 최종 거절했습니다."
+        else:
+            state["rejectReason"] = None
+        db = get_db()
+        updates = {**state, "id": app_id}
+        db.execute("UPDATE applications SET " + ", ".join(f"{k}=:{k}" for k in state) + " WHERE id=:id", updates)
+        db.commit()
+        return jsonify(application_to_public(find_application(app_id)))
+    except chain.ChainError as exc:
+        return error_response(str(exc), 409, "chain_verification_failed")
+
+
+@app.route("/api/applications/<app_id>/evaluation-report", methods=["POST"])
+def prepare_evaluation_report(app_id):
+    application = find_application(app_id)
+    if not application:
+        return error_response("신청을 찾을 수 없습니다.", 404, "not_found")
+    if not application.get("appKey") or application.get("hashMatch") != 1:
+        return error_response("온체인 평가 신청이 아닙니다.", 409, "not_ready")
+    try:
+        if chain.snapshot(application)["chainStatus"] != "Evaluating":
+            return error_response("평가 중인 신청만 보고서를 준비할 수 있습니다.", 409, "wrong_stage")
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict) or isinstance(data.get("appraisedValue"), bool):
+            raise ValueError()
+        value = int(data.get("appraisedValue", 0))
+        if str(value) != str(data.get("appraisedValue")):
+            raise ValueError()
+        if value <= 0 or value > 9_000_000_000_000_000:
+            raise ValueError()
+        report = {"appKey": application["appKey"], "fileHash": application["docFileHash"], "appraisedValue": value,
+                  "summary": str(data.get("summary", "시연용 IP 가치평가 보고서"))[:4000]}
+        payload = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        digest = "0x" + hashlib.sha256(payload.encode()).hexdigest()
+        previous = get_db().execute("SELECT * FROM evaluation_reports WHERE hash = ?", (digest,)).fetchone()
+        if previous:
+            return jsonify({"cid": previous["cid"], "hash": digest, "appraisedValue": value})
+        uploaded = upload_ipfs_payload(payload.encode(), "evaluation-report.json", "application/json")
+        get_db().execute("INSERT INTO evaluation_reports VALUES (?, ?, ?, ?, ?)", (digest, app_id, uploaded["cid"], payload, value))
+        get_db().commit()
+        return jsonify({"cid": uploaded["cid"], "hash": digest, "appraisedValue": value}), 201
+    except (ValueError, TypeError):
+        return error_response("평가액을 양의 정수로 입력해 주세요.", 400, "invalid_value")
+    except chain.ChainError as exc:
+        return error_response(str(exc), 409, "chain_unavailable")
+    except IpfsUploadError as exc:
+        return error_response(str(exc), exc.status_code, "ipfs_upload_failed")
+
+
+NONCES = {}
+NONCE_LOCK = Lock()
+
+@app.route("/api/applications/<app_id>/document-nonce", methods=["POST"])
+def document_nonce(app_id):
+    if not find_application(app_id):
+        return error_response("신청을 찾을 수 없습니다.", 404, "not_found")
+    try:
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            raise chain.ChainError("요청 형식을 확인하세요.")
+        wallet = chain.address(data.get("address"))
+    except chain.ChainError as exc:
+        return error_response(str(exc), 400, "invalid_address")
+    nonce = secrets.token_urlsafe(24)
+    message = f"IP Loan 시연 원본 열람\n신청번호: {app_id}\n주소: {wallet}\nnonce: {nonce}"
+    with NONCE_LOCK:
+        for key in [k for k, v in NONCES.items() if v[3] < time.time()]:
+            del NONCES[key]
+        if len(NONCES) >= 1000:
+            return error_response("요청이 많습니다. 잠시 후 다시 시도하세요.", 429, "too_many_requests")
+        NONCES[nonce] = (app_id, wallet, message, time.time() + 300)
+    return jsonify({"nonce": nonce, "message": message})
+
+
+@app.route("/api/applications/<app_id>/document", methods=["POST"])
+def read_document(app_id):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict) or not isinstance(data.get("nonce"), str):
+        return error_response("요청 형식을 확인하세요.", 400, "invalid_request")
+    with NONCE_LOCK:
+        challenge = NONCES.pop(data.get("nonce"), None)
+    try:
+        wallet = chain.address(data.get("address"))
+        if not challenge or challenge[0] != app_id or challenge[1] != wallet or challenge[3] < time.time():
+            raise ValueError("만료되었거나 재사용한 열람 요청입니다.")
+        signature = data.get("signature")
+        if not isinstance(signature, str) or not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature):
+            raise ValueError("올바른 지갑 서명을 제출하세요.")
+        signer = Account.recover_message(encode_defunct(text=challenge[2]), signature=signature)
+        if signer.lower() != wallet.lower():
+            raise ValueError("지갑 서명을 확인하지 못했습니다.")
+        application = find_application(app_id)
+        if not application or not application.get("appKey"):
+            raise ValueError("열람 가능한 신청이 아닙니다.")
+        state = chain.snapshot(application)
+        if not state:
+            raise ValueError("아직 체인에 등록되지 않은 신청입니다.")
+        allowed = (state["chainStatus"] == "Evaluating" and wallet.lower() == application["evaluatorWallet"].lower()) or (
+            state["chainStatus"] in {"Approved", "Repaid"} and wallet.lower() == application["bankWallet"].lower())
+        if not allowed:
+            raise ValueError("현재 이 지갑에는 원본 열람권이 없습니다.")
+        gateway = os.environ.get("IPLOAN_IPFS_GATEWAY", "https://rwa-gw.mustree.kr/ipfs/")
+        response = requests.get(gateway.rstrip("/") + "/" + application["docCid"], timeout=(10, 60), stream=True)
+        response.raise_for_status()
+        chunks, size = [], 0
+        for chunk in response.iter_content(65536):
+            size += len(chunk)
+            if size > MAX_DOCUMENT_BYTES + 28:
+                raise ValueError("암호문 크기가 허용 범위를 초과했습니다.")
+            chunks.append(chunk)
+        response.close()
+        encrypted = b"".join(chunks)
+        plaintext = AESGCM(base64.b64decode(application["docKey"])).decrypt(encrypted[:12], encrypted[12:], None)
+        expected = "0x" + hashlib.sha256(base64.b64decode(application["docSalt"]) + plaintext).hexdigest()
+        if expected != application["docFileHash"]:
+            raise ValueError("원본 해시가 일치하지 않습니다.")
+        return Response(plaintext, mimetype="application/pdf", headers={"Cache-Control": "no-store", "Content-Disposition": "inline; filename=registry.pdf"})
+    except (ValueError, chain.ChainError) as exc:
+        return error_response(str(exc), 403, "document_forbidden")
+    except Exception:
+        return error_response("원본을 다운로드·복호화하지 못했습니다.", 502, "document_unavailable")
 
 
 @app.route("/api/reset", methods=["POST"])
 def reset_applications():
+    if chain.MANAGER_ADDRESS:
+        return error_response("온체인 계약 연결 중에는 DB 초기화를 막습니다. 체인 기록은 초기화되지 않습니다.", 409, "chain_reset_forbidden")
     db = get_db()
     seed(db)
     db.commit()
     rows = db.execute("SELECT * FROM applications ORDER BY appliedDate DESC, id DESC").fetchall()
-    return jsonify([filter_none(r) for r in rows])
+    return jsonify([application_to_public(r) for r in rows])
+
+
+@app.errorhandler(413)
+def request_too_large(_error):
+    return error_response("파일이 너무 큽니다. 더 작은 PDF로 다시 시도하세요.", 413, "file_too_large")
 
 
 init_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5001)))

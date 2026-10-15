@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IP Loan MVP 계약 준비</title><link rel="stylesheet" href="css/style.css"></head>
+<body style="padding:30px;max-width:1000px;margin:auto;">
+<h1>시범 MVP 계약 준비</h1>
+<p>서버 개인키 없음. 배포·권한 등록은 은행 관리자 MetaMask에서 승인하세요. Mustsem은 정상 네트워크 수수료를 사용합니다. 기존 0 가격 배포가 대기 중이면 같은 nonce로 수수료 교체하고, 새 배포를 추가하지 않습니다. Solidity 0.8.24 + EVM Paris.</p>
+<button id="walletConnect" class="btn btn-outline">관리자 MetaMask 연결</button><p id="walletState"></p><p id="chainConfigHint"></p>
+<div class="form-grid">
+<div class="field full"><label>차주 공개 주소</label><input id="adminBorrower" value="0x5C921C1a2A25a05996Ce465Dbc36262bcdEfb207"></div>
+<div class="field full"><label>고정 평가사 공개 주소</label><input id="adminEvaluator" value="0x28b53A7a9ce4905F81F258913E6056a53c670cdE"></div>
+<div class="field full"><label>여신심사자 = 은행 NFT 수령·상환 기록 주소</label><input id="adminBank" value="0xB3Ec5f2bbB80e90ec457165d13EF469893a54951"></div>
+</div>
+<p>관리자는 은행 지갑 0xB3Ec5f2bbB80e90ec457165d13EF469893a54951로 고정합니다. 고정 평가사·은행은 배포 후 변경하지 않습니다.</p>
+<button class="btn btn-primary" id="deployManager">1. 계약 배포 (Manager + SBT + 채권 NFT)</button>
+<button class="btn btn-outline" id="grantBorrower">2. 차주 역할 부여</button>
+<pre id="adminResult" style="white-space:pre-wrap;overflow-wrap:anywhere;"></pre>
+<a href="index.html">신청·평가·심사 시연 화면</a>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/chain.js"></script><script src="js/admin.js"></script>
+</body></html>

@@ -1,94 +1,71 @@
-# 백엔드 API 배포 가이드 (연구실 서버)
+# Flask API — 시범 MVP
 
-프론트엔드가 더 이상 브라우저에만 데이터를 저장하지 않고, 이 API를 통해 서버의 SQLite
-파일에 저장합니다. 즉 **누가 사이트에 들어와도 같은 데이터**를 보게 됩니다.
-
-## 왜 도메인(HTTPS)이 필요한가요
-
-프론트엔드는 GitHub Pages 등 **https://** 로 서비스됩니다. 브라우저는 https 페이지가
-암호화되지 않은 http:// 주소로 요청을 보내는 것을 보안상 차단합니다("mixed content").
-그래서 이 API도 **http://공인IP:포트** 가 아니라 **https://도메인** 으로 접속 가능해야
-프론트엔드에서 정상적으로 호출할 수 있습니다. 이전에 논의한 가비아 도메인의 서브도메인
-(예: `api.yourdomain.co.kr`)을 이 서버로 연결하는 걸 추천드립니다.
-
-## 1. 서버에 올리기
+현재 실행은 검증된 Mustsem 배포(7601, MST)에 연결되었으며 DB는 server/iploan-mustsem-mvp.db다.
+Sepolia DB server/iploan-sepolia-mvp.db는 보존했다. Mustsem Manager는 0x385D93904D2231B59a87282c1dC9b777b3F31b57이다.
+현재는 사용자 MST 준비·수수료 승인에 따라 IPLOAN_ZERO_GAS_PRICE=0으로 정상 수수료를 사용한다.
 
 ```bash
-# 로컬에서 서버로 복사 (예시)
-scp -r server/ your-id@203.252.147.197:/opt/iploan-api
+cd /mnt/c/Users/mustree/.codex/worktrees/ip-loan-mvp/IP-Loan-Demo
+bash blockchain/scripts/start-mustsem-api.sh
 ```
 
-또는 git으로 관리한다면 서버에서 `git clone` 해도 됩니다.
+이미 5001에서 실행 중이면 위 명령을 중복 실행하지 않는다.
 
-## 2. 파이썬 환경 준비
+설치·서버 시작·MetaMask 배포·단계별 확인은 [WSL 통합 테스트 가이드](../blockchain/README.md)를 따른다.
+정적 프론트만이 아니라 계약 artifact와 web3 의존성도 필요하므로 server 폴더만 복사해 배포하지 않는다.
+
+## 설정 (WSL Bash)
 
 ```bash
-cd /opt/iploan-api
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+cd /mnt/c/Users/mustree/.codex/worktrees/ip-loan-mvp/IP-Loan-Demo
+export IPLOAN_RPC_URL=https://block.mustree.kr
+export IPLOAN_CHAIN_ID=7601
+export IPLOAN_MANAGER_ADDRESS=0x385D93904D2231B59a87282c1dC9b777b3F31b57
+export IPLOAN_DB_PATH="$PWD/server/iploan-mustsem-mvp.db"
+export IPLOAN_ZERO_GAS_PRICE=0
+export PORT=5001
+server/.venv/bin/python server/app.py
 ```
 
-## 3. 먼저 로컬에서 동작 확인
+.env.example은 참고용이며 자동 로드하지 않는다.
+계약 미설정이면 기존 암호화 업로드 API는 사용 가능하지만 새 MVP 화면의 지갑 신청은 진행하지 않는다.
+
+| 환경변수 | 기본값/의미 |
+|---|---|
+| PORT | 5001 |
+| IPLOAN_DB_PATH | 이 worktree의 server/iploan.db |
+| IPLOAN_RPC_URL | https://block.mustree.kr |
+| IPLOAN_CHAIN_ID | 7601 |
+| IPLOAN_MANAGER_ADDRESS | 기본 없음. 배포한 전용 Manager 필요 |
+| IPLOAN_IPFS_UPLOAD_URL | https://api.mustree.kr/upload |
+| IPLOAN_IPFS_GATEWAY | https://rwa-gw.mustree.kr/ipfs/ |
+| IPLOAN_MAX_DOCUMENT_BYTES | 20971520 |
+
+## 연결과 보안 범위
+
+- server/chain.py는 RPC·계약·역할·신청 내용·소유권을 읽고 확인한다. 서명 키·자동 tx 없음.
+- /sync는 실제 체인 상태만 반영한다. 클라이언트 tokenId·status·상환금액을 증거로 받아들이지 않는다.
+- 온체인 신청에 대한 기존 PATCH와 계약 연결 중 DB reset은 409로 거절한다.
+- AES 키·salt는 SQLite에 저장한다. 신청 공개 API에는 포함하지 않는다.
+- 원본은 일회성 5분 nonce·MetaMask personal_sign·현재 SBT/NFT 소유권 확인 후 복호화해서 반환한다.
+- 기업 프로필은 제출 저장 성공 시 자동 생성/갱신한다. 별도 저장 버튼 없음.
+- 회사 선택·역할 UI는 인증이 아니다. 일반 목록·프로필·보고서 준비 API는 데모 공개 API다.
+- 보고서 JSON은 공개 가상 내용이다. 원부 진위 대조·LLM은 mock. 실제 개인정보·영업비밀을 쓰지 않는다.
+- Flask 개발 서버·메모리 nonce는 로컬/내부 시연용이다. 실제 서비스 공개 전 별도 인가·키 보호·운영 설계 필요.
+- DB와 암호문을 잃으면 원본 복구가 불가능할 수 있다. SQLite 키 포함 백업도 비밀 데이터로 취급한다.
+- 로컬 체인 초기화와 DB 초기화는 같은 작업이 아니다. DB 파일을 다른 네트워크에 재사용하지 않는다.
+
+API 전체와 상태는 [설계 문서](../docs/대출신청-암호화-토큰-설계.md)에 정리했다.
+
+## 자동 테스트
 
 ```bash
-python3 app.py
-# 다른 터미널에서
-curl http://127.0.0.1:5000/api/applications
+cd /mnt/c/Users/mustree/.codex/worktrees/ip-loan-mvp/IP-Loan-Demo
+IPLOAN_MANAGER_ADDRESS= server/.venv/bin/python -m unittest server.test_app -v
+node --test js/app.test.cjs js/chain.test.cjs js/admin.test.cjs
+cd blockchain
+npm test
 ```
 
-8건의 신청 데이터가 JSON으로 나오면 정상입니다. 확인했으면 `Ctrl+C`로 종료하세요.
-
-## 4. systemd로 등록 (재부팅해도 자동 실행)
-
-`iploan-api.service` 파일에서 `REPLACE_WITH_YOUR_LINUX_USER`를 실제 계정명으로 바꾼 뒤:
-
-```bash
-sudo cp iploan-api.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now iploan-api
-sudo systemctl status iploan-api   # active (running) 확인
-```
-
-## 5. 도메인 연결 + Nginx + HTTPS
-
-1. 가비아 My가비아 → DNS 관리에서 서브도메인 A 레코드 추가: 호스트 `api`, 값 `203.252.147.197`
-2. Nginx 설치가 안 되어 있다면: `sudo apt install nginx` (Ubuntu/Debian 기준)
-3. `nginx-iploan-api.conf`에서 `server_name`을 실제 서브도메인으로 바꾼 뒤:
-   ```bash
-   sudo cp nginx-iploan-api.conf /etc/nginx/sites-available/iploan-api
-   sudo ln -s /etc/nginx/sites-available/iploan-api /etc/nginx/sites-enabled/
-   sudo nginx -t && sudo systemctl reload nginx
-   ```
-4. HTTPS 인증서 발급 (Let's Encrypt, 무료):
-   ```bash
-   sudo apt install certbot python3-certbot-nginx
-   sudo certbot --nginx -d api.yourdomain.co.kr
-   ```
-   certbot이 nginx 설정을 자동으로 443 포트용으로 갱신해줍니다.
-
-## 6. 프론트엔드에 연결
-
-`js/app.js` 맨 위쪽의 다음 줄을:
-
-```js
-const API_BASE = 'https://api.YOUR-DOMAIN.example/api';
-```
-
-실제 서브도메인으로 바꾸고 다시 배포하면 끝입니다.
-
-```bash
-curl https://api.yourdomain.co.kr/api/applications
-```
-
-이 명령으로 JSON이 정상적으로 나오는지 먼저 확인한 뒤 프론트엔드를 배포하세요.
-
-## 알아두면 좋은 점
-
-- 지금 API는 별도 인증 없이 열려 있습니다. 인터넷에 공개된 상태에서 누구나 신청을
-  생성/수정할 수 있다는 뜻이라, 로그인 기능을 붙이기 전까지는 시연·내부 검토용으로만
-  링크를 공유하는 걸 권장합니다.
-- 데이터는 `/opt/iploan-api/iploan.db` 파일 하나에 SQLite로 저장됩니다. 백업하려면
-  이 파일만 복사하면 됩니다.
-- "데이터 초기화" 버튼은 이제 이 서버의 `/api/reset` 을 호출해서 **모든 방문자가 보는
-  데이터**를 초기 상태로 되돌립니다 (개인 브라우저만 초기화되는 게 아님) — 주의해서 사용하세요.
+실제 EVM 통합 테스트는 임시 DB·임시 Flask 서버·mock IPFS를 사용한다.
+수동 프론트 테스트는 실제 회사 IPFS를 호출하므로 반드시 가상 PDF만 사용한다.
