@@ -248,7 +248,14 @@ function selectEvalItem(id) {
   document.querySelectorAll('.eval-item').forEach(node => node.classList.toggle('active', node.dataset.openEvaluation === id));
   const panel = document.getElementById('evalReportPanel');
   const job = application.evaluation;
-  const heading = `<div class="report-head"><div><h3 class="report-title">${escapeHtml(application.ipTitle)}</h3><div class="report-meta">${escapeHtml(application.company)} · ${escapeHtml(application.bizNo || '')}</div><div class="report-meta">신청번호 ${escapeHtml(application.id)}</div></div>${reportBadge(application)}</div>`;
+  const company = String(application.company || '').trim();
+  const bizNo = String(application.bizNo || '').trim();
+  const companyNumber = company.match(/^(?:사업자\s*)?(\d{3}-?\d{2}-?\d{5})$/)?.[1];
+  const sameBusiness = bizNo && companyNumber?.replace(/\D/g, '') === bizNo.replace(/\D/g, '');
+  const companyMeta = sameBusiness || !company
+    ? (bizNo ? `사업자 ${bizNo}` : '기업 정보 미입력')
+    : [company, bizNo].filter(Boolean).join(' · ');
+  const heading = `<div class="report-head"><div><h3 class="report-title">${escapeHtml(application.ipTitle)}</h3><div class="report-meta">${escapeHtml(companyMeta)}</div><div class="report-meta">신청번호 ${escapeHtml(application.id)}</div></div>${reportBadge(application)}</div>`;
   if (!job) { renderLegacyReport(application, heading); return; }
   let body = `${heading}<div class="report-request-meta"><span>작업번호 <b>${escapeHtml(job.job_id || '발급 전')}</b></span><span>최근 확인 ${escapeHtml(formatDate(job.updated_at))}</span></div>`;
   if (job.status !== 'completed') {
