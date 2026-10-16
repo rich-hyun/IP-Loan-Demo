@@ -41,16 +41,16 @@ test('temporary Flask + actual local EVM: encrypted upload, SBT access, evaluati
     return {response, data:await response.json()};
   }
   const cfg=(await api('/chain/config')).data;
-  assert.equal(cfg.chainId,31337);assert.equal(cfg.evaluatorWallet,evaluator.address);assert.equal(cfg.bankWallet,bank.address);
+  assert.equal(cfg.chainId,31337);assert.equal(cfg.contractVersion,2);
   const form=new FormData();for(const[k,v]of Object.entries({company:'가상 통합테스트 기업',bizNo:'123-45-67890',ceo:'시연대표',contact:'010-0000-0000',amount:'70',borrowerWallet:borrower.address}))form.append(k,v);
   const plaintext='%PDF-1.7\nlocal integration registry';
   form.append('registryDocument',new Blob([plaintext],{type:'application/pdf'}),'registry.pdf');
   const posted=await fetch(startup.url+'/applications',{method:'POST',body:form});assert.equal(posted.status,201);
-  const application=await posted.json();assert.ok(application.appKey);assert.equal(application.chainStatus,'None');
+  const application=await posted.json();assert.ok(application.appKey);assert.equal(application.evaluatorWallet,evaluator.address);assert.ok(!('bankWallet' in application));assert.equal(application.chainStatus,'None');
   assert.ok(!('docKey'in application));assert.ok(!('docSalt'in application));
   const sync=async()=>{const result=await api(`/applications/${application.id}/sync`,{status:'approved',debtTokenId:'999',repaidAmount:999});assert.equal(result.response.status,200,JSON.stringify(result.data));return result.data;};
   assert.equal((await sync()).chainStatus,'None');
-  await (await manager.connect(borrower).submitApplication(application.appKey,application.docCid,application.docFileHash,70)).wait();
+  await (await manager.connect(borrower).submitApplication(application.appKey,application.docCid,application.docFileHash,70,application.evaluatorWallet)).wait();
   let state=await sync();assert.equal(state.chainStatus,'Evaluating');assert.equal(state.status,'evaluating');assert.equal(state.sbtTokenId,'1');assert.ok(!state.debtTokenId);
   async function document(signer, expected) {
     const challenge=(await api(`/applications/${application.id}/document-nonce`,{address:signer.address})).data;
@@ -64,9 +64,9 @@ test('temporary Flask + actual local EVM: encrypted upload, SBT access, evaluati
   const reused=await fetch(startup.url+`/applications/${application.id}/document`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...proof.challenge,address:evaluator.address,signature:proof.signature})});
   assert.equal(reused.status,403);
   const prepared=await api(`/applications/${application.id}/evaluation-report`,{appraisedValue:100,summary:'공개 가상 시연 보고서'});assert.equal(prepared.response.status,201);
-  const report=prepared.data;
-  const duplicate=await api(`/applications/${application.id}/evaluation-report`,{appraisedValue:100,summary:'공개 가상 시연 보고서'});assert.equal(duplicate.data.cid,report.cid);
-  await (await manager.connect(evaluator).confirmEvaluation(application.appKey,report.cid,report.hash,100)).wait();
+  const report=prepared.data;assert.equal(report.bankWallet,bank.address);
+  const duplicate=await api(`/applications/${application.id}/evaluation-report`,{appraisedValue:100,summary:'공개 가상 시연 보고서'});assert.equal(duplicate.data.cid,report.cid);assert.equal(duplicate.data.bankWallet,bank.address);
+  await (await manager.connect(evaluator).confirmEvaluation(application.appKey,report.cid,report.hash,100,report.bankWallet)).wait();
   state=await sync();assert.equal(state.chainStatus,'Eligible');assert.equal(state.appraisedValue,100);await document(evaluator,403);
   await (await manager.connect(bank).finalApprove(application.appKey)).wait();
   state=await sync();assert.equal(state.chainStatus,'Approved');assert.equal(state.debtTokenId,'1');await document(bank,200);

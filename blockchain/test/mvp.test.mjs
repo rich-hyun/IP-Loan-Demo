@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { network } from 'hardhat';
-import { BrowserProvider, ContractFactory, Contract, Interface, id, ZeroHash } from 'ethers';
+import { BrowserProvider, ContractFactory, Contract, Interface, id, ZeroAddress, ZeroHash } from 'ethers';
 import { compile } from '../scripts/compile.mjs';
 const artifacts = compile();
 const cid = 'bafybeigdyrzt1234567890', reportCid = 'bafybeireport1234567890', hash = id('salted document'), reportHash = id('report');
@@ -20,10 +20,10 @@ async function fixture(t) {
   return { provider, admin, borrower, evaluator, bank, outsider, manager, sbt, nft };
 }
 async function submit(f, key=appKey, amount=70n) {
-  return (await f.manager.connect(f.borrower).submitApplication(key, cid, hash, amount)).wait();
+  return (await f.manager.connect(f.borrower).submitApplication(key, cid, hash, amount, f.evaluator.address)).wait();
 }
-async function evaluate(f, value=100n, key=appKey) {
-  return (await f.manager.connect(f.evaluator).confirmEvaluation(key, reportCid, reportHash, value)).wait();
+async function evaluate(f, value=100n, key=appKey, bank=f.bank.address) {
+  return (await f.manager.connect(f.evaluator).confirmEvaluation(key, reportCid, reportHash, value, bank)).wait();
 }
 async function revert(promise, name, artifact='IPLoanManager') {
   const selector = new Interface(artifacts[artifact].abi).getError(name).selector;
@@ -43,14 +43,14 @@ test('submission creates record and evaluator SBT but no debt NFT', async t => {
 });
 test('wrong role and malformed submission cannot create application', async t => {
   const f = await fixture(t);
-  await revert(f.manager.connect(f.outsider).submitApplication.staticCall(appKey,cid,hash,70), 'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(f.outsider).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address), 'AccessControlUnauthorizedAccount');
   for (const args of [[ZeroHash,cid,hash,70],[appKey,'invalid"CID',hash,70],[appKey,cid,ZeroHash,70],[appKey,cid,hash,0]])
-    await revert(f.manager.connect(f.borrower).submitApplication.staticCall(...args),'InvalidInput');
+    await revert(f.manager.connect(f.borrower).submitApplication.staticCall(...args,f.evaluator.address),'InvalidInput');
   assert.equal((await f.manager.getApplication(appKey)).status, 0n); assert.equal(await f.manager.nextTokenId(),1n);
 });
 test('same application can be submitted only once', async t => {
   const f=await fixture(t); await submit(f);
-  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70),'AlreadySubmitted');
+  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address),'AlreadySubmitted');
   assert.equal(await f.manager.nextTokenId(),2n);
 });
 test('evaluation confirmation burns SBT and performs boundary LTV rule in same transaction', async t => {
@@ -59,22 +59,24 @@ test('evaluation confirmation burns SBT and performs boundary LTV rule in same t
   assert.equal(a.reportCid,reportCid); assert.equal(a.reportHash,reportHash);
   await revert(f.sbt.ownerOf(1),'ERC721NonexistentToken','IPLoanAccessSBT');
   assert.equal(await f.nft.balanceOf(f.bank.address),0n);
-  assert.ok(receipt.logs.some(l=>l.topics[0]===id('EvaluationConfirmed(bytes32,string,bytes32,uint256,bool)')));
+  assert.ok(receipt.logs.some(l=>l.topics[0]===id('EvaluationConfirmed(bytes32,string,bytes32,uint256,bool,address)')));
 });
-test('only fixed evaluator can confirm even if another address was granted evaluator role', async t => {
+test('only assigned evaluator can confirm even if another address was granted evaluator role', async t => {
   const f=await fixture(t); await submit(f);
-  await revert(f.manager.connect(f.borrower).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100),'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(f.borrower).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,f.bank.address),'AccessControlUnauthorizedAccount');
   await (await f.manager.grantRole(await f.manager.EVALUATOR_ROLE(),f.outsider.address)).wait();
-  await revert(f.manager.connect(f.outsider).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100),'WrongEvaluator');
+  await revert(f.manager.connect(f.outsider).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,f.bank.address),'WrongEvaluator');
   assert.equal(await f.sbt.ownerOf(1),f.evaluator.address);
 });
 test('automatic rejection removes SBT and prevents final approval/NFT', async t => {
-  const f=await fixture(t); await submit(f,appKey,71n); await evaluate(f);
+  const f=await fixture(t); await submit(f,appKey,71n);
+  await revert(f.manager.connect(f.evaluator).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,f.bank.address),'InvalidInput');
+  await evaluate(f,100n,appKey,ZeroAddress); assert.equal((await f.manager.getApplication(appKey)).bank,ZeroAddress);
   assert.equal((await f.manager.getApplication(appKey)).status,3n);
   await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey),'WrongStage');
   assert.equal(await f.sbt.balanceOf(f.evaluator.address),0n); assert.equal(await f.nft.balanceOf(f.bank.address),0n);
 });
-test('only fixed bank/reviewer may approve; NFT is minted to that same address', async t => {
+test('only assigned bank/reviewer may approve; NFT is minted to that same address', async t => {
   const f=await fixture(t); await submit(f); await evaluate(f);
   await revert(f.manager.connect(f.borrower).finalApprove.staticCall(appKey),'AccessControlUnauthorizedAccount');
   await (await f.manager.grantRole(await f.manager.BANK_ROLE(),f.outsider.address)).wait();
@@ -122,5 +124,78 @@ test('revoked evaluator cannot act and earlier stages cannot approve or repay', 
   await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey),'WrongStage');
   await revert(f.manager.connect(f.bank).recordRepayment.staticCall(appKey,1,id('R')),'WrongStage');
   await (await f.manager.revokeRole(await f.manager.EVALUATOR_ROLE(),f.evaluator.address)).wait();
-  await revert(f.manager.connect(f.evaluator).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100),'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(f.evaluator).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,f.bank.address),'AccessControlUnauthorizedAccount');
+});
+test('submission fixes only the evaluator; bank stays unassigned until evaluation', async t => {
+  const f=await fixture(t); const E=await f.manager.EVALUATOR_ROLE();
+  assert.equal(await f.manager.contractVersion(),2n);
+  const call=e=>f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,e);
+  await revert(call(ZeroAddress),'InvalidInput');
+  await (await f.manager.grantRole(E,f.borrower.address)).wait(); await revert(call(f.borrower.address),'InvalidInput');
+  await revert(call(f.bank.address),'WrongEvaluator'); await revert(call(f.outsider.address),'WrongEvaluator');
+  assert.equal((await f.manager.getApplication(appKey)).status,0n); assert.equal(await f.manager.nextTokenId(),1n);
+  const receipt=await submit(f); const a=await f.manager.getApplication(appKey);
+  assert.equal(a.evaluator,f.evaluator.address); assert.equal(a.bank,ZeroAddress);
+  const event=receipt.logs.map(l=>{try{return f.manager.interface.parseLog(l);}catch{return null;}}).find(e=>e?.name==='Submitted');
+  assert.equal(event.args.evaluator,f.evaluator.address);
+  await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey),'WrongStage');
+});
+test('passing evaluation must name a registered bank that is neither evaluator nor borrower', async t => {
+  const f=await fixture(t); const [E,B]=[await f.manager.EVALUATOR_ROLE(),await f.manager.BANK_ROLE()]; await submit(f);
+  const call=b=>f.manager.connect(f.evaluator).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,b);
+  await revert(call(ZeroAddress),'InvalidInput'); await revert(call(f.outsider.address),'WrongBank'); await revert(call(f.borrower.address),'InvalidInput');
+  await (await f.manager.grantRole(B,f.evaluator.address)).wait(); await revert(call(f.evaluator.address),'InvalidInput');
+  await (await f.manager.grantRole(B,f.borrower.address)).wait(); await revert(call(f.borrower.address),'InvalidInput');
+  await (await f.manager.grantRole(E,f.outsider.address)).wait(); await revert(call(f.outsider.address),'WrongBank');
+  const receipt=await evaluate(f); const a=await f.manager.getApplication(appKey);
+  assert.equal(a.bank,f.bank.address); assert.equal(a.status,2n);
+  const event=receipt.logs.map(l=>{try{return f.manager.interface.parseLog(l);}catch{return null;}}).find(e=>e?.name==='EvaluationConfirmed');
+  assert.equal(event.args.bank,f.bank.address); assert.equal(event.args.eligible,true);
+});
+test('admin enumerates, grants and revokes several holders per role; only admin may change roles', async t => {
+  const f=await fixture(t); const [e2,b2,r2]=await Promise.all([5,6,7].map(i=>f.provider.getSigner(i)));
+  const members=async role=>{const n=await f.manager.getRoleMemberCount(role);return Promise.all([...Array(Number(n)).keys()].map(i=>f.manager.getRoleMember(role,i)));};
+  const [E,B,R]=await Promise.all([f.manager.EVALUATOR_ROLE(),f.manager.BANK_ROLE(),f.manager.BORROWER_ROLE()]);
+  for (const [role,s] of [[E,e2],[B,b2],[R,r2]]) await (await f.manager.grantRole(role,s.address)).wait();
+  assert.deepEqual(await members(E),[f.evaluator.address,e2.address]); assert.deepEqual(await members(B),[f.bank.address,b2.address]);
+  assert.deepEqual(await members(R),[f.borrower.address,r2.address]);
+  await revert(f.manager.connect(f.outsider).grantRole.staticCall(E,f.outsider.address),'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(f.bank).revokeRole.staticCall(E,e2.address),'AccessControlUnauthorizedAccount');
+  await (await f.manager.revokeRole(R,f.borrower.address)).wait(); await (await f.manager.revokeRole(E,f.evaluator.address)).wait();
+  assert.deepEqual(await members(R),[r2.address]); assert.deepEqual(await members(E),[e2.address]);
+  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,e2.address),'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(r2).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address),'WrongEvaluator');
+  await (await f.manager.connect(r2).submitApplication(appKey,cid,hash,70,e2.address)).wait();
+});
+test('two applications keep their own evaluator, bank, SBT and debt NFT owners', async t => {
+  const f=await fixture(t); const [e2,b2]=await Promise.all([5,6].map(i=>f.provider.getSigner(i)));
+  await (await f.manager.grantRole(await f.manager.EVALUATOR_ROLE(),e2.address)).wait(); await (await f.manager.grantRole(await f.manager.BANK_ROLE(),b2.address)).wait();
+  const key2=id('LN-2026-0012'); await submit(f);
+  await (await f.manager.connect(f.borrower).submitApplication(key2,cid,hash,70,e2.address)).wait();
+  assert.equal(await f.sbt.ownerOf((await f.manager.getApplication(appKey)).tokenId),f.evaluator.address);
+  assert.equal(await f.sbt.ownerOf((await f.manager.getApplication(key2)).tokenId),e2.address);
+  await revert(f.manager.connect(e2).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,b2.address),'WrongEvaluator');
+  await revert(f.manager.connect(f.evaluator).confirmEvaluation.staticCall(key2,reportCid,reportHash,100,f.bank.address),'WrongEvaluator');
+  await evaluate(f); await (await f.manager.connect(e2).confirmEvaluation(key2,reportCid,reportHash,100,b2.address)).wait();
+  const [a1,a2]=[await f.manager.getApplication(appKey),await f.manager.getApplication(key2)];
+  assert.deepEqual([a1.evaluator,a1.bank,a2.evaluator,a2.bank],[f.evaluator.address,f.bank.address,e2.address,b2.address]);
+  await revert(f.manager.connect(b2).finalApprove.staticCall(appKey),'WrongBank'); await revert(f.manager.connect(f.bank).finalApprove.staticCall(key2),'WrongBank');
+  await (await f.manager.connect(f.bank).finalApprove(appKey)).wait(); await (await f.manager.connect(b2).finalApprove(key2)).wait();
+  assert.equal(await f.nft.ownerOf(a1.tokenId),f.bank.address); assert.equal(await f.nft.ownerOf(a2.tokenId),b2.address);
+  await revert(f.manager.connect(f.bank).recordRepayment.staticCall(key2,1,id('R')),'WrongBank');
+  await (await f.manager.connect(b2).recordRepayment(key2,70,id('R'))).wait(); assert.equal((await f.manager.getApplication(key2)).status,6n);
+});
+test('bank revoked before evaluation cannot be assigned; revoked assigned bank cannot approve or repay', async t => {
+  const f=await fixture(t); const b2=await f.provider.getSigner(6); const B=await f.manager.BANK_ROLE();
+  await (await f.manager.grantRole(B,b2.address)).wait(); await submit(f);
+  await (await f.manager.revokeRole(B,f.bank.address)).wait();
+  await revert(f.manager.connect(f.evaluator).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,f.bank.address),'WrongBank');
+  await (await f.manager.grantRole(B,f.bank.address)).wait(); await evaluate(f);
+  await (await f.manager.revokeRole(B,f.bank.address)).wait();
+  await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey),'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(b2).finalApprove.staticCall(appKey),'WrongBank');
+  assert.equal((await f.manager.getApplication(appKey)).bank,f.bank.address);
+  await (await f.manager.grantRole(B,f.bank.address)).wait(); await (await f.manager.connect(f.bank).finalApprove(appKey)).wait();
+  await (await f.manager.revokeRole(B,f.bank.address)).wait();
+  await revert(f.manager.connect(f.bank).recordRepayment.staticCall(appKey,1,id('R')),'AccessControlUnauthorizedAccount');
 });

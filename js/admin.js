@@ -1,88 +1,93 @@
-const ADMIN_API = ['127.0.0.1', 'localhost'].includes(location.hostname) ? 'http://127.0.0.1:5001/api' : 'https://iploan-api.mustree.kr/api';
-const MVP_BANK_ADMIN = '0xB3Ec5f2bbB80e90ec457165d13EF469893a54951';
+const LOCAL_ADMIN = ['127.0.0.1', 'localhost'].includes(location.hostname);
+const ADMIN_API = LOCAL_ADMIN ? 'http://127.0.0.1:5001/api' : 'https://iploan-api.mustree.kr/api';
 let deploying = false, deployedAddress = null;
 const result = document.getElementById('adminResult');
-IPLoanChain.init(ADMIN_API);
-document.getElementById('deployManager').onclick = async () => {
+const el = id => document.getElementById(id);
+const allowedRoles = ['BORROWER_ROLE', 'EVALUATOR_ROLE', 'BANK_ROLE'];
+async function getJSON(url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || '서버 조회 실패');
+  return data;
+}
+async function action(work) {
   if (deploying) return;
   deploying = true;
-  try {
-    const ctx = await IPLoanChain.connect(null, MVP_BANK_ADMIN);
-    if (IPLoanChain.config()?.enabled) throw new Error('서버에 계약이 이미 연결되어 있습니다. 재배포하지 말고 신청 화면을 사용하세요.');
-    const evaluator = ethers.getAddress(document.getElementById('adminEvaluator').value.trim());
-    const bank = ethers.getAddress(document.getElementById('adminBank').value.trim());
-    if (bank !== MVP_BANK_ADMIN) throw new Error('은행 수령 주소와 관리자 주소는 확정된 은행 지갑이어야 합니다.');
-    const network = await ctx.provider.getNetwork();
-    const overrides = IPLoanChain.transactionOverrides();
-    const feeNotice = overrides.gasPrice === 0n ? 'Mustsem gasPrice=0 요청입니다. 노드가 거부하면 유료 가격으로 재시도하지 않습니다.' : '네트워크 가스 요금이 소모됩니다.';
-    const response = await fetch('blockchain/artifacts/IPLoanManager.json', { cache: 'no-store' });
-    if (!response.ok) throw new Error('먼저 blockchain에서 npm run compile을 실행하세요.');
-    const artifact = await response.json();
-    if (!artifact.compiler?.version?.startsWith('0.8.24+')) throw new Error('Solidity 0.8.24 산출물로 다시 컴파일하세요.');
-    if (artifact.compiler.evmVersion !== 'paris') throw new Error('EVM Paris 산출물이 아닙니다. 다시 컴파일하세요.');
-    const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, ctx.signer);
-    const request = await factory.getDeployTransaction(ctx.address, evaluator, bank);
-    let previous;
-    try { previous = JSON.parse(localStorage.getItem(`iploan-deployment:${network.chainId}`) || 'null'); } catch { /* Server fallback below. */ }
-    const previousHash = previous?.txHash || IPLoanChain.config().pendingDeploymentTxHash;
-    let retryNotice = '';
-    if (previousHash) {
-      const oldTx = await ctx.provider.getTransaction(previousHash);
-      if (!oldTx) throw new Error('이전 배포 거래를 노드에서 찾지 못했습니다. 중복 배포하지 말고 거래 상태를 먼저 확인하세요.');
-      if (oldTx.from.toLowerCase() !== ctx.address.toLowerCase() || oldTx.to !== null ||
-          oldTx.data.toLowerCase() !== request.data.toLowerCase() || oldTx.chainId !== network.chainId || oldTx.value !== 0n) {
-        throw new Error('이전 배포가 현재 지갑·계약·네트워크 설정과 다릅니다. 자동 교체하지 않습니다.');
-      }
-      const receipt = await ctx.provider.getTransactionReceipt(previousHash);
-      if (receipt) {
-        if (receipt.status !== 1) throw new Error('이전 배포는 실패한 영수증으로 확정됐습니다. 먼저 원인을 확인하세요.');
-        deployedAddress = receipt.contractAddress;
-        result.textContent = `기존 배포 완료 확인\n배포 tx: ${previousHash}\nManager: ${deployedAddress}\n다음: 차주 역할 부여를 진행하세요. 재배포하지 않습니다.`;
-        return;
-      }
-      if (await ctx.provider.getTransactionCount(ctx.address, 'latest') !== oldTx.nonce) {
-        throw new Error('이전 nonce가 다른 거래로 처리되었습니다. 새 거래 hash를 확인하세요.');
-      }
-      if (network.chainId !== 7601n || IPLoanChain.config().zeroGasPrice) {
-        throw new Error('이전 배포가 대기 중입니다. 중복 배포하지 말고 확정 여부를 확인하세요.');
-      }
-      const fees = await ctx.provider.getFeeData();
-      if (fees.gasPrice == null || fees.gasPrice <= 0n) throw new Error('정상 수수료를 조회하지 못했습니다.');
-      const minimum = (oldTx.gasPrice || 0n) * 125n / 100n + 1n;
-      overrides.type = 0;
-      overrides.gasPrice = fees.gasPrice > minimum ? fees.gasPrice : minimum;
-      overrides.nonce = oldTx.nonce;
-      retryNotice = `기존 배포 ${previousHash}를 같은 nonce ${oldTx.nonce}, gasPrice ${overrides.gasPrice} wei로 교체합니다. 새 nonce 배포가 아닙니다.`;
-    }
-    if (!confirm(`체인 ${network.chainId}, 관리자 ${ctx.address}, 평가사 ${evaluator}, 은행 ${bank}. ${retryNotice || feeNotice} MetaMask의 최종 수수료를 확인하고 진행할까요?`)) return;
-    const contract = await factory.deploy(ctx.address, evaluator, bank, overrides);
-    const tx = contract.deploymentTransaction();
-    deployedAddress = await contract.getAddress();
-    const explorer = network.chainId === 11155111n ? `\nhttps://sepolia.etherscan.io/tx/${tx.hash}` : '';
-    result.textContent = `배포 전송: ${tx.hash}${explorer}\n예상 계약 주소: ${deployedAddress}\n영수증 대기 중…`;
-    localStorage.setItem(`iploan-deployment:${network.chainId}`, JSON.stringify({ address: deployedAddress, txHash: tx.hash }));
-    await tx.wait(1, 120000);
-    result.textContent = `배포 완료\n배포 tx: ${tx.hash}${explorer}\nSolidity: ${artifact.compiler.version}\nManager: ${deployedAddress}\nSBT: ${await contract.accessSBT()}\n채권 NFT: ${await contract.debtNFT()}\n\n다음: 같은 은행 관리자 지갑에서 차주 역할 부여 버튼을 누르세요.\n두 거래 완료 후 관리자가 Manager 주소를 IPLOAN_MANAGER_ADDRESS에 설정하고 서버를 재시작하세요. 배포 tx와 차주 역할 tx는 검증 기록으로 보관하세요.`;
-  } catch (error) { result.textContent += '\n' + (error.shortMessage || error.message); }
+  try { await work(); }
+  catch (error) { result.textContent += '\n' + (error.code === 4001 ? 'MetaMask 승인을 취소했습니다.' : error.shortMessage || error.message); }
   finally { deploying = false; }
-};
-document.getElementById('grantBorrower').onclick = async () => {
-  if (deploying) return;
-  deploying = true;
-  try {
-    const ctx = await IPLoanChain.connect(null, MVP_BANK_ADMIN);
-    const borrower = ethers.getAddress(document.getElementById('adminBorrower').value.trim());
-    const target = deployedAddress || IPLoanChain.config()?.managerAddress;
-    if (!target) throw new Error('계약을 배포하고 서버에 주소를 설정하세요.');
-    const artifact = await (await fetch('blockchain/artifacts/IPLoanManager.json')).json();
-    const manager = new ethers.Contract(target, artifact.abi, ctx.signer);
-    if (await manager.hasRole(await manager.BORROWER_ROLE(), borrower)) { result.textContent += '\n차주 권한이 이미 등록되어 있습니다. 추가 거래가 필요 없습니다.'; return; }
+}
+async function refreshAdmin() {
+  await IPLoanChain.init(ADMIN_API);
+  const cfg = IPLoanChain.config();
+  if (!cfg?.enabled) return;
+  el('roleMembers').textContent = allowedRoles.map(role => role + '\n' + (cfg.roleMembers[role] || []).join('\n')).join('\n\n');
+}
+async function managerContext() {
+  const ctx = await IPLoanChain.connect();
+  const target = IPLoanChain.config()?.managerAddress || deployedAddress;
+  if (!target) throw new Error('먼저 새 계약을 배포하고 API에 계약 주소를 설정하세요.');
+  const artifact = await getJSON('blockchain/artifacts/IPLoanManager.json');
+  const manager = new ethers.Contract(target, artifact.abi, ctx.signer);
+  if (Number(await manager.contractVersion()) !== 2) throw new Error('다중 담당자 계약이 아닙니다.');
+  if (!(await manager.hasRole(ethers.ZeroHash, ctx.address))) throw new Error('이 계약의 관리자 지갑으로 전환하세요.');
+  return { ...ctx, manager };
+}
+el('deployManager').onclick = () => action(async () => {
+  if (!LOCAL_ADMIN) throw new Error('새 계약 배포는 로컬 화면에서 진행하세요.');
+  const ctx = await IPLoanChain.connect();
+  if (IPLoanChain.config()?.enabled) throw new Error('API의 IPLOAN_MANAGER_ADDRESS를 비운 상태에서 배포하세요. 기존 계약은 유지됩니다.');
+  if (Number((await ctx.provider.getNetwork()).chainId) !== 7601) throw new Error('Mustsem(7601)에서 배포하세요.');
+  const evaluator = ethers.getAddress(el('adminEvaluator').value.trim());
+  const bank = ethers.getAddress(el('adminBank').value.trim());
+  if ([evaluator, bank].includes(ethers.ZeroAddress) || evaluator === bank) throw new Error('평가사와 은행은 서로 다른 영주소가 아닌 주소여야 합니다.');
+  const artifact = await getJSON('blockchain/artifacts/IPLoanManager.json');
+  // Evaluator is fixed at submission, bank/reviewer at a passing evaluation: both calls take 5 arguments.
+  const inputs = name => artifact.abi.find(a => a.type === 'function' && a.name === name)?.inputs.length;
+  if (!artifact.compiler?.version?.startsWith('0.8.24+') || artifact.compiler.evmVersion !== 'paris' || inputs('submitApplication') !== 5 || inputs('confirmEvaluation') !== 5) throw new Error('새 다중 담당자 계약을 먼저 컴파일하세요.');
+  const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, ctx.signer);
+  const request = await factory.getDeployTransaction(ctx.address, evaluator, bank);
+  const storageKey = `iploan-deployment:v2:7601:${ctx.address.toLowerCase()}`;
+  const previous = JSON.parse(localStorage.getItem(storageKey) || 'null');
+  if (previous) {
+    const old = await ctx.provider.getTransaction(previous.txHash);
+    if (!old || old.from.toLowerCase() !== ctx.address.toLowerCase() || old.to !== null || old.chainId !== 7601n || old.value !== 0n || old.data.toLowerCase() !== request.data.toLowerCase()) throw new Error('이전 배포와 현재 설정이 다릅니다. 이전 거래 상태를 먼저 확인하세요.');
+    const receipt = await ctx.provider.getTransactionReceipt(previous.txHash);
+    if (!receipt) throw new Error('이전 배포가 미확정입니다. 중복 배포하지 말고 거래 확정을 기다리세요.');
+    if (receipt.status !== 1) throw new Error('이전 배포가 실패했습니다. 실패 원인을 확인하세요.');
+    deployedAddress = receipt.contractAddress;
+    result.textContent = `기존 새 계약 배포 확인: ${deployedAddress}\n거래: ${previous.txHash}\nAPI의 IPLOAN_MANAGER_ADDRESS를 이 주소로 설정하고 다시 시작하세요.`;
+    return;
+  }
+  localStorage.setItem(storageKey, 'null'); localStorage.removeItem(storageKey);
+  if (!confirm(`Mustsem에 새 계약 3개를 생성합니다. 관리자 ${ctx.address}, 첫 평가사 ${evaluator}, 첫 은행 ${bank}. MetaMask에서 가스 요금을 확인하고 승인하세요.`)) return;
+  const manager = await factory.deploy(ctx.address, evaluator, bank, IPLoanChain.transactionOverrides());
+  const tx = manager.deploymentTransaction();
+  deployedAddress = await manager.getAddress();
+  result.textContent = `배포 전송: ${tx.hash}\nManager: ${deployedAddress}\n확정 대기 중…`;
+  localStorage.setItem(storageKey, JSON.stringify({ address: deployedAddress, txHash: tx.hash }));
+  await tx.wait(1, 120000);
+  result.textContent = `배포 완료\nManager: ${deployedAddress}\nSBT: ${await manager.accessSBT()}\nNFT: ${await manager.debtNFT()}\n거래: ${tx.hash}\n\nAPI의 IPLOAN_MANAGER_ADDRESS를 이 주소로 설정해 다시 시작한 후 차주·평가사·은행 주소를 추가하세요. 서버가 신청 시 평가사를, 평가 통과 시 은행·여신심사역을 배정합니다.`;
+});
+for (const [button, grant] of [['grantRole', true], ['revokeRole', false]]) {
+  el(button).onclick = () => action(async () => {
+    const { manager } = await managerContext();
+    const role = el('roleName').value;
+    if (!allowedRoles.includes(role)) throw new Error('관리할 역할을 선택하세요.');
+    const address = ethers.getAddress(el('roleAddress').value.trim());
+    if (address === ethers.ZeroAddress) throw new Error('영주소는 등록할 수 없습니다.');
+    const roleId = ethers.id(role);
+    if (await manager.hasRole(roleId, address) === grant) { result.textContent = '이미 요청한 권한 상태입니다.'; return; }
+    if (!confirm(`${role}: ${address} 권한을 ${grant ? '추가' : '회수'}합니다. ${grant ? '' : '진행 중인 담당 신청의 실행도 중단됩니다. '}MetaMask에서 승인하세요.`)) return;
     const overrides = IPLoanChain.transactionOverrides();
-    if (!confirm(`차주 ${borrower}에 신청 권한을 부여할까요? ${overrides.gasPrice === 0n ? 'Mustsem gasPrice=0 요청입니다.' : 'MetaMask에서 가스 요금을 확인하세요.'}`)) return;
-    const tx = await manager.grantRole(await manager.BORROWER_ROLE(), borrower, overrides);
-    result.textContent += '\n권한 등록 전송: ' + tx.hash;
+    const fn = grant ? manager.grantRole : manager.revokeRole;
+    await fn.staticCall(roleId, address, overrides);
+    const tx = await fn(roleId, address, overrides);
+    result.textContent = `권한 변경 전송: ${tx.hash}`;
     await tx.wait(1, 120000);
-    result.textContent += '\n차주 역할 등록 완료\n차주 역할 tx: ' + tx.hash + (IPLoanChain.config().chainId === 11155111 ? '\nhttps://sepolia.etherscan.io/tx/' + tx.hash : '') + '\n배포 tx와 차주 역할 tx를 보관하고 API의 계약 주소·네트워크 설정을 확인하세요.';
-  } catch (error) { result.textContent += '\n' + (error.shortMessage || error.message); }
-  finally { deploying = false; }
-};
+    result.textContent += '\n권한 변경 완료';
+    await refreshAdmin();
+  });
+}
+el('refreshAdmin').onclick = () => action(refreshAdmin);
+const adminReady = action(refreshAdmin);
