@@ -17,13 +17,13 @@ async function boot(options={}) {
   const makeTx=async()=>({hash:'0xnew',wait:async()=>({status:1})});
   const grant=async()=>{state.grants++;return makeTx();};grant.staticCall=async()=>{};
   const revoke=async()=>{state.revokes++;return makeTx();};revoke.staticCall=async()=>{};
-  const cfg={chainId:7601,enabled:!!state.enabled,managerAddress:state.enabled?'0xmanager':null,roleMembers:{BORROWER_ROLE:[],EVALUATOR_ROLE:[],BANK_ROLE:[]}};
+  const cfg={chainId:7601,enabled:!!state.enabled,managerAddress:state.enabled?'0xmanager':null,abi:state.enabled?[]:undefined,roleMembers:{BORROWER_ROLE:[],EVALUATOR_ROLE:[],BANK_ROLE:[]}};
   const context=vm.createContext({location:{hostname:'127.0.0.1'},document:{getElementById:el},
     IPLoanChain:{init:async()=>{},connect:async()=>({address:admin,provider,signer:{}}),config:()=>cfg,transactionOverrides:()=>({})},
     ethers:{ZeroAddress:zero,ZeroHash:'0xzero',id:x=>x,getAddress:x=>x,
       Contract:class {contractVersion=async()=>2;hasRole=async role=>role==='0xzero'?state.isAdmin:!!state.hasRole;grantRole=grant;revokeRole=revoke;},
       ContractFactory:class {getDeployTransaction=async()=>({data:'0xfeed'});deploy=async()=>{state.deploys++;return{deploymentTransaction:()=>({hash:'0xnew',wait:async()=>({status:1})}),getAddress:async()=> '0xmanager',accessSBT:async()=> '0xsbt',debtNFT:async()=> '0xnft'};}}},
-    fetch:async()=>({ok:true,json:async()=>({abi:[{type:'function',name:'submitApplication',inputs:Array(5)},{type:'function',name:'confirmEvaluation',inputs:Array(state.oldAbi?4:5)}],bytecode:'0xfeed',compiler:{version:'0.8.24+commit.test',evmVersion:'paris'}})}),
+    fetch:async()=>state.noArtifact?{ok:false,json:async()=>({message:'404'})}:({ok:true,json:async()=>({abi:[{type:'function',name:'submitApplication',inputs:Array(5)},{type:'function',name:'confirmEvaluation',inputs:Array(state.oldAbi?4:5)}],bytecode:'0xfeed',compiler:{version:'0.8.24+commit.test',evmVersion:'paris'}})}),
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},confirm:()=>state.confirm});
   vm.runInContext(source,context); await vm.runInContext('adminReady',context);
   return{state,el,storage,run:s=>vm.runInContext(s,context)};
@@ -52,4 +52,7 @@ test('admin can revoke a role and duplicate grant is a no-op',async()=>{
 });
 test('artifact from an earlier contract signature is refused before deployment',async()=>{
   const h=await boot({oldAbi:true});await h.el('deployManager').onclick();assert.equal(h.state.deploys,0);assert.match(h.el('adminResult').textContent,/컴파일/);
+});
+test('role management uses the API ABI where build artifacts are not published',async()=>{
+  const h=await boot({enabled:true,noArtifact:true});await h.el('grantRole').onclick();assert.equal(h.state.grants,1);
 });

@@ -25,10 +25,12 @@ async function refreshAdmin() {
 }
 async function managerContext() {
   const ctx = await IPLoanChain.connect();
-  const target = IPLoanChain.config()?.managerAddress || deployedAddress;
+  const cfg = IPLoanChain.config();
+  const target = cfg?.managerAddress || deployedAddress;
   if (!target) throw new Error('먼저 새 계약을 배포하고 API에 계약 주소를 설정하세요.');
-  const artifact = await getJSON('blockchain/artifacts/IPLoanManager.json');
-  const manager = new ethers.Contract(target, artifact.abi, ctx.signer);
+  // The API serves the connected Manager's ABI, so role management works where build artifacts are not published.
+  const abi = cfg?.enabled ? cfg.abi : (await getJSON('blockchain/artifacts/IPLoanManager.json')).abi;
+  const manager = new ethers.Contract(target, abi, ctx.signer);
   if (Number(await manager.contractVersion()) !== 2) throw new Error('다중 담당자 계약이 아닙니다.');
   if (!(await manager.hasRole(ethers.ZeroHash, ctx.address))) throw new Error('이 계약의 관리자 지갑으로 전환하세요.');
   return { ...ctx, manager };
