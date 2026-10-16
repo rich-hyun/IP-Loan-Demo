@@ -1,11 +1,11 @@
 # Flask API — 시범 MVP
 
-현재 실행은 검증된 Mustsem 배포(7601, MST)에 연결되었으며 DB는 server/iploan-mustsem-mvp.db다.
-Sepolia DB server/iploan-sepolia-mvp.db는 보존했다. Mustsem Manager는 0x385D93904D2231B59a87282c1dC9b777b3F31b57이다.
-현재는 사용자 MST 준비·수수료 승인에 따라 IPLOAN_ZERO_GAS_PRICE=0으로 정상 수수료를 사용한다.
+Mustsem(7601, MST)에 배포한 v2 Manager 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38에 연결한다.
+서버는 `contractVersion() == 2`인 Manager에만 연결하며, DB는 server/iploan-mustsem-v2.db를 사용한다.
+IPLOAN_ZERO_GAS_PRICE=0으로 정상 수수료를 사용한다.
 
 ```bash
-cd /mnt/c/Users/mustree/.codex/worktrees/ip-loan-mvp/IP-Loan-Demo
+cd IP-Loan-Demo  # 저장소 루트
 bash blockchain/scripts/start-mustsem-api.sh
 ```
 
@@ -17,11 +17,11 @@ bash blockchain/scripts/start-mustsem-api.sh
 ## 설정 (WSL Bash)
 
 ```bash
-cd /mnt/c/Users/mustree/.codex/worktrees/ip-loan-mvp/IP-Loan-Demo
+cd IP-Loan-Demo  # 저장소 루트
 export IPLOAN_RPC_URL=https://block.mustree.kr
 export IPLOAN_CHAIN_ID=7601
-export IPLOAN_MANAGER_ADDRESS=0x385D93904D2231B59a87282c1dC9b777b3F31b57
-export IPLOAN_DB_PATH="$PWD/server/iploan-mustsem-mvp.db"
+export IPLOAN_MANAGER_ADDRESS=0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38
+export IPLOAN_DB_PATH="$PWD/server/iploan-mustsem-v2.db"
 export IPLOAN_ZERO_GAS_PRICE=0
 export PORT=5001
 server/.venv/bin/python server/app.py
@@ -36,7 +36,9 @@ server/.venv/bin/python server/app.py
 | IPLOAN_DB_PATH | 이 worktree의 server/iploan.db |
 | IPLOAN_RPC_URL | https://block.mustree.kr |
 | IPLOAN_CHAIN_ID | 7601 |
-| IPLOAN_MANAGER_ADDRESS | 기본 없음. 배포한 전용 Manager 필요 |
+| IPLOAN_MANAGER_ADDRESS | 기본 없음. 배포한 v2 Manager 필요 |
+| IPLOAN_ASSIGNMENT_EVALUATOR | 비우면 등록된 평가사 중 임의 배정. 지정 시 그 주소만(역할 없으면 신청 거절) |
+| IPLOAN_ASSIGNMENT_BANK | 비우면 등록된 은행 중 임의 배정. 지정 시 그 주소만(역할 없으면 보고서 준비 거절) |
 | IPLOAN_IPFS_UPLOAD_URL | https://api.mustree.kr/upload |
 | IPLOAN_IPFS_GATEWAY | https://rwa-gw.mustree.kr/ipfs/ |
 | IPLOAN_MAX_DOCUMENT_BYTES | 20971520 |
@@ -45,9 +47,14 @@ server/.venv/bin/python server/app.py
 
 - server/chain.py는 RPC·계약·역할·신청 내용·소유권을 읽고 확인한다. 서명 키·자동 tx 없음.
 - /sync는 실제 체인 상태만 반영한다. 클라이언트 tokenId·status·상환금액을 증거로 받아들이지 않는다.
+- 담당자 배정: 평가사는 신청 접수 시, 은행·여신심사역은 70% 기준을 통과하는 평가보고서 준비 시 체인의 역할 보유자 중에서 고른다.
+  클라이언트가 보낸 담당자 주소는 쓰지 않으며, 차주 본인과 해당 신청의 평가사는 후보에서 제외한다.
+  한 번 정한 배정은 설정을 바꿔도 유지된다. 준비된 은행이 평가 확정 전에 역할을 잃은 경우에만 다시 고른다.
+- 계약은 담당자의 역할과 신청별 고정만 검증한다. 차주·평가사가 계약을 직접 호출해 다른 등록 주소를 넣으면
+  /sync가 서버 배정과 다르다는 오류로 거절하고 원본 열람도 막는다. 체인에서 서버 배정을 강제하지는 않는다.
 - 온체인 신청에 대한 기존 PATCH와 계약 연결 중 DB reset은 409로 거절한다.
 - AES 키·salt는 SQLite에 저장한다. 신청 공개 API에는 포함하지 않는다.
-- 원본은 일회성 5분 nonce·MetaMask personal_sign·현재 SBT/NFT 소유권 확인 후 복호화해서 반환한다.
+- 원본은 일회성 5분 nonce·MetaMask personal_sign·현재 SBT/NFT 소유권·현재 역할 보유 확인 후 복호화해서 반환한다.
 - 기업 프로필은 제출 저장 성공 시 자동 생성/갱신한다. 별도 저장 버튼 없음.
 - 회사 선택·역할 UI는 인증이 아니다. 일반 목록·프로필·보고서 준비 API는 데모 공개 API다.
 - 보고서 JSON은 공개 가상 내용이다. 원부 진위 대조·LLM은 mock. 실제 개인정보·영업비밀을 쓰지 않는다.
@@ -60,8 +67,8 @@ API 전체와 상태는 [설계 문서](../docs/대출신청-암호화-토큰-�
 ## 자동 테스트
 
 ```bash
-cd /mnt/c/Users/mustree/.codex/worktrees/ip-loan-mvp/IP-Loan-Demo
-IPLOAN_MANAGER_ADDRESS= server/.venv/bin/python -m unittest server.test_app -v
+cd IP-Loan-Demo  # 저장소 루트
+IPLOAN_MANAGER_ADDRESS= server/.venv/bin/python -m unittest server.test_app server.test_patent_integration server.test_participant_assignment -v
 node --test js/app.test.cjs js/chain.test.cjs js/admin.test.cjs
 cd blockchain
 npm test
