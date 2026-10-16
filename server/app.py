@@ -401,7 +401,8 @@ def create_application():
             cfg = chain.config()
             borrower = chain.address(data.get("borrowerWallet"))
             chain.require_role(borrower, "BORROWER_ROLE")
-            chain_fields = {"borrowerWallet": borrower, "evaluatorWallet": cfg["evaluatorWallet"], "bankWallet": cfg["bankWallet"],
+            evaluator = chain.select_evaluator(cfg, borrower)
+            chain_fields = {"borrowerWallet": borrower, "evaluatorWallet": evaluator, "bankWallet": None,
                             "managerAddress": cfg["managerAddress"], "chainId": cfg["chainId"], "chainStatus": "None", "repaidAmount": 0}
         except chain.ChainError as exc:
             return error_response(str(exc), 400, "chain_not_ready")
@@ -606,6 +607,19 @@ def sync_application(app_id):
         return error_response(str(exc), 409, "chain_verification_failed")
 
 
+def assign_bank(application):
+    """Bank/reviewer is chosen once, when a passing evaluation is prepared (chain still Evaluating).
+    It is re-chosen only if the stored bank lost BANK_ROLE before the evaluator confirmed on chain."""
+    current = application.get("bankWallet")
+    if current and chain.has_role(current, "BANK_ROLE"):
+        return current
+    selected = chain.select_bank(chain.config(), application["evaluatorWallet"], application["borrowerWallet"])
+    db = get_db()
+    db.execute("UPDATE applications SET bankWallet = ? WHERE id = ? AND bankWallet IS ?", (selected, application["id"], current))
+    db.commit()
+    return db.execute("SELECT bankWallet FROM applications WHERE id = ?", (application["id"],)).fetchone()["bankWallet"]
+
+
 @app.route("/api/applications/<app_id>/evaluation-report", methods=["POST"])
 def prepare_evaluation_report(app_id):
     application = find_application(app_id)
@@ -628,13 +642,14 @@ def prepare_evaluation_report(app_id):
                   "summary": str(data.get("summary", "시연용 IP 가치평가 보고서"))[:4000]}
         payload = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         digest = "0x" + hashlib.sha256(payload.encode()).hexdigest()
+        bank = assign_bank(application) if chain.eligible(application["amount"], value) else None
         previous = get_db().execute("SELECT * FROM evaluation_reports WHERE hash = ?", (digest,)).fetchone()
         if previous:
-            return jsonify({"cid": previous["cid"], "hash": digest, "appraisedValue": value})
+            return jsonify({"cid": previous["cid"], "hash": digest, "appraisedValue": value, "bankWallet": bank})
         uploaded = upload_ipfs_payload(payload.encode(), "evaluation-report.json", "application/json")
         get_db().execute("INSERT INTO evaluation_reports VALUES (?, ?, ?, ?, ?)", (digest, app_id, uploaded["cid"], payload, value))
         get_db().commit()
-        return jsonify({"cid": uploaded["cid"], "hash": digest, "appraisedValue": value}), 201
+        return jsonify({"cid": uploaded["cid"], "hash": digest, "appraisedValue": value, "bankWallet": bank}), 201
     except (ValueError, TypeError):
         return error_response("평가액을 양의 정수로 입력해 주세요.", 400, "invalid_value")
     except chain.ChainError as exc:
@@ -695,6 +710,10 @@ def read_document(app_id):
             state["chainStatus"] in {"Approved", "Repaid"} and wallet.lower() == application["bankWallet"].lower())
         if not allowed:
             raise ValueError("현재 이 지갑에는 원본 열람권이 없습니다.")
+        # A revoked participant keeps its SBT/NFT but must not keep document access.
+        role = "EVALUATOR_ROLE" if state["chainStatus"] == "Evaluating" else "BANK_ROLE"
+        if not chain.has_role(wallet, role):
+            raise ValueError("역할이 회수된 지갑은 원본을 열람할 수 없습니다.")
         gateway = os.environ.get("IPLOAN_IPFS_GATEWAY", "https://rwa-gw.mustree.kr/ipfs/")
         response = requests.get(gateway.rstrip("/") + "/" + application["docCid"], timeout=(10, 60), stream=True)
         response.raise_for_status()

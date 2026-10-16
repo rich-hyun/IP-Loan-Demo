@@ -6,7 +6,8 @@ const source = fs.readFileSync(`${__dirname}/chain.js`, 'utf8');
 const wallet = '0x1111111111111111111111111111111111111111';
 const manager = '0x2222222222222222222222222222222222222222';
 const application = { id: 'LN-TEST', appKey: '0xkey', docCid: 'bafytestcid', docFileHash: '0xhash', amount: 70,
-  borrowerWallet: wallet, managerAddress: manager, chainId: 31337 };
+  borrowerWallet: wallet, managerAddress: manager, chainId: 31337,
+  evaluatorWallet: '0x3333333333333333333333333333333333333333', bankWallet: '0x4444444444444444444444444444444444444444' };
 
 async function harness(options = {}) {
   const state = { stage: 0, sends: 0, syncs: 0, methods: [], ...options };
@@ -15,6 +16,7 @@ async function harness(options = {}) {
   const send = async (...args) => {
     state.sends++;
     state.sentOverrides = args.at(-1);
+    state.sentArgs = args.slice(0, -1);
     if (state.cancel) throw Object.assign(new Error('cancel'), { code: 4001 });
     state.stage = 1;
     return { hash: '0xbroadcast', wait: async () => ({ status: 1 }) };
@@ -31,10 +33,10 @@ async function harness(options = {}) {
       return [state.wrongWallet ? manager : wallet];
     } },
     ethers: {
-      getAddress: a => a, toBeHex: n => `0x${n.toString(16)}`, id: s => s,
+      ZeroAddress: '0x0000000000000000000000000000000000000000', getAddress: a => a, toBeHex: n => `0x${n.toString(16)}`, id: s => s,
       BrowserProvider: class { async getSigner() { return {}; } async getTransactionReceipt() { return state.receipt || null; } },
       Contract: class { hasRole = async () => state.hasRole !== false;
-        getApplication = async () => ({ status: state.stage }); submitApplication = send; },
+        getApplication = async () => ({ status: state.stage }); submitApplication = send; confirmEvaluation = send; },
     },
     fetch: async url => {
       if (url.endsWith('/chain/config')) return { ok: true, json: async () => ({ enabled: true, chainId: state.chainId || 31337, zeroGasPrice: state.zeroGasPrice, managerAddress: manager, abi: [] }) };
@@ -95,4 +97,29 @@ test('zero price never leaks to Sepolia or an unconfigured network', async () =>
     const h = await harness(options);
     assert.equal(Object.keys(h.api.transactionOverrides()).length, 0);
   }
+});
+
+test('registration sends only the stored server-assigned evaluator, with no per-application admin transaction', async () => {
+  const h = await harness();
+  await h.api.register(application);
+  assert.equal(h.state.sentArgs.length, 5);
+  assert.equal(h.state.sentArgs.at(-1), application.evaluatorWallet);
+  assert.equal(h.state.sends, 1);
+});
+
+test('missing stored assignment is refused before asking MetaMask to broadcast', async () => {
+  const h = await harness();
+  await assert.rejects(h.api.register({ ...application, evaluatorWallet: '' }), /담당 평가사 주소/);
+  assert.equal(h.state.sends, 0);
+});
+
+test('evaluation sends the server-assigned bank for a passing report and the zero address otherwise', async () => {
+  const report = { cid: 'bafyreport', hash: '0xreport', appraisedValue: 100 };
+  const evaluating = { ...application, evaluatorWallet: wallet };
+  let h = await harness({ stage: 1 });
+  await h.api.evaluate(evaluating, { ...report, bankWallet: application.bankWallet });
+  assert.equal(h.state.sentArgs.at(-1), application.bankWallet);
+  h = await harness({ stage: 1 });
+  await h.api.evaluate(evaluating, { ...report, appraisedValue: 99, bankWallet: null });
+  assert.equal(h.state.sentArgs.at(-1), '0x0000000000000000000000000000000000000000');
 });

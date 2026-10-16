@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IPLoanAccessSBT} from "./IPLoanAccessSBT.sol";
 import {IPLoanDebtNFT} from "./IPLoanDebtNFT.sol";
 
-contract IPLoanManager is AccessControl, ReentrancyGuard {
+contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     using Strings for uint256;
     bytes32 public constant BORROWER_ROLE = keccak256("BORROWER_ROLE");
     bytes32 public constant EVALUATOR_ROLE = keccak256("EVALUATOR_ROLE");
@@ -24,9 +24,10 @@ contract IPLoanManager is AccessControl, ReentrancyGuard {
         uint256 tokenId;
         uint256 repaidAmount;
         Status status;
+        address evaluator;
+        address bank;
     }
-    address public immutable evaluator;
-    address public immutable bank;
+    uint256 public constant contractVersion = 2;
     IPLoanAccessSBT public immutable accessSBT;
     IPLoanDebtNFT public immutable debtNFT;
     uint256 public nextTokenId = 1;
@@ -39,15 +40,14 @@ contract IPLoanManager is AccessControl, ReentrancyGuard {
     error WrongEvaluator();
     error WrongBank();
     error DuplicateRepayment();
-    event Submitted(bytes32 indexed appKey, address indexed borrower, uint256 tokenId, string cid, bytes32 fileHash, uint256 amount);
-    event EvaluationConfirmed(bytes32 indexed appKey, string reportCid, bytes32 reportHash, uint256 value, bool eligible);
+    event Submitted(bytes32 indexed appKey, address indexed borrower, address indexed evaluator, uint256 tokenId, string cid, bytes32 fileHash, uint256 amount);
+    event EvaluationConfirmed(bytes32 indexed appKey, string reportCid, bytes32 reportHash, uint256 value, bool eligible, address indexed bank);
     event FinalApproved(bytes32 indexed appKey, address indexed bank, uint256 debtTokenId);
     event FinalRejected(bytes32 indexed appKey);
     event RepaymentRecorded(bytes32 indexed appKey, bytes32 indexed paymentRef, uint256 amount, uint256 total, bool fullyRepaid);
 
     constructor(address admin, address evaluator_, address bank_) {
         if (admin == address(0) || evaluator_ == address(0) || bank_ == address(0) || evaluator_ == bank_) revert InvalidInput();
-        evaluator = evaluator_; bank = bank_;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(EVALUATOR_ROLE, evaluator_);
         _grantRole(BANK_ROLE, bank_);
@@ -55,50 +55,59 @@ contract IPLoanManager is AccessControl, ReentrancyGuard {
         debtNFT = new IPLoanDebtNFT(address(this));
     }
     function getApplication(bytes32 appKey) external view returns (Application memory) { return _applications[appKey]; }
-    function submitApplication(bytes32 appKey, string calldata cid, bytes32 fileHash, uint256 amount)
+    // The borrower submits with the server-selected evaluator; it is fixed for this application.
+    function submitApplication(bytes32 appKey, string calldata cid, bytes32 fileHash, uint256 amount, address evaluator_)
         external onlyRole(BORROWER_ROLE) nonReentrant {
         if (appKey == bytes32(0) || !_validCid(cid) || fileHash == bytes32(0) || amount == 0 || amount > type(uint128).max) revert InvalidInput();
         if (_applications[appKey].status != Status.None) revert AlreadySubmitted(appKey);
-        if (!hasRole(EVALUATOR_ROLE, evaluator)) revert WrongEvaluator();
+        if (evaluator_ == address(0) || evaluator_ == msg.sender) revert InvalidInput();
+        if (!hasRole(EVALUATOR_ROLE, evaluator_)) revert WrongEvaluator();
         uint256 tokenId = nextTokenId++;
-        _applications[appKey] = Application(msg.sender, cid, fileHash, amount, "", bytes32(0), 0, tokenId, 0, Status.Evaluating);
+        _applications[appKey] = Application(msg.sender, cid, fileHash, amount, "", bytes32(0), 0, tokenId, 0, Status.Evaluating, evaluator_, address(0));
         applicationKey[tokenId] = appKey;
-        accessSBT.mint(evaluator, tokenId);
-        emit Submitted(appKey, msg.sender, tokenId, cid, fileHash, amount);
+        accessSBT.mint(evaluator_, tokenId);
+        emit Submitted(appKey, msg.sender, evaluator_, tokenId, cid, fileHash, amount);
     }
-    function confirmEvaluation(bytes32 appKey, string calldata reportCid, bytes32 reportHash, uint256 value)
+    // The evaluator confirms with the server-selected bank/reviewer, assigned only when the 70% rule passes.
+    // A rule-rejected application has no bank, so bank_ must then be the zero address.
+    function confirmEvaluation(bytes32 appKey, string calldata reportCid, bytes32 reportHash, uint256 value, address bank_)
         external onlyRole(EVALUATOR_ROLE) nonReentrant {
-        if (msg.sender != evaluator) revert WrongEvaluator();
         Application storage a = _applications[appKey];
+        if (msg.sender != a.evaluator) revert WrongEvaluator();
         if (a.status != Status.Evaluating) revert WrongStage(appKey);
         if (!_validCid(reportCid) || reportHash == bytes32(0) || value == 0 || value > type(uint128).max) revert InvalidInput();
-        a.reportCid = reportCid; a.reportHash = reportHash; a.appraisedValue = value;
         bool eligible = a.amount * 100 <= value * 70;
+        if (eligible) {
+            if (bank_ == address(0) || bank_ == a.evaluator || bank_ == a.borrower) revert InvalidInput();
+            if (!hasRole(BANK_ROLE, bank_)) revert WrongBank();
+            a.bank = bank_;
+        } else if (bank_ != address(0)) revert InvalidInput();
+        a.reportCid = reportCid; a.reportHash = reportHash; a.appraisedValue = value;
         a.status = eligible ? Status.Eligible : Status.RuleRejected;
         accessSBT.burn(a.tokenId);
-        emit EvaluationConfirmed(appKey, reportCid, reportHash, value, eligible);
+        emit EvaluationConfirmed(appKey, reportCid, reportHash, value, eligible, bank_);
     }
     function finalApprove(bytes32 appKey) external onlyRole(BANK_ROLE) nonReentrant {
-        if (msg.sender != bank) revert WrongBank();
         Application storage a = _applications[appKey];
         if (a.status != Status.Eligible) revert WrongStage(appKey);
+        if (msg.sender != a.bank) revert WrongBank();
         a.status = Status.Approved;
-        debtNFT.mint(bank, a.tokenId);
-        emit FinalApproved(appKey, bank, a.tokenId);
+        debtNFT.mint(a.bank, a.tokenId);
+        emit FinalApproved(appKey, a.bank, a.tokenId);
     }
     function finalReject(bytes32 appKey) external onlyRole(BANK_ROLE) nonReentrant {
-        if (msg.sender != bank) revert WrongBank();
         Application storage a = _applications[appKey];
         if (a.status != Status.Eligible) revert WrongStage(appKey);
+        if (msg.sender != a.bank) revert WrongBank();
         a.status = Status.Rejected;
         emit FinalRejected(appKey);
     }
     /// Records a bank-confirmed DEMO payment. Never transfers ETH/MST/ERC20 funds.
     function recordRepayment(bytes32 appKey, uint256 amount, bytes32 paymentRef)
         external onlyRole(BANK_ROLE) nonReentrant {
-        if (msg.sender != bank) revert WrongBank();
         Application storage a = _applications[appKey];
         if (a.status != Status.Approved) revert WrongStage(appKey);
+        if (msg.sender != a.bank) revert WrongBank();
         if (amount == 0 || amount > a.amount - a.repaidAmount || paymentRef == bytes32(0)) revert InvalidInput();
         bytes32 key = keccak256(abi.encode(appKey, paymentRef));
         if (repaymentReferences[key]) revert DuplicateRepayment();

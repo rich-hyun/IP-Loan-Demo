@@ -3,7 +3,7 @@ globalThis.IPLoanChain = (() => {
   let base, cfg = null;
   const pendingMemory = new Map();
   const messages = { AlreadySubmitted: '이미 등록된 신청입니다. 체인 상태를 동기화하세요.', WrongStage: '현재 신청 단계에서 실행할 수 없습니다.',
-    WrongEvaluator: '고정 평가사 지갑으로 전환하세요.', WrongBank: '여신심사·은행 지갑으로 전환하세요.',
+    WrongEvaluator: '이 신청에 배정된 평가사 지갑으로 전환하세요.', WrongBank: '이 신청에 배정된 은행 지갑으로 전환하세요.',
     AccessControlUnauthorizedAccount: '이 지갑에 필요한 역할이 없습니다.', InvalidInput: '입력값을 확인하세요.', DuplicateRepayment: '이미 기록된 상환 참조번호입니다.' };
   function message(error) {
     if (error.code === 4001 || error.code === 'ACTION_REJECTED') return 'MetaMask 서명을 취소했습니다. 다시 시도할 수 있습니다.';
@@ -36,7 +36,7 @@ globalThis.IPLoanChain = (() => {
     try {
       cfg = await request('/chain/config');
       const hint = document.getElementById('chainConfigHint');
-      if (hint) hint.textContent = cfg.enabled ? `고정 평가사: ${cfg.evaluatorWallet} · 은행/여신심사: ${cfg.bankWallet}` : '계약 미설정: 먼저 로컬 테스트 또는 사람이 승인한 배포 후 계약 주소를 설정하세요.';
+      if (hint) hint.textContent = cfg.enabled ? '서버가 등록된 주소 중 신청 접수 시 평가사를, 평가 통과 시 은행·여신심사역을 배정합니다. 배정된 주소는 신청에 저장됩니다.' : '계약 미설정: 관리자 화면에서 배포 후 API의 IPLOAN_MANAGER_ADDRESS를 설정하세요.';
     } catch (error) {
       cfg = null;
       const hint = document.getElementById('chainConfigHint');
@@ -138,10 +138,14 @@ globalThis.IPLoanChain = (() => {
     }
   }
   async function register(app) {
-    return execute(app, 'submit', 'submitApplication', [app.appKey, app.docCid, app.docFileHash, BigInt(app.amount)], 'BORROWER_ROLE', app.borrowerWallet);
+    if (!app.evaluatorWallet) throw new Error('신청에 저장된 담당 평가사 주소를 확인하세요.');
+    const args = [app.appKey, app.docCid, app.docFileHash, BigInt(app.amount), app.evaluatorWallet];
+    return execute(app, 'submit', 'submitApplication', args, 'BORROWER_ROLE', app.borrowerWallet);
   }
   async function evaluate(app, report) {
-    return execute(app, 'evaluate', 'confirmEvaluation', [app.appKey, report.cid, report.hash, BigInt(report.appraisedValue)], 'EVALUATOR_ROLE', app.evaluatorWallet);
+    // The server assigns the bank/reviewer only for an evaluation that passes the 70% rule; otherwise it is empty.
+    const bank = report.bankWallet || ethers.ZeroAddress;
+    return execute(app, 'evaluate', 'confirmEvaluation', [app.appKey, report.cid, report.hash, BigInt(report.appraisedValue), bank], 'EVALUATOR_ROLE', app.evaluatorWallet);
   }
   async function approve(app, yes) {
     return execute(app, yes ? 'approve' : 'reject', yes ? 'finalApprove' : 'finalReject', [app.appKey], 'BANK_ROLE', app.bankWallet);

@@ -506,6 +506,7 @@ function openDetail(id) {
     : '';
   if (app.appKey) {
     document.getElementById('detailDocs').innerHTML += `<p>체인: ${escapeHtml(app.chainStatus || 'None')} · SBT: ${escapeHtml(app.sbtTokenId || '—')} · 채권 NFT: ${escapeHtml(app.debtTokenId || '—')}</p>
+      <p>담당 평가사: ${escapeHtml(app.evaluatorWallet || '—')}<br>담당 은행: ${escapeHtml(app.bankWallet || (app.chainStatus === 'RuleRejected' ? '배정 없음(자동심사 거절)' : '평가 통과 시 배정'))}</p>
       ${app.chainStatus === 'None' ? `<button class="btn btn-outline" onclick="retryApplicationChain('${app.id}')">업로드 재사용 · 신청 등록 재시도</button>` : ''}
       <button class="btn btn-outline" onclick="retryApplicationChain('${app.id}', true)">체인 확인·복구</button>`;
   }

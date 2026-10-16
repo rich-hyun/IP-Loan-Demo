@@ -12,6 +12,9 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 TEST_DIR = tempfile.TemporaryDirectory()
 os.environ["IPLOAN_DB_PATH"] = os.path.join(TEST_DIR.name, "iploan-test.db")
+# Importing app also loads patent_app; keep its DB/uploads out of server/ as well.
+os.environ["IPLOAN_PATENT_DB_PATH"] = os.path.join(TEST_DIR.name, "patent-test.db")
+os.environ["IPLOAN_PATENT_UPLOAD_DIR"] = os.path.join(TEST_DIR.name, "patent-uploads")
 
 from server import app as app_module  # noqa: E402
 
@@ -207,7 +210,12 @@ class ApplicationUploadTest(unittest.TestCase):
 
     def test_reset_resets_both_profiles_and_applications(self):
         self.client.post("/api/borrower-profiles", json={"company": "신규 기업"})
-        self.assertEqual(self.client.post("/api/reset").status_code, 200)
+        with patch.dict(os.environ, {"IPLOAN_ENABLE_RESET": "1", "IPLOAN_ADMIN_KEY": "test-reset-key"}):
+            self.assertEqual(self.client.post("/api/reset").status_code, 403)
+            self.assertEqual(
+                self.client.post("/api/reset", headers={"X-Admin-Key": "test-reset-key"}).status_code,
+                200,
+            )
         self.assertEqual(len(self.profiles()), 8)
         self.assertFalse(any(p["company"] == "신규 기업" for p in self.profiles()))
 
