@@ -72,3 +72,9 @@ TypeScript 프로젝트가 아니므로 별도의 타입 검사기는 없다. �
 - 신청의 실제 IPFS CID는 `QmaBy2uN8FarzD8hVWN9we7jPVsQ8QZJjivVefL7xcfXr6`이다. 게이트웨이에서 회수해 DB에 보관된 키로 복호화하고 원본 PDF 및 salt 포함 체인 해시와 일치함을 확인했다. MetaMask가 전송한 거래 `0xf972ecb5d944e3edee02e22ac79c5d7527079b8173e05a7f57a4e4d0a30267e9`의 receipt status=1, 발신 지갑·대상 계약 일치, 평가 SBT 1을 확인했다. 증거는 `output/local-real/real-application-proof.json`과 `browser-real-submitted.png`이다.
 - 같은 신청의 실제 외부 평가 작업은 `ddc61f8fc5064175a47d3ce3c4e0fa60`이다. 최초 접수 1회이며 공급자 응답의 사업자번호·원본 SHA256이 일치했다. 실제 MetaMask 상태 조회 서명 후 10초 자동 갱신으로 약 5분 뒤 `completed/finished`와 보고서 버튼이 화면에 표시됐다. 자동 산출값은 실제 HTML 표의 `-0.00억 원`을 추출한 0원이다. 평가사 확정 전 여신심사 건은 0건이다. 화면 증거는 `output/local-real/browser-real-report-ready.png`이다. PDF 열람용 MetaMask 서명이 승인되어 인증 API 200과 브라우저 다운로드를 확인했다. 다운로드 파일은 C:/Users/mustree/Downloads/LN-2026-4233-pdf.pdf (1,591,828바이트, 78쪽)이며 PDF 파싱과 해당 특허번호 포함을 확인했다. SHA256은 5d78c1130fe4723fd5c4fee3ed0fd15f99da398eecd545c2b5392396134cdd99이다. 평가사 검토·확정은 아직 수행하지 않았다. **이 실제 신청의 평가사 검토 이후 흐름은 미검증이며 전체 흐름 완료로 표시하지 않는다.**
 - 변경 후 Python 80건, 프런트엔드 35건 통과. 새 런처의 PowerShell 구문 검사와 Node 구문 검사, 실제 서버 기동을 확인했다.
+
+## 실제 MetaMask 평가 확정·은행 최종 승인 확인 (2026-10-21)
+
+사용자가 평가사와 은행의 MetaMask 거래를 직접 승인한 뒤 `LN-2026-4233`의 DB 및 실제 로컬 RPC를 다시 조회했다. `chainStatus=Approved`, 적용 가치 100,000,000원, 신청금액 70,000,000원, LTV 70%, `credit_cases` 1건, 채권 NFT Token ID 1 및 배정 은행 `0x90F79bf6EB2c4f870365E785982E1f101E93b906`의 소유권이 일치했다. 자동 산출값은 0원으로 보존되었다. 적용 1억원은 사용자가 승인한 로컬 기능 검증용 데모 값이며 실제 특허 가치평가 결론이 아니다.
+
+사용자가 직접 확정한 검토 사유는 `test`로 저장되어 있다. 준비 화면에서 작성했던 긴 데모 설명으로 덮어쓰지 않았다. 이후 실제 업무에서는 충분한 검토 근거를 입력해야 한다. 이 확인은 로컬 개발 체인과 실제 IPFS·평가 API·MetaMask 범위이며 운영 배포나 실제 대출 집행을 의미하지 않는다.
