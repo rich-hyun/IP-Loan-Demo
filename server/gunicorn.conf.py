@@ -12,7 +12,7 @@ graceful_timeout = 120
 
 _public_keys = {
     "IPLOAN_RPC_URL", "IPLOAN_CHAIN_ID", "IPLOAN_MANAGER_ADDRESS", "IPLOAN_ZERO_GAS_PRICE",
-    "IPLOAN_ASSIGNMENT_EVALUATOR", "IPLOAN_ASSIGNMENT_BANK",
+    "IPLOAN_ASSIGNMENT_EVALUATOR", "IPLOAN_ASSIGNMENT_BANK", "IPLOAN_ASSIGNMENT_BY_BORROWER",
 }
 raw_env = []
 _env_file = Path(__file__).resolve().parent / ".env"

@@ -85,10 +85,20 @@ def config():
         raise ChainError("MVP 계약 설정을 조회하지 못했습니다.") from exc
 
 
-def _select(cfg, role, setting, excluded):
+def _borrower_preference(borrower, role):
+    """IPLOAN_ASSIGNMENT_BY_BORROWER="borrower=evaluator/bank,..." overrides the global preference per borrower."""
+    for entry in os.environ.get("IPLOAN_ASSIGNMENT_BY_BORROWER", "").split(","):
+        wallet, _, pair = entry.partition("=")
+        if wallet.strip() and address(wallet.strip()).lower() == borrower.lower():
+            evaluator, _, bank = pair.partition("/")
+            return (evaluator if role == "EVALUATOR_ROLE" else bank).strip()
+    return ""
+
+
+def _select(cfg, role, setting, excluded, borrower):
     """Select only from on-chain role holders; caller-provided participant fields are never used."""
     members = [address(wallet) for wallet in cfg["roleMembers"][role]]
-    preferred = os.environ.get(setting, "").strip()
+    preferred = _borrower_preference(borrower, role) or os.environ.get(setting, "").strip()
     if preferred:
         preferred = address(preferred)
         if preferred not in members:
@@ -102,12 +112,12 @@ def _select(cfg, role, setting, excluded):
 
 def select_evaluator(cfg, borrower):
     """Assigned when the application is created."""
-    return _select(cfg, "EVALUATOR_ROLE", "IPLOAN_ASSIGNMENT_EVALUATOR", {borrower})
+    return _select(cfg, "EVALUATOR_ROLE", "IPLOAN_ASSIGNMENT_EVALUATOR", {borrower}, borrower)
 
 
 def select_bank(cfg, evaluator, borrower):
     """Assigned when an evaluation that passes the 70% rule is prepared."""
-    return _select(cfg, "BANK_ROLE", "IPLOAN_ASSIGNMENT_BANK", {evaluator, borrower})
+    return _select(cfg, "BANK_ROLE", "IPLOAN_ASSIGNMENT_BANK", {evaluator, borrower}, borrower)
 
 
 def eligible(amount, appraised_value):

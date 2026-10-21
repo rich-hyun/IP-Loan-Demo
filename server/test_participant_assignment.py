@@ -13,7 +13,7 @@ R1 = "0x5555555555555555555555555555555555555555"
 
 class ParticipantAssignmentTests(unittest.TestCase):
     def setUp(self):
-        self.env = patch.dict(os.environ, {"IPLOAN_ASSIGNMENT_EVALUATOR": "", "IPLOAN_ASSIGNMENT_BANK": ""})
+        self.env = patch.dict(os.environ, {"IPLOAN_ASSIGNMENT_EVALUATOR": "", "IPLOAN_ASSIGNMENT_BANK": "", "IPLOAN_ASSIGNMENT_BY_BORROWER": ""})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.cfg = {"roleMembers": {"EVALUATOR_ROLE": [E1, E2], "BANK_ROLE": [B1, B2]}}
@@ -34,6 +34,18 @@ class ParticipantAssignmentTests(unittest.TestCase):
                 chain.select_evaluator(self.cfg, R1)
             with self.assertRaises(chain.ChainError):
                 chain.select_bank(self.cfg, E2, R1)
+
+    def test_per_borrower_assignment_overrides_global_preference(self):
+        other = "0x6666666666666666666666666666666666666666"
+        with patch.dict(os.environ, {"IPLOAN_ASSIGNMENT_EVALUATOR": E2, "IPLOAN_ASSIGNMENT_BANK": B2,
+                                     "IPLOAN_ASSIGNMENT_BY_BORROWER": f"{R1.upper().replace('0X', '0x')}={E1}/{B1}"}):
+            self.assertEqual(E1, chain.select_evaluator(self.cfg, R1))
+            self.assertEqual(B1, chain.select_bank(self.cfg, E1, R1))
+            self.assertEqual(E2, chain.select_evaluator(self.cfg, other))
+            self.assertEqual(B2, chain.select_bank(self.cfg, E2, other))
+        with patch.dict(os.environ, {"IPLOAN_ASSIGNMENT_BY_BORROWER": f"{R1}={B1}/{B2}"}):
+            with self.assertRaises(chain.ChainError):
+                chain.select_evaluator(self.cfg, R1)
 
     def test_borrower_and_evaluator_are_never_their_own_reviewers(self):
         cfg = {"roleMembers": {"EVALUATOR_ROLE": [R1, E1], "BANK_ROLE": [E1, R1, B1]}}
