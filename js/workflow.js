@@ -74,6 +74,7 @@ globalThis.LoanWorkflow = (() => {
         ${evaluation.state === 'awaiting_identity' ? `<button class="btn btn-outline" onclick="LoanWorkflow.identify('${app.id}')">사업자번호 확인</button>` : ''}
         ${evaluation.state === 'submission_unknown' ? `<button class="btn btn-outline" onclick="LoanWorkflow.recover('${app.id}')">공급자 작업번호로 접수 복구</button>` : ''}
       </div>
+      <p class="muted">상태 조회는 지갑 소유 확인용 메시지 서명으로 15분간 인증합니다. 자동 갱신은 10초 간격이며 가스비·블록체인 기록이 없습니다. 계정 변경·인증 만료 시 버튼으로 다시 인증하세요.</p>
       <div class="workflow-actions">${reportKinds.map(kind => `<button class="btn btn-outline" onclick="LoanWorkflow.download('${app.id}', '${esc(kind)}')">${esc(kind.toUpperCase())} 보고서·근거 확인</button>`).join('')}</div>
       ${evaluation.attempts?.length ? `<details><summary>평가 접수·재시도 이력 ${evaluation.attempts.length}건</summary><ul>${evaluation.attempts.map(attempt => `<li>${esc(attempt.attempt)}차 · ${esc(states[attempt.state] || attempt.state)} · ${esc(attempt.jobId || '작업번호 없음')} ${esc(attempt.error || '')}</li>`).join('')}</ul></details>` : ''}
       ${complete && !confirmed && app.chainStatus === 'Evaluating' ? `<div class="form-grid">
@@ -104,8 +105,8 @@ globalThis.LoanWorkflow = (() => {
     const accounts = await ethereum.request({ method: 'eth_accounts' });
     const key = `${id}:${accounts[0]?.toLowerCase()}`;
     const body = { action: 'status' };
-    const auth = automatic && sessions.has(key) ? { session: sessions.get(key) } : await sign('status', id, body);
     if (automatic && !sessions.has(key)) throw new Error('지갑이 변경되었습니다. 상태 조회 버튼으로 다시 인증하세요.');
+    const auth = automatic ? { session: sessions.get(key) } : await sign('status', id, body);
     const updated = await request(`/applications/${encodeURIComponent(id)}/evaluation`, { ...body, auth });
     if (updated.readSession) { sessions.set(key, updated.readSession); delete updated.readSession; }
     return merge(updated);

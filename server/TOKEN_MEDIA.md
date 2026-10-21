@@ -55,3 +55,9 @@ node --test js/token-cards.test.cjs js/app.test.cjs js/chain.test.cjs js/admin.t
 렌더링·ETag·개인 필드 배제·잘못된 신청·RPC 실패·미발급/소각/발급 상태·HTML 이스케이프를 검사한다. 기존 승인 건 LN-2026-4233에 대해 브라우저에서 생성 PNG 두 장과 NFT 계약 주소·Token ID 1·은행 소유권 표시를 확인했다. 운영 배포나 새 NFT 거래를 만들지 않았다.
 
 추가 테스트는 중복 업로드 방지·부분 업로드 실패·URI 불일치 거부와 immutable URI·권한·SBT 소각·은행 NFT 발급·상환 후 URI 보존·legacy 경로를 검사한다. 2026-10-21 실제 업로드 preflight에서 두 JSON과 1200×1200 PNG의 프로젝트 게이트웨이 HTTP 200 및 해시 일치를 확인했다. 증거는 Git 제외 `output/local-media/ipfs-preflight/proof.json`이다. 공용 ipfs.io는 429를 반환했다. 이 preflight는 실제 토큰 발급이 아니며 새 계약에서 MetaMask 발급·지갑 이미지 표시는 검증 진행 중이다. 지갑 게이트웨이·캐시·자동탐지 설정에 따라 실제 표시는 실패할 수 있어 별도 확인이 필요하다. 최종 검증 범위는 `LOAN_WORKFLOW_VALIDATION.md`의 최신 기록을 따른다.
+
+### MetaMask 이미지 미표시 진단
+
+사용자는 31338의 SBT 1 가져오기에는 성공했지만 이미지가 안 보인다고 확인했다. 현재 조회에서 프로젝트 경로형 게이트웨이는 JSON 200을 반환하지만 dweb.link는 시간 초과, ipfs.io는 403, cloudflare-ipfs.com은 DNS 실패였다. 최신 MetaMask Core는 게이트웨이 비활성 시 IPFS 메타데이터 조회를 생략하고, 기본 서브도메인 모드에서는 CIDv1을 `https://<cid>.ipfs.<gateway>/`로 변환한다. `rwa-gw.mustree.kr`의 해당 서브도메인 DNS도 실패하므로 **프로젝트 게이트웨이 주소를 설정하는 것만으로 해결된다고 보장할 수 없다.** 설치된 지갑의 실제 설정·조회 오류 확인과 게이트웨이 호환성이 남아 있다. 기존 토큰 URI를 덮어쓰거나 이미지 표시 완료로 보고하지 않는다.
+
+근거: [NFT 조회 구현](https://github.com/MetaMask/core/blob/main/packages/assets-controllers/src/NftController.ts), [IPFS URL 변환](https://github.com/MetaMask/core/blob/main/packages/assets-controllers/src/assetsUtil.ts). 최신 UI는 설정의 Privacy에 IPFS gateway, Assets에 NFT media 표시가 있으며 설치 버전에 따라 다를 수 있다.

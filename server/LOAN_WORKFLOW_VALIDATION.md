@@ -95,3 +95,11 @@ TypeScript 프로젝트가 아니므로 별도의 타입 검사기는 없다. �
 - 실제 SBT tokenURI는 `ipfs://Qmf3YQA1rUE4G29g4HKyRC4MrLWwuSpDXf2DgN8DvSa4Nz`이며 JSON image는 `ipfs://QmYwS21R7PyZSrUUfViZyy3YArhZsTSP1zjUNk94CmSF4M`이다. 채권용 고정 JSON은 `ipfs://QmfZsTusnftDyJ5JW5eBytuJ1os3ugZxDLPp9krA3MKPNv`, image는 `ipfs://QmSunM1uT2yztBkjt5SCzCZBWZ1CGHX9dvp4hroKYEK86k`이다. 프로젝트 게이트웨이에서 두 JSON·두 PNG 조회 및 1200×1200·신청번호·URI 일치를 확인했다. 증거: `output/local-media/real-token-media-proof.json`. 별도 preflight의 공용 ipfs.io 요청은 429였으므로 지갑 기본 게이트웨이 성공으로 간주하지 않는다.
 - Python 전체 discover 91건, 프런트엔드 40건, 계약·통합 21건 통과. 전체 discover에서 드러난 기존 호환성 테스트의 import 순서 의존성을 테스트 전용 임시 경로 바인딩으로 수정했다. 실제 사용자 DB는 수정하지 않았다. 웹 의존성 빌드·JS 구문·PowerShell 구문 검사 통과. TypeScript 프로젝트는 아니다.
 - 상태 조회용 MetaMask 서명이 승인되어 실제 작업 `3783556e01a94faf87578f31424e45d9`의 `evaluating`을 화면에서 확인했다. 평가사 계정 선택과 현재 평가사 소유 SBT를 MetaMask에 가져오는 절차를 사용자에게 요청했다. **현재 이 신규 신청의 보고서 완료·평가사 확정·은행 발급·MetaMask 이미지 표시 검증은 진행 중이다. 전체 지갑 표시 목표를 완료로 보고하지 않는다.** 앱 카드 표시, IPFS 200 응답과 MetaMask 내부 이미지 표시는 별도 검증 항목이다.
+
+### 후속 확인: 평가 확정 및 지갑 이미지 미표시
+
+실제 보고서는 completed/finished, 자동값 0원으로 생성됐다. 사용자가 MetaMask 평가사 서명·확정 거래를 승인하여 LN-2026-3599는 Eligible, 적용 100,000,000원·LTV 70%·여신심사 1건, SBT 소각까지 진행됐다. 검토 사유에는 실제 가치평가 결론이 아닌 사용자 승인 로컬 테스트 금액임을 명시했고 자동값 0원을 보존했다. 은행 채권 NFT는 아직 발급하지 않았다.
+
+사용자는 SBT 가져오기는 성공했지만 MetaMask에 이미지가 안 보인다고 확인했다. 프로젝트 게이트웨이 경로 URL의 JSON은 200이지만 공용 dweb.link는 timeout, ipfs.io는 403, cloudflare-ipfs.com은 DNS 실패였고, 최신 MetaMask의 CIDv1 서브도메인 방식에 해당하는 프로젝트 호스트도 DNS 실패였다. 설치된 MetaMask의 실제 설정·조회 오류를 보지 못했으므로 지갑의 사용 게이트웨이나 단일 원인을 확정하지 않았다. 프로젝트 게이트웨이로 변경하면 해결된다는 앞선 안내는 철회했다. 자세한 근거는 TOKEN_MEDIA.md에 기록했다. **지갑 이미지 목표는 미완료다.**
+
+자동 갱신은 서버의 900초 읽기 세션과 10초 polling이며 온체인 기록이 아니다. 계정 변경 시 자동 polling이 세션 유무 검사 전에 메시지 서명을 요청하던 순서 오류를 수정했다. 자동 갱신은 새 서명창을 띄우지 않고 명시적 재인증을 안내한다. 15분 읽기 인증·가스비 없음 안내를 화면에 추가했다. 프런트엔드 전체 41건 통과(세션 재사용·계정 변경 후 불필요한 서명 방지 회귀 테스트 포함). 실행 중 페이지는 새로 로드해야 변경 JS를 사용한다.
