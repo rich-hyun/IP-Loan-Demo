@@ -514,10 +514,6 @@ function openDetail(id) {
       ${app.chainStatus === 'None' ? `<button class="btn btn-outline" onclick="retryApplicationChain('${app.id}')">업로드 재사용 · 신청 등록 재시도</button>` : ''}
       <button class="btn btn-outline" onclick="retryApplicationChain('${app.id}', true)">체인 확인·복구</button>`;
   }
-  if (app.workflow && typeof LoanWorkflow !== 'undefined') {
-    document.getElementById('detailDocs').innerHTML += '<div id="workflowDetail"></div>';
-    LoanWorkflow.panel(app, 'workflowDetail');
-  }
 
   if (app.appKey && typeof LoanTokenCards !== 'undefined') {
     document.getElementById('detailDocs').innerHTML += LoanTokenCards.placeholder(app);

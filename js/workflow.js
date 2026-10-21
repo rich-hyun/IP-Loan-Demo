@@ -152,9 +152,7 @@ globalThis.LoanWorkflow = (() => {
       ${evaluation.preparedHash && !confirmed ? '<p>확정 내용이 저장되었습니다. 같은 적용 가치·검토 사유로 확정을 재시도하거나 체인 확인·복구를 실행하세요.</p>' : ''}
       <button class="btn btn-outline" onclick="retryApplicationChain('${app.id}', true)">체인 확정 확인·복구</button>
       <p id="workflowMessage" role="status"></p>
-      ${typeof LoanTokenCards !== 'undefined' && target !== 'workflowDetail' && target !== 'workflowReview' ? LoanTokenCards.placeholder(app) : ''}
     </div>`;
-    if (typeof LoanTokenCards !== 'undefined' && target !== 'workflowDetail' && target !== 'workflowReview') LoanTokenCards.load(app);
   }
   function merge(updated) {
     const app = findApp(updated.id);
