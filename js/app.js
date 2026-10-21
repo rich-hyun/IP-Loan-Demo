@@ -128,7 +128,8 @@ function hashCode(str) {
 /* ---------------- 평가보고서: 큐레이션 3건 + 신규 신청 자동 생성 ---------------- */
 /* 평가 대기 목록: 평가중 건만 */
 function evalQueue() {
-  return APPLICATIONS.filter(a => a.status === 'evaluating' || (a.workflow && !a.evaluation?.confirmedAt));
+  const includeConfirmed = document.getElementById('showEvaluated')?.checked;
+  return APPLICATIONS.filter(a => a.status === 'evaluating' || (a.workflow && (includeConfirmed || !a.evaluation?.confirmedAt)));
 }
 function getEvalReport(app) {
   if (app._report) return app._report;  // 재산정으로 다시 만든 초안이 있으면 우선
@@ -714,31 +715,43 @@ function resetApplyUI() {
 }
 
 /* ---------------- Evaluate view ---------------- */
+/* patent.html 평가자 보고서함과 같은 목록 구성 */
+let selectedEvalId = null;
 function renderEvalList() {
   const queue = evalQueue();
   const container = document.getElementById('evalListItems');
+  const ready = queue.filter(a => a.evaluation?.state === 'completed' && !a.evaluation.confirmedAt).length;
+  document.getElementById('evalListCount').textContent = `${queue.length}건`;
+  document.getElementById('evalQueueSummary').textContent = `검토를 기다리는 보고서 ${ready}건 · 생성 중인 작업은 10초 간격으로 확인합니다.`;
   if (queue.length === 0) {
     container.innerHTML = `<div class="empty-hint">평가 대기 중인 건이 없습니다.</div>`;
     return;
   }
   container.innerHTML = queue.map(app => `
-    <div class="eval-item" data-id="${app.id}">
-      <div class="eval-item-top">
-        <span class="eval-item-company">${escapeHtml(app.company)}</span>
-        ${statusBadge(app.status)}
-      </div>
-      <div class="eval-item-sub">${escapeHtml(app.ipTitle)} · ${escapeHtml(app.ipType)}</div>
-    </div>`).join('');
+    <button type="button" class="eval-item${app.id === selectedEvalId ? ' active' : ''}" data-id="${app.id}">
+      <span class="eval-item-top"><span class="eval-item-company">${escapeHtml(app.company)}</span>${app.workflow && typeof LoanWorkflow !== 'undefined' ? LoanWorkflow.badge(app) : statusBadge(app.status)}</span>
+      <span class="eval-item-sub">${escapeHtml(app.ipTitle)}</span><span class="eval-item-id">${escapeHtml(app.id)} · ${escapeHtml(app.bizNo || '번호 미입력')}</span>
+    </button>`).join('');
 
   document.querySelectorAll('#evalListItems .eval-item').forEach(el => {
     el.addEventListener('click', () => selectEvalItem(el.dataset.id));
   });
 }
+document.getElementById('showEvaluated').addEventListener('change', renderEvalList);
+document.getElementById('refreshReportsBtn').addEventListener('click', () => {
+  if (typeof LoanWorkflow !== 'undefined') LoanWorkflow.refresh(evalQueue());
+});
 
 function selectEvalItem(id) {
   const app = findApp(id);
   if (!app) return;
-  if (app.workflow && typeof LoanWorkflow !== 'undefined') { LoanWorkflow.panel(app); return; }
+  selectedEvalId = id;
+  if (app.workflow && typeof LoanWorkflow !== 'undefined') {
+    document.querySelectorAll('#evalListItems .eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
+    LoanWorkflow.panel(app);
+    LoanWorkflow.load(id);
+    return;
+  }
   const r = getEvalReport(app);
 
   document.querySelectorAll('#evalListItems .eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));

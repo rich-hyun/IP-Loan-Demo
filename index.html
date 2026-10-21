@@ -6,7 +6,7 @@
 <title>LLM 기반 기술평가 자동대출 시스템 · 주식회사 머스트리</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316233E'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%230E7A6E' stroke-width='1.6'/%3E%3C/svg%3E">
 <meta name="description" content="LLM·블록체인 기반 IP담보 자동대출 서비스">
-<link rel="stylesheet" href="css/style.css?v=20261021-loan-workflow">
+<link rel="stylesheet" href="css/style.css?v=20261021-report-box">
 </head>
 <body>
 <div class="app">
@@ -398,9 +398,13 @@
 
       <!-- ============ VIEW: EVALUATE ============ -->
       <section id="view-evaluate" class="view">
+        <div class="evaluation-toolbar">
+          <div><h2>평가자 보고서함</h2><p id="evalQueueSummary">접수된 특허의 보고서와 진행 상태를 확인합니다.</p></div>
+          <div class="button-row"><label class="history-toggle"><input type="checkbox" id="showEvaluated"> 확정 완료 포함</label><button type="button" class="btn btn-outline btn-sm" id="refreshReportsBtn">상태 새로고침</button></div>
+        </div>
         <div class="eval-layout">
           <div class="panel eval-list">
-            <div class="panel-header"><h3>평가 대기 목록</h3></div>
+            <div class="panel-header"><h3>접수·평가 목록</h3><span class="hint" id="evalListCount"></span></div>
             <div id="evalListItems"></div>
           </div>
           <div class="panel" id="evalReportPanel">
@@ -444,8 +448,8 @@
 
 <script src="js/vendor/ethers.umd.min.js"></script>
 <script src="js/chain.js?v=20261021-loan-workflow"></script>
-<script src="js/token-cards.js?v=20261021-token-cards"></script>
-<script src="js/workflow.js?v=20261021-loan-workflow"></script>
-<script src="js/app.js?v=20261021-loan-workflow"></script>
+<script src="js/token-cards.js?v=20261021-minted-only"></script>
+<script src="js/workflow.js?v=20261021-cleanup"></script>
+<script src="js/app.js?v=20261021-report-box"></script>
 </body>
 </html>

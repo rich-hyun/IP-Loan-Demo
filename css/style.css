@@ -659,25 +659,66 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 .workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .workflow-error { color: #a32924; padding: 12px; background: #fff1ef; border-radius: 6px; }
+
+/* 평가자 보고서함: css/patent.css(patent.html)와 같은 구성 */
+.evaluation-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.evaluation-toolbar h2 { font-size: 22px; margin-bottom: 6px; }
+.evaluation-toolbar p { font-size: 12px; color: var(--ink-soft); }
+.history-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-soft); cursor: pointer; }
+.button-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.text-button { color: var(--teal); border: 0; background: none; cursor: pointer; font: 500 12px var(--font-sans); padding: 6px 0; text-decoration: none; }
+.text-button:hover { text-decoration: underline; }
+button.eval-item { display: block; width: 100%; text-align: left; background: var(--surface); border: 0; border-bottom: 1px solid var(--line-soft); font-family: var(--font-sans); color: var(--ink); }
+button.eval-item:hover { background: var(--surface-2); }
+button.eval-item.active { background: var(--teal-soft); box-shadow: inset 3px 0 var(--teal); }
+.eval-item-company { min-width: 0; overflow-wrap: anywhere; margin-right: 8px; }
+.eval-item-top .badge { flex-shrink: 0; }
+.eval-item-sub { display: block; line-height: 1.8; color: var(--ink-soft); overflow-wrap: anywhere; }
+.eval-item-id { display: block; margin-top: 8px; font: 10px var(--font-mono); color: var(--ink-faint); overflow-wrap: anywhere; }
+.inline-message { padding: 12px 14px; border: 1px solid var(--line); background: var(--surface-2); font-size: 12px; border-radius: var(--radius-sm); margin: 14px 0; line-height: 1.8; overflow-wrap: anywhere; }
+.inline-message.error-message { color: var(--danger); background: var(--danger-soft); border-color: #e9c7be; }
+.report-request-meta { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 20px; color: var(--ink-soft); font-size: 11px; }
+.report-request-meta b { font: 400 11px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.job-state { display: flex; align-items: flex-start; gap: 12px; padding: 20px 16px; background: var(--teal-soft); border-radius: var(--radius-md); margin-bottom: 16px; }
+.job-state-icon { width: 28px; height: 28px; flex-shrink: 0; display: grid; place-items: center; color: var(--teal); background: var(--surface); border-radius: 50%; font-size: 18px; }
+.job-state h4 { font: 600 13px var(--font-sans); margin: 3px 0 8px; }
+.job-state p { font-size: 12px; color: var(--ink-soft); line-height: 1.8; }
+.job-error { background: var(--danger-soft); }
+.job-error .job-state-icon { color: var(--danger); }
+.job-stage { margin-top: 10px; font: 11px var(--font-mono); color: var(--teal); overflow-wrap: anywhere; }
+.report-downloads { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0; }
+.report-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; margin-bottom: 10px; }
+.report-preview { display: block; border: 1px solid var(--line); border-radius: var(--radius-sm); width: 100%; height: 620px; background: var(--surface-2); }
+.form-section-heading { display: flex; gap: 10px; align-items: center; margin: 0 0 18px; }
+.form-section-heading > span { color: var(--teal); font: 500 12px var(--font-mono); }
+.form-section-heading h4 { font: 600 14px var(--font-sans); }
+.evaluation-confirm-form { border-top: 1px solid var(--line); padding-top: 24px; margin-top: 24px; }
+.evaluation-confirm-form > p { font-size: 12px; color: var(--ink-soft); margin-bottom: 18px; line-height: 1.8; }
+.evaluation-confirm-form > button { margin-top: 18px; }
+.evaluation-confirmed { padding: 20px; margin-top: 22px; background: var(--teal-soft); border-radius: var(--radius-md); font-size: 13px; line-height: 2; }
+.evaluation-confirmed b { color: var(--teal); }
+.evaluation-confirmed p { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .evaluation-toolbar { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 760px) { .report-preview { height: 480px; } }
 .token-gallery { margin-top: 24px; padding: 24px; border: 1px solid var(--line, #dde3e9); border-radius: 14px; background: #f7f9fc; color: #152740; }
 .token-gallery-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 18px; }
 .token-gallery-heading h3 { margin: 0; font-size: 18px; }
 .token-gallery-heading > span, .token-gallery-note { color: #647184; font-size: 12px; line-height: 1.7; }
-.token-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.token-card { overflow: hidden; background: #fff; border: 1px solid #dce2eb; border-radius: 12px; min-width: 0; }
-.token-card-art { position: relative; background: #fff; aspect-ratio: 1; }
+.token-gallery-heading > .token-gallery-action { margin-left: auto; align-self: center; }
+.token-card-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+.token-card { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); overflow: hidden; background: #fff; border: 1px solid #dce2eb; border-radius: 12px; min-width: 0; }
+.token-card-art { position: relative; background: #fff; aspect-ratio: 1; align-self: start; }
 .token-card-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .token-state { position: absolute; top: 14px; right: 14px; padding: 5px 9px; border-radius: 20px; background: #edf0f4; color: #506078; font-size: 11px; font-weight: 700; }
 .token-state.issued { background: #e5f3eb; color: #226442; }
 .token-state.burned { background: #e9edf3; color: #536176; }
-.token-card-info { padding: 18px; border-top: 1px solid #edf0f5; }
+.token-card-info { padding: 18px; border-left: 1px solid #edf0f5; }
 .token-card-info h4 { font-size: 15px; margin: 0 0 14px; }
 .token-card-info dl { margin: 0; }
 .token-card-info dl > div { margin-top: 10px; }
 .token-card-info dt { color: #708098; font-size: 11px; }
 .token-card-info dd { margin: 3px 0 0; font-size: 13px; }
 .token-address { font-family: ui-monospace, monospace; overflow-wrap: anywhere; line-height: 1.5; }
-.token-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
 .token-card-caption { color: #78849a; font-size: 12px; line-height: 1.6; margin-bottom: 0; }
 .token-gallery-note { margin: 14px 0 0; }
-@media (max-width: 680px) { .token-card-grid { grid-template-columns: 1fr; } .token-gallery { padding: 14px; } }
+@media (max-width: 680px) { .token-card { grid-template-columns: 1fr; } .token-card-info { border-left: 0; border-top: 1px solid #edf0f5; } .token-gallery { padding: 14px; } }
