@@ -529,7 +529,7 @@ def create_application():
     media = {}
     try:
         uploaded = upload_encrypted_document(encrypted["payload"], document.filename)
-        if chain_fields and cfg.get('tokenMediaVersion', 0) >= 1:
+        if chain_fields and cfg.get('tokenMediaVersion', 0) >= 2:
             if __package__:
                 from . import token_media
             else:
@@ -537,7 +537,7 @@ def create_application():
             try:
                 if cfg.get('tokenMediaVersion', 0) >= 2 and cfg.get('tokenMediaGateway') != token_media.HTTPS_GATEWAY:
                     raise token_media.TokenMediaError('Contract gateway mismatch')
-                media = token_media.prepare(base_record, upload_ipfs_payload, https=cfg.get('tokenMediaVersion', 0) >= 2)
+                media = token_media.prepare(base_record, upload_ipfs_payload, https=True)
             except token_media.TokenMediaError:
                 return error_response('토큰 카드 생성 설정을 확인해 주세요.', 503, 'token_media_failed')
     except IpfsUploadError as exc:

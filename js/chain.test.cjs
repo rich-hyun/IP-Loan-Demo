@@ -55,15 +55,15 @@ test('wallet signs once, then syncs; replay uses chain state without a second tr
   assert.equal(h.state.sends, 1); assert.equal(h.state.syncs, 2); assert.equal(h.storage.size, 0);
 });
 
-test('media submission sends both stored IPFS URIs and blocks incomplete or unsupported contracts', async () => {
-  const app = {...application, sbtMetadataUri:'ipfs://bafysbt1234567', debtMetadataUri:'ipfs://bafydebt123456'};
-  const h = await harness({tokenMediaVersion:1});
+test('media submission sends both stored HTTPS URIs and blocks incomplete or unsupported contracts', async () => {
+  const app = {...application, sbtMetadataUri:'https://rwa-gw.mustree.kr/ipfs/bafySbt123456', debtMetadataUri:'https://rwa-gw.mustree.kr/ipfs/bafyDebt12345'};
+  const h = await harness({tokenMediaVersion:2});
   await h.api.register(app);
   assert.equal(h.state.sentArgs.length,7);
   assert.equal(h.state.sentArgs[5],app.sbtMetadataUri);
   assert.equal(h.state.sentArgs[6],app.debtMetadataUri);
   const old = await harness(); await assert.rejects(old.api.register(app)); assert.equal(old.state.sends,0);
-  const partial = await harness({tokenMediaVersion:1}); await assert.rejects(partial.api.register({...app,debtMetadataUri:null})); assert.equal(partial.state.sends,0);
+  const partial = await harness({tokenMediaVersion:2}); await assert.rejects(partial.api.register({...app,debtMetadataUri:null})); assert.equal(partial.state.sends,0);
 });
 test('wrong assigned wallet or missing role never broadcasts', async () => {
   for (const options of [{ wrongWallet: true }, { hasRole: false }]) {

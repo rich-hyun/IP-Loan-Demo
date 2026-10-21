@@ -129,15 +129,15 @@ class LoanWorkflowTests(unittest.TestCase):
             return db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
 
     def test_image_metadata_prepared_once_and_bound_to_replayed_submission(self):
-        self.cfg['tokenMediaVersion'] = 1
+        self.cfg.update(tokenMediaVersion=2, tokenMediaGateway='https://rwa-gw.mustree.kr/ipfs/')
         original = native.upload_ipfs_payload
         with patch.object(native, 'upload_ipfs_payload', side_effect=original) as upload:
             created = self.create()
             self.assertEqual(created.status_code, 201, created.get_data(as_text=True))
             self.assertEqual(upload.call_count, 5)
             for prefix in ('sbt', 'debt'):
-                self.assertTrue(created.json[prefix+'MetadataUri'].startswith('ipfs://bafy'))
-                self.assertTrue(created.json[prefix+'ImageUri'].startswith('ipfs://bafy'))
+                self.assertTrue(created.json[prefix+'MetadataUri'].startswith('https://rwa-gw.mustree.kr/ipfs/bafy'))
+                self.assertTrue(created.json[prefix+'ImageUri'].startswith('https://rwa-gw.mustree.kr/ipfs/bafy'))
             replay = self.create()
             self.assertEqual(replay.status_code, 200)
             self.assertEqual(replay.json['id'], created.json['id'])
@@ -145,7 +145,7 @@ class LoanWorkflowTests(unittest.TestCase):
             self.assertEqual(upload.call_count, 5)
 
     def test_image_upload_failure_never_creates_application_or_provider_job(self):
-        self.cfg['tokenMediaVersion'] = 1
+        self.cfg.update(tokenMediaVersion=2, tokenMediaGateway='https://rwa-gw.mustree.kr/ipfs/')
         before = self.count('applications')
         calls = []
         def upload(body, filename, mime):

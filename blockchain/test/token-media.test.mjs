@@ -5,7 +5,7 @@ import { BrowserProvider, ContractFactory, Contract, id } from 'ethers';
 import { compile } from '../scripts/compile.mjs';
 const artifacts = compile();
 
-test('IPFS tokenURI binds at submission, survives bank approval and cannot be replaced by a replay', async t => {
+test('HTTPS IPFS tokenURI binds at submission, survives approval and preserves legacy callers', async t => {
   const connection = await network.connect('localTest');
   const provider = new BrowserProvider(connection.provider); provider.pollingInterval = 10;
   t.after(async()=>{provider.destroy();await connection.close();});
@@ -15,9 +15,13 @@ test('IPFS tokenURI binds at submission, survives bank approval and cannot be re
   await (await manager.grantRole(await manager.BORROWER_ROLE(),borrower.address)).wait();
   const sbt = new Contract(await manager.accessSBT(),artifacts.IPLoanAccessSBT.abi,provider);
   const nft = new Contract(await manager.debtNFT(),artifacts.IPLoanDebtNFT.abi,provider);
-  const key=id('media-application'), cid='bafySource123456789', hash=id('source'), sbtUri='ipfs://bafySbtMetadata123456', debtUri='ipfs://bafyDebtMetadata12345';
+  const gateway=await manager.tokenMediaGateway();
+  assert.equal(gateway,'https://rwa-gw.mustree.kr/ipfs/');
+  const key=id('media-application'), cid='bafySource123456789', hash=id('source'), sbtUri=gateway+'bafySbtMetadata123456', debtUri=gateway+'bafyDebtMetadata12345';
   assert.equal(await manager.tokenMediaVersion(),2n);
-  for(const invalid of ['https://example.com/a','ipfs://short','ipfs://bafyvalid12345/path','ipfs://bafyvalid12345?x=1']) {
+  for(const invalid of ['https://example.com/a','ipfs://bafyValid123456',gateway+'short',
+    'http://rwa-gw.mustree.kr/ipfs/bafyValid12345',gateway+'bafyValid12345?x=1',
+    'https://rwa-gw.mustree.kr.attacker.test/ipfs/bafyValid12345',gateway+'../bafyValid12345']) {
     await assert.rejects(manager.connect(borrower).submitApplicationWithMetadata.staticCall(key,cid,hash,70,evaluator.address,invalid,debtUri));
   }
   await assert.rejects(manager.connect(other).submitApplicationWithMetadata.staticCall(key,cid,hash,70,evaluator.address,sbtUri,debtUri));
@@ -37,17 +41,4 @@ test('IPFS tokenURI binds at submission, survives bank approval and cannot be re
   const legacy=id('legacy-application');
   await (await manager.connect(borrower).submitApplication(legacy,cid,hash,70,evaluator.address)).wait();
   assert.ok((await sbt.tokenURI(2)).startsWith('data:application/json;base64,'));
-  const gateway=await manager.tokenMediaGateway();
-  assert.equal(gateway,'https://rwa-gw.mustree.kr/ipfs/');
-  const httpsKey=id('https-media'), httpsSbt=gateway+'bafyHttpsSbt123456', httpsDebt=gateway+'bafyHttpsDebt12345';
-  for(const bad of ['http://rwa-gw.mustree.kr/ipfs/bafyValid12345',gateway+'bafyValid12345?x=1',
-    'https://rwa-gw.mustree.kr.attacker.test/ipfs/bafyValid12345',gateway+'../bafyValid12345',gateway+'short']) {
-    await assert.rejects(manager.connect(borrower).submitApplicationWithMetadata.staticCall(httpsKey,cid,hash,70,evaluator.address,bad,httpsDebt));
-  }
-  await (await manager.connect(borrower).submitApplicationWithMetadata(httpsKey,cid,hash,70,evaluator.address,httpsSbt,httpsDebt)).wait();
-  assert.equal(await sbt.tokenURI(3),httpsSbt);
-  await (await manager.connect(evaluator).confirmEvaluation(httpsKey,'bafyReport123456789',id('https-report'),100,bank.address)).wait();
-  await (await manager.connect(bank).finalApprove(httpsKey)).wait();
-  assert.equal(await nft.tokenURI(3),httpsDebt);
-  assert.equal(await nft.ownerOf(3),bank.address);
 });

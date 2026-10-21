@@ -87,27 +87,20 @@ TypeScript 프로젝트가 아니므로 별도의 타입 검사기는 없다. �
 - Python 87건, 프런트엔드 38건, 계약·통합 20건 통과. 계약 컴파일 및 웹 의존성 빌드, 새 JS 구문 검사 통과. 기존 계약 코드는 변경하지 않았다. 별도 TypeScript 검사 대상은 없다.
 - 기존 토큰 메타데이터에는 image 필드가 없으므로 MetaMask에서 새 표지가 보인다고 보고하지 않는다. 지갑 이미지까지 바꾸려면 별도의 계약·발급 메타데이터 작업이 필요하다. 운영 배포·push·새 승인 거래는 수행하지 않았다.
 
-## 실제 IPFS tokenURI 신규 발급 검증 (2026-10-21, 진행 중)
+## 997f3ae 기준 최소 HTTPS 이미지 연결 재구성
 
-- 기존 8003/31337의 LN-2026-4233은 보존하고 새 8005/31338, RPC 8546, 별도 `output/local-media/session-9O9uMI`에 메타데이터 지원 계약을 배포했다. Manager 주소가 결정적 배포로 같아도 서로 다른 체인이다. 기존 승인 건을 재조회하여 Approved·적용 1억원·신청 7천만원·LTV 70%·채권 ID 1·여신심사 1건 보존을 확인했다.
-- 신규 계약은 `tokenMediaVersion=1`, `submitApplicationWithMetadata`로 SBT·채권 JSON URI를 신청 시 불변으로 저장한다. 생성기는 기존 렌더러를 재사용하고 서버는 실제 PNG/JSON 네 자산 업로드 완료 후 신청·평가 작업을 만든다. 기존 계약은 legacy URI를 유지한다. 기존 계약의 미지원 함수 호출이 Hardhat에서 빈 revert Web3RPCError로 반환되는 경우도 호환하되 실제 RPC 장애는 실패 처리한다.
-- 사용자가 실제 MetaMask 차주 연결·접수 메시지 서명·발급 거래를 승인하여 LN-2026-3599가 생성됐다. 원본은 실제 등록특허 KR102877748B1이며 테스트 대표자·연락처를 사용했다. 거래 `0x2d148a4ddb1a2493d9005433f0ae59ca39eaa6d40602510e1134a7a8b18d245f`, 문서 CID `QmazpotnM3YyErHRoHD2uBE6StrV4aKeW44KpcewvvcYUF`, 상태 Evaluating, SBT 1, 소유 평가사 0x3C44…93BC를 확인했다.
-- 실제 SBT tokenURI는 `ipfs://Qmf3YQA1rUE4G29g4HKyRC4MrLWwuSpDXf2DgN8DvSa4Nz`이며 JSON image는 `ipfs://QmYwS21R7PyZSrUUfViZyy3YArhZsTSP1zjUNk94CmSF4M`이다. 채권용 고정 JSON은 `ipfs://QmfZsTusnftDyJ5JW5eBytuJ1os3ugZxDLPp9krA3MKPNv`, image는 `ipfs://QmSunM1uT2yztBkjt5SCzCZBWZ1CGHX9dvp4hroKYEK86k`이다. 프로젝트 게이트웨이에서 두 JSON·두 PNG 조회 및 1200×1200·신청번호·URI 일치를 확인했다. 증거: `output/local-media/real-token-media-proof.json`. 별도 preflight의 공용 ipfs.io 요청은 429였으므로 지갑 기본 게이트웨이 성공으로 간주하지 않는다.
-- Python 전체 discover 91건, 프런트엔드 40건, 계약·통합 21건 통과. 전체 discover에서 드러난 기존 호환성 테스트의 import 순서 의존성을 테스트 전용 임시 경로 바인딩으로 수정했다. 실제 사용자 DB는 수정하지 않았다. 웹 의존성 빌드·JS 구문·PowerShell 구문 검사 통과. TypeScript 프로젝트는 아니다.
-- 상태 조회용 MetaMask 서명이 승인되어 실제 작업 `3783556e01a94faf87578f31424e45d9`의 `evaluating`을 화면에서 확인했다. 평가사 계정 선택과 현재 평가사 소유 SBT를 MetaMask에 가져오는 절차를 사용자에게 요청했다. **현재 이 신규 신청의 보고서 완료·평가사 확정·은행 발급·MetaMask 이미지 표시 검증은 진행 중이다. 전체 지갑 표시 목표를 완료로 보고하지 않는다.** 앱 카드 표시, IPFS 200 응답과 MetaMask 내부 이미지 표시는 별도 검증 항목이다.
+- `codex/minimal-https-token-media`는 997f3ae에서 새로 시작했다. 이후 시도의 원본은 `codex/loan-evaluation-integration`의 4054b27에 보존했다. 다른 에이전트의 원래 체크아웃은 수정하지 않았다.
+- 실행 코드 변경은 7파일(계약, 지갑 등록 호출, 카드 표시, 서버 신청의 미디어 업로드, 계약 미디어 capability 조회·바인딩 확인, 카드 API, 생성기의 HTTPS URL 구성)뿐이다. 추가 지갑 선택 UI, 읽기 세션 변경, 자동 갱신 변경, 신규 체인 옵션·샘플 첨부 도우미 변경을 가져오지 않았다.
+- `js/workflow.js`, `js/app.js`, `index.html`, `server/loan_workflow.py`, `server/patent_app.py`, 로컬 런처·Hardhat 설정·실제 실행 스크립트는 997f3ae와 diff가 없다. 계약의 confirmEvaluation·finalApprove·finalReject·recordRepayment 함수도 문자 단위로 동일하다. 기준 커밋에 있던 인증 서명 절차를 추가·제거하지 않았다.
+- 기존 LN-2026-4233은 실제 RPC 31337에서 Approved(status 4), 여신심사 1건, NFT 1의 은행 소유권을 유지한다. 기존 31338 LN-2026-3599도 Eligible(status 2), 여신심사 1건이다. DB·체인·실행 프로세스를 초기화하거나 교체하지 않았다. 보존 증거는 Git 제외 `output/minimal-https-preservation.json`이다.
+- Python 94건은 모듈별 독립 프로세스로, JS 41건, 계약·통합 21건을 실행해 모두 통과했다. 기존 Python 호환성 테스트의 import 순서 의존성을 고치는 별도 변경도 가져오지 않았다. 계약 컴파일을 수행했고 별도 TypeScript 검사 대상은 없다.
+- 실제 IPFS로 PNG·JSON 4개를 업로드하고 고정 HTTPS 게이트웨이에서 JSON·PNG 모두 200, application/json·image/png, 1200×1200 및 업로드 원본 바이트 일치를 확인했다. JSON image도 HTTPS이며 ipfs:// 지갑 해석을 요구하지 않는다. 증거: `output/minimal-https-preflight/proof.json`. 이 확인은 미디어 전송만 검증하며 새 대출·평가 작업·지갑 거래를 생성하지 않았다.
+- 최소 재구성에서 새로운 수동 승인 흐름은 시작하지 않았다. **이 코드로 MetaMask 내부 이미지 표시를 직접 확인한 것은 아니므로 지갑 표시 검증 완료로 보고하지 않는다.** 기존 계약의 URI는 변경할 수 없어 실제 신규 발급에는 이미지 지원 계약이 필요하다. 새 운영 배포·외부 알림·git push는 하지 않았다.
 
-### 후속 확인: 평가 확정 및 지갑 이미지 미표시
+### MetaMask 이미지 표시 후속 검증 완료 (사용자 확인, 2026-10-21)
 
-실제 보고서는 completed/finished, 자동값 0원으로 생성됐다. 사용자가 MetaMask 평가사 서명·확정 거래를 승인하여 LN-2026-3599는 Eligible, 적용 100,000,000원·LTV 70%·여신심사 1건, SBT 소각까지 진행됐다. 검토 사유에는 실제 가치평가 결론이 아닌 사용자 승인 로컬 테스트 금액임을 명시했고 자동값 0원을 보존했다. 은행 채권 NFT는 아직 발급하지 않았다.
-
-사용자는 SBT 가져오기는 성공했지만 MetaMask에 이미지가 안 보인다고 확인했다. 프로젝트 게이트웨이 경로 URL의 JSON은 200이지만 공용 dweb.link는 timeout, ipfs.io는 403, cloudflare-ipfs.com은 DNS 실패였고, 최신 MetaMask의 CIDv1 서브도메인 방식에 해당하는 프로젝트 호스트도 DNS 실패였다. 설치된 MetaMask의 실제 설정·조회 오류를 보지 못했으므로 지갑의 사용 게이트웨이나 단일 원인을 확정하지 않았다. 프로젝트 게이트웨이로 변경하면 해결된다는 앞선 안내는 철회했다. 자세한 근거는 TOKEN_MEDIA.md에 기록했다. **지갑 이미지 목표는 미완료다.**
-
-자동 갱신은 서버의 900초 읽기 세션과 10초 polling이며 온체인 기록이 아니다. 계정 변경 시 자동 polling이 세션 유무 검사 전에 메시지 서명을 요청하던 순서 오류를 수정했다. 자동 갱신은 새 서명창을 띄우지 않고 명시적 재인증을 안내한다. 15분 읽기 인증·가스비 없음 안내를 화면에 추가했다. 프런트엔드 전체 41건 통과(세션 재사용·계정 변경 후 불필요한 서명 방지 회귀 테스트 포함). 실행 중 페이지는 새로 로드해야 변경 JS를 사용한다.
-
-## HTTPS 게이트웨이 신규 발급 경로 (2026-10-21, 실제 지갑 검증 진행 중)
-
-- 사용자 요청에 따라 신규 `tokenMediaVersion=2` 계약은 고정된 `https://rwa-gw.mustree.kr/ipfs/<CID>` 메타데이터 URI를 허용한다. JSON의 image도 같은 HTTPS CID 경로로 생성한다. PNG와 JSON 저장은 실제 IPFS 업로드 함수를 그대로 사용한다. 공개 파일은 기존 HTTPS 게이트웨이가 제공하며 사용자 IPFS 설정 변경이 필요 없는 URL 경로다. 신규 운영 서버·CDN은 배포하지 않았다.
-- 기존 v1의 ipfs:// 경로와 capability 없는 legacy 계약 경로는 유지한다. 기존 URI·승인·DB를 덮어쓰지 않는다. 신규 계약은 고정 호스트와 CID 형식만 허용하고 다른 호스트, HTTP, 경로 추가, 쿼리 및 중복 교체를 거부한다. 서버와 실제 계약의 게이트웨이가 다르면 신청을 만들지 않는다.
-- 실제 검증용 UI 8006 / RPC 8547 / chain 31339 / 별도 DB `output/local-https-media/session-BSlZMU`를 실행했다. 기존 31337 LN-2026-4233의 Approved(체인 status 4) 및 여신심사 1건, 31338 LN-2026-3599의 Eligible(status 2) 및 여신심사 1건을 실제 RPC와 DB에서 재확인했다. 보존 증거: `output/local-https-media/preserved-existing-cases.json`.
-- Python 94건, JS 42건, 계약·통합 21건(합계 157건) 통과. 첫 EVM 통합 실행은 새 getter가 없는 이전 ABI 아티팩트 때문에 3건 실패했고, 새 계약을 컴파일한 뒤 전체 21건을 다시 실행해 통과했다. HTTPS 실제 발급·은행 NFT 소유권·legacy URI 및 잘못된 URL 거부는 테스트에서 확인했다. 테스트 대역 업로드·평가 API를 실제 외부 연동으로 보고하지 않는다.
-- 사용자가 8006에서 차주 연결·31339 네트워크 전환을 완료했다. 같은 실제 등록특허와 명시적 테스트 담당자 입력으로 접수를 진행했으며 현재 MetaMask 접수 서명·발급 거래 승인을 요청한 상태다. **신규 HTTPS NFT의 실제 발급 및 MetaMask 내부 이미지 표시는 아직 검증 완료가 아니다.**
+- 9fc233c 계약을 기존 로컬 31339 RPC의 별도 Manager `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9`에 배포했다. 이미지 표시만 검증하는 별도 NFT이며 실제 대출 신청이나 외부 평가 작업은 만들지 않았다. 공개 로컬 개발 계정이 계약 거래를 실행했다. 테스트 manifest와 70/100 계약 단위는 이미지 검증용이며 실제 가치평가 결과가 아니다.
+- 채권 NFT 계약 `0x6D544390Eb535d61e196c87d6B9c80dCD8628Acd`, Token ID 1, 소유 은행 `0x90F79bf6EB2c4f870365E785982E1f101E93b906`을 실제 RPC에서 확인했다. tokenURI는 `https://rwa-gw.mustree.kr/ipfs/Qmb78DwJpr7bkzNiEgNc1MxbxPEemkTgxRsn7HX3ojHh5M`, JSON image는 `https://rwa-gw.mustree.kr/ipfs/QmQFrZNXVMwYe3NokLxxVxE6ndrEjafvWELqPn3Ut1NEwB`이며 실제 HTTPS 조회와 기존 원본 PNG 해시 일치를 확인했다.
+- 저장소 코드 변경 없이 Git 제외 `output/metamask-image-check/`의 임시 확인 페이지(8007)에서 공식 wallet_watchAsset ERC721 요청을 보냈다. 사용자는 은행 연결·NFT 추가를 승인했다. 브라우저에서 wallet_watchAsset=true를 확인했고, 사용자는 대화에서 **“승인했고 MetaMask에 이미지가 보임”**으로 실제 지갑 표시를 확인했다. IPFS 설정 변경을 요구하지 않았고 메시지 서명·지갑 거래 승인도 요청하지 않았다.
+- 지갑 내부 화면을 에이전트가 직접 캡처한 것은 아니다. 표시 완료의 근거는 사용자 확인이며, API 성공·HTTP 200만으로 지갑 표시 성공을 추정하지 않았다. 증거: `output/metamask-image-check/mint-proof.json`, `browser-import-result.png`(API 결과 화면이며 지갑 내부 캡처는 아님).
+- 기존 31337 LN-2026-4233 Approved 및 31338 LN-2026-3599 Eligible·각 여신심사 1건을 다시 확인했다. 업무·인증·로컬 실행 코드는 여전히 997f3ae와 동일하다. 이 검증은 최소 이미지 전달 경로에 한정하며 실제 대출 업무를 새로 완주했다는 의미는 아니다.

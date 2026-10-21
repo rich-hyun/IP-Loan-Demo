@@ -152,9 +152,7 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
             }
             if (matches) return _validCid(uri[gateway.length:]);
         }
-        if (value.length < 17 || value.length > 135) return false;
-        if (value[0] != 'i' || value[1] != 'p' || value[2] != 'f' || value[3] != 's' || value[4] != ':' || value[5] != '/' || value[6] != '/') return false;
-        return _validCid(uri[7:]);
+        return false;
     }
     function _validCid(string calldata cid) private pure returns (bool) {
         bytes memory v = bytes(cid);

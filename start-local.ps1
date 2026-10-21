@@ -1,9 +1,7 @@
 param(
     [switch]$Fixture,
     [ValidateRange(1, 65535)][int]$Port = 8003,
-    [ValidateRange(1, 65535)][int]$RpcPort = 8545,
-    [ValidateRange(1, 2147483647)][int]$ChainId = 31337,
-    [ValidatePattern('^[a-z0-9-]+$')][string]$DataGroup = 'local-real'
+    [ValidateRange(1, 65535)][int]$RpcPort = 8545
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
@@ -21,8 +19,6 @@ $previousPort = $env:IPLOAN_QA_PORT
 $previousPython = $env:IPLOAN_TEST_PYTHON
 $previousLocalPort = $env:IPLOAN_LOCAL_PORT
 $previousRpcPort = $env:IPLOAN_LOCAL_RPC_PORT
-$previousChainId = $env:IPLOAN_LOCAL_CHAIN_ID
-$previousDataGroup = $env:IPLOAN_LOCAL_DATA_GROUP
 Push-Location (Join-Path $projectRoot 'blockchain')
 try {
     $env:IPLOAN_QA_PORT = [string]$Port
@@ -30,8 +26,6 @@ try {
     Write-Host "Starting http://127.0.0.1:$Port/#apply (Ctrl+C to stop)."
     $env:IPLOAN_LOCAL_PORT = [string]$Port
     $env:IPLOAN_LOCAL_RPC_PORT = [string]$RpcPort
-    $env:IPLOAN_LOCAL_CHAIN_ID = [string]$ChainId
-    $env:IPLOAN_LOCAL_DATA_GROUP = $DataGroup
     Write-Host $(if ($Fixture) { 'QA ONLY: automatic test wallet, fixture IPFS and report service.' } else { 'REAL MetaMask + REAL IPFS + REAL evaluation service. Local development chain only.' })
     Write-Host 'Each restart creates a new local chain and database. Previous real-mode database files are preserved.'
     $runnerArgs = @($(if ($Fixture) { 'scripts/workflow-qa.mjs' } else { 'scripts/local-real.mjs' }))
@@ -42,7 +36,5 @@ try {
     $env:IPLOAN_TEST_PYTHON = $previousPython
     $env:IPLOAN_LOCAL_PORT = $previousLocalPort
     $env:IPLOAN_LOCAL_RPC_PORT = $previousRpcPort
-    $env:IPLOAN_LOCAL_CHAIN_ID = $previousChainId
-    $env:IPLOAN_LOCAL_DATA_GROUP = $previousDataGroup
     Pop-Location
 }
