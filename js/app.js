@@ -195,12 +195,9 @@ function setRole(role) {
   goHome();
   showToast(`${ROLE_META[role].label} 업무로 전환했습니다`);
 }
-/* Each role starts on its own work: the borrower's latest application, the case to evaluate or to review. */
+/* Each role starts on its own work: the borrower's applications (or the form for a first one), the case to evaluate or to review. */
 function goHome() {
-  if (currentRole === 'borrower') {
-    const latest = APPLICATIONS.find(a => hasAccess(a, 'borrower'));
-    return latest ? openDetail(latest.id) : goView('apply');
-  }
+  if (currentRole === 'borrower') return goView(APPLICATIONS.some(a => hasAccess(a, 'borrower')) ? 'list' : 'apply');
   goView({ evaluator: 'evaluate', bank: 'review' }[currentRole] || 'dashboard');
 }
 

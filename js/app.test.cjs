@@ -341,7 +341,7 @@ test('switching MetaMask accounts resumes a signed-in wallet on its work screen 
   const assigned = baseApplication({ id: 'LN-2026-100002', access: ['evaluator'] });
   const h = await boot({ session: { address: WALLET, roles: ['borrower'] }, applications: [mine, assigned],
     loginSession: { address: BANK, roles: ['bank'] } });
-  assert.equal(h.activeView(), 'detail');
+  assert.equal(h.activeView(), 'list');  // the borrower starts on the application list
   h.chain.setSession({ address: EVALUATOR, roles: ['evaluator'] });
   await h.chain.ended('switched');
   assert.equal(h.activeView(), 'evaluate');
@@ -394,6 +394,8 @@ test('bank reviewers see automatic rejections read-only, and the progress stops 
   assert.match(body, /등록된 평가보고서 열람/);
   assert.match(h.element('reviewListItems').innerHTML, /거절/);
   const b = await boot({ session: { address: WALLET, roles: ['borrower'] }, applications: [{ ...ruled, access: ['borrower'] }] });
+  assert.equal(b.activeView(), 'list');
+  b.run("openDetail('LN-2026-100001')");
   const steps = b.element('detailSteps').innerHTML;
   assert.match(steps, /step rejected[\s\S]*평가 확정·심사[\s\S]*거절/);
   assert.doesNotMatch(steps.split('평가 확정·심사')[1], /완료/);
