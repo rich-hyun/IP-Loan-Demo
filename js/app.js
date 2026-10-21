@@ -76,7 +76,9 @@ function apiCreateApplication(formData, onProgress) {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { /* handled below */ }
       if (xhr.status >= 200 && xhr.status < 300 && data) return resolve(data);
-      reject(new Error(data?.message || '신청 처리에 실패했습니다. 잠시 후 다시 시도하세요.'));
+      const error = new Error(data?.message || '신청 처리에 실패했습니다. 잠시 후 다시 시도하세요.');
+      error.status = xhr.status; error.code = data?.error;
+      reject(error);
     };
     xhr.onerror = () => reject(new Error('신청 서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.'));
     xhr.ontimeout = () => reject(new Error('IPFS 업로드 시간이 초과되었습니다. 잠시 후 다시 시도하세요.'));
@@ -623,13 +625,27 @@ applyForm.addEventListener('submit', async (e) => {
 
   try {
     if (typeof LoanWorkflow !== 'undefined') await LoanWorkflow.attach(payload, files[0]);
-    const created = await apiCreateApplication(payload, (percent) => {
+    const send = () => apiCreateApplication(payload, (percent) => {
       if (percent === 100) {
         btn.textContent = '원부 대조·암호화·IPFS 업로드 중…';
       } else {
         btn.textContent = percent == null ? '원부 전송 중…' : `원부 전송 중… ${percent}%`;
       }
     });
+    let created;
+    try {
+      created = await send();
+    } catch (err) {
+      // This tab still holds the request number of an earlier, different application: sign once more with a new one.
+      if (typeof LoanWorkflow === 'undefined' || err.status !== 409 || err.code !== 'workflow_blocked') throw err;
+      LoanWorkflow.clearDraft();
+      for (const key of ['workflow', 'request_id', 'auth']) payload.delete(key);
+      btn.textContent = '새 요청번호로 다시 서명 중…';
+      await LoanWorkflow.attach(payload, files[0]);
+      created = await send();
+    }
+    // The server has stored this request; the next application in this tab needs its own number.
+    if (typeof LoanWorkflow !== 'undefined') LoanWorkflow.clearDraft();
     hideConnNotice();
     steps[1].classList.add('done'); steps[1].classList.remove('current');
     steps[2].classList.add('done'); steps[2].classList.remove('current');
