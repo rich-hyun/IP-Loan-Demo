@@ -166,6 +166,7 @@ class V3ApiTest(unittest.TestCase):
 
     def test_removed_unauthenticated_write_endpoints(self):
         self.assertIn(self.client.patch("/api/applications/x", json={"status": "approved"}).status_code, {404, 405})
+        self.assertEqual(401, self.client.delete("/api/applications/x").status_code)  # deleting needs an admin sign-in
         self.assertEqual(404, self.client.post("/api/reset").status_code)
         self.assertEqual(404, self.client.post("/api/applications/x/document-nonce", json={}).status_code)
 
@@ -441,6 +442,27 @@ class V3ApiTest(unittest.TestCase):
         self.assertEqual(200, self.get(f"/applications/{created['id']}/document", "bank").status_code)
         self.bank_role = False
         self.assertEqual(403, self.get(f"/applications/{created['id']}/document", "bank").status_code)
+
+    def test_administrator_deletes_an_application_from_the_server_only(self):
+        created = self.apply()
+        app_id = created["id"]
+        self.stage = {"chainStatus": "Evaluating"}
+        self.complete_job(app_id)
+        self.assertEqual(201, self.prepare(app_id)[0].status_code)
+        stored = app_module.UPLOAD_DIR / self.row(app_id)["patentStoredName"]
+        self.assertTrue(stored.exists())
+        self.assertEqual(403, self.client.delete(f"/api/applications/{app_id}", headers=self.login("borrower")).status_code)
+        self.assertEqual(403, self.client.delete(f"/api/applications/{app_id}", headers=self.login("bank")).status_code)  # assigned, not admin
+        response = self.client.delete(f"/api/applications/{app_id}", headers=self.login("admin"))
+        self.assertEqual((200, "deleted"), (response.status_code, response.get_json()["status"]))
+        self.assertEqual([], self.get("/applications", "admin").get_json())
+        self.assertFalse(stored.exists())
+        with sqlite3.connect(app_module.DB_PATH) as conn:
+            for table, column in (("applications", "id"), ("evaluation_jobs", "appId"), ("evaluation_reports", "applicationId")):
+                self.assertEqual(0, conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (app_id,)).fetchone()[0], table)
+            log = conn.execute("SELECT id, appKey, deletedBy FROM deleted_applications").fetchall()
+        self.assertEqual([(app_id, created["appKey"], ADDRESS["admin"])], log)
+        self.assertEqual(404, self.client.delete(f"/api/applications/{app_id}", headers=self.login("admin")).status_code)
 
     def test_credit_rating_from_the_report_is_kept_for_the_bank(self):
         created = self.apply()

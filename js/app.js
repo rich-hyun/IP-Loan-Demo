@@ -537,6 +537,7 @@ function openDetail(id) {
         ${app.chainStatus === 'None' && hasAccess(app, 'borrower') ? `<button class="btn btn-primary btn-sm" type="button" onclick="retryApplicationChain('${escapeHtml(app.id)}')">지갑 서명으로 등록</button>` : ''}
         <button class="btn btn-outline btn-sm" type="button" onclick="retryApplicationChain('${escapeHtml(app.id)}', true)">등록 상태 확인</button>
         ${EVALUATED_STAGES.includes(app.chainStatus) ? `<button class="btn btn-outline btn-sm" type="button" data-registered-report="${escapeHtml(app.id)}">등록된 평가보고서 열람</button>` : ''}
+        ${deleteButtonHTML(app)}
       </div>`;
   }
   document.getElementById('detailDocs').innerHTML = extra;
@@ -1025,6 +1026,7 @@ function loadReviewCase(id) {
         ${agreed ? `<button class="btn btn-outline btn-sm" type="button" onclick="viewChainDocument('${escapeHtml(app.id)}')">등록원부 원본 열람</button>` : ''}
         ${app.rwaTokenId && app.bankWallet?.toLowerCase() === session()?.address?.toLowerCase() ? `<button class="btn btn-outline btn-sm" type="button" onclick="showRwaToken('${escapeHtml(app.rwaTokenId)}')">MetaMask에서 RWA 토큰 확인</button>` : ''}
         ${hasAccess(app, 'bank') ? `<button class="btn btn-outline btn-sm" type="button" onclick="syncChainReview('${escapeHtml(app.id)}')">체인 확인·복구</button>` : ''}
+        ${deleteButtonHTML(app)}
       </div>
       ${chainDecisionHTML(app)}
     </div></div>
@@ -1045,6 +1047,24 @@ function loadReviewCase(id) {
         <div class="button-row"><button class="btn btn-primary" type="button" onclick="recordChainRepayment('${escapeHtml(app.id)}')">MetaMask로 상환 기록 추가</button></div></div>` : ''}
       <p class="review-chain-note">상환은 송금 없이 기록만 남습니다.</p>
     </div></div>`;
+}
+/* Administrator: removes an application's records from the server (the chain record stays). */
+function deleteButtonHTML(app) {
+  return hasAccess(app, 'admin') ? `<button class="btn btn-danger-outline btn-sm" type="button" onclick="deleteApplication('${escapeHtml(app.id)}')">신청 기록 삭제</button>` : '';
+}
+async function deleteApplication(id) {
+  if (chainOperationBusy) return;
+  if (!confirm(`${id} 신청의 기록과 서류를 서버에서 삭제합니다.\n블록체인 기록은 남고, 암호화된 원본은 다시 열 수 없게 됩니다. 되돌릴 수 없습니다. 진행할까요?`)) return;
+  try {
+    await api(`/applications/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    APPLICATIONS = APPLICATIONS.filter(a => a.id !== id);
+    if (selectedReviewId === id) selectedReviewId = null;
+    if (selectedEvalId === id) selectedEvalId = null;
+    if (detailId === id) detailId = null;
+    renderAll();
+    goView(currentView === 'detail' ? 'list' : currentView);
+    showToast(`${id} 신청 기록을 삭제했습니다`);
+  } catch (error) { showToast(error.message); }
 }
 async function syncChainReview(id) {
   if (chainOperationBusy) return;

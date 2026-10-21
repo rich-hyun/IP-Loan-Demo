@@ -300,6 +300,9 @@ def init_db():
         conn.execute(PROFILE_SCHEMA)
         conn.execute(JOB_SCHEMA)
         conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
+        # Who removed which application; no company or document data is kept.
+        conn.execute("CREATE TABLE IF NOT EXISTS deleted_applications (id TEXT, appKey TEXT, managerAddress TEXT, "
+                     "chainStatus TEXT, deletedBy TEXT NOT NULL, deletedAt TEXT NOT NULL)")
         for statement in auth.SCHEMA:
             conn.execute(statement)
         add_columns(conn, "applications", MIGRATION_COLUMNS)
@@ -1154,6 +1157,28 @@ def read_evaluation_report(app_id):
     kind = report["kind"] or "pdf"
     return report_headers(Response(plaintext, content_type=ARTIFACT_TYPES[kind]), f"{app_id}-registered-report.{kind}",
                           kind, request.args.get("download") == "1")
+
+
+@app.route("/api/applications/<app_id>", methods=["DELETE"])
+@login_required
+def delete_application(app_id):
+    """Administrator only: removes one application's records and stored gazette from this server.
+    The chain record and tokens stay; with the encryption keys gone the encrypted copies on IPFS can no longer be opened."""
+    found, denied = load_application(app_id, "admin")
+    if denied:
+        return denied
+    application = found[0]
+    db = get_db()
+    db.execute("DELETE FROM evaluation_reports WHERE applicationId = ?", (app_id,))
+    db.execute("DELETE FROM evaluation_jobs WHERE appId = ?", (app_id,))
+    db.execute("DELETE FROM applications WHERE id = ?", (app_id,))
+    db.execute("INSERT INTO deleted_applications (id, appKey, managerAddress, chainStatus, deletedBy, deletedAt) VALUES (?, ?, ?, ?, ?, ?)",
+               (app_id, application.get("appKey"), application.get("managerAddress"), application.get("chainStatus"),
+                g.user["address"], timestamp()))
+    db.commit()
+    if application.get("patentStoredName"):
+        (UPLOAD_DIR / Path(application["patentStoredName"]).name).unlink(missing_ok=True)
+    return jsonify({"status": "deleted", "id": app_id})
 
 
 @app.route("/api/applications/<app_id>/document", methods=["GET"])

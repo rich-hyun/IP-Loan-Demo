@@ -92,7 +92,7 @@ test('temporary Flask + actual local EVM: wallet login, LLM report registration,
   state=await sync(bank);assert.equal(state.chainStatus,'Approved');assert.equal(state.rwaTokenId,'1');
   assert.deepEqual([state.creditGrade,state.rateBps,state.approvedTermMonths],['CC',430,24]);await document(bank,200);
   const rwa=new Contract(cfg.rwaTokenAddress,artifacts.IPLoanRWAToken.abi,provider);assert.equal(await rwa.ownerOf(1),bank.address);
-  const spoof=await fetch(startup.url+`/applications/${application.id}`,{method:'PATCH',headers:{...await login(bank),'Content-Type':'application/json'},body:JSON.stringify({status:'rejected'})});assert.equal(spoof.status,404);
+  const spoof=await fetch(startup.url+`/applications/${application.id}`,{method:'PATCH',headers:{...await login(bank),'Content-Type':'application/json'},body:JSON.stringify({status:'rejected'})});assert.equal(spoof.status,405);  // no client status writes; DELETE is admin-only
   await (await manager.connect(bank).recordRepayment(application.appKey,20,id('REF1'))).wait();state=await sync(bank);assert.equal(state.repaidAmount,20);
   await (await manager.connect(bank).recordRepayment(application.appKey,50,id('REF2'))).wait();state=await sync(bank);assert.equal(state.chainStatus,'Repaid');assert.equal(state.status,'repaid');assert.equal(state.repaidAmount,70);
   assert.equal(await provider.getBalance(await manager.getAddress()),0n);assert.equal(await rwa.ownerOf(1),bank.address);

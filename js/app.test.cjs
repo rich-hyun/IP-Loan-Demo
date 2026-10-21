@@ -49,6 +49,7 @@ async function boot({ session = null, loginSession = null, applications = [], pr
       if (path === '/applications') return applications;
       if (path === '/borrower-profiles') return profiles;
       if (path.endsWith('/evaluation-report')) return { cid: 'bafyreport', hash: '0xreport', appraisedValue: JSON.parse(options.body).appraisedValue, bankWallet: BANK };
+      if (options.method === 'DELETE') return { status: 'deleted' };
       if (path === '/documents/fields') return { ipType: '실용신안권', ipTitle: '접이식 거치대', ipRegNo: '20-2023-0001234' };
       if (path.endsWith('/evaluation')) return applications.find(a => path.includes(a.id));
       throw new Error('unexpected ' + path);
@@ -434,4 +435,22 @@ test('dropping a PDF on an upload box chooses it and fills the IP fields; other 
   assert.equal(h.element('patentInput').files[0].name, 'Gazette.PDF');
   assert.equal(h.element('patentNameDisplay').textContent, 'Gazette.PDF');
   assert.equal(h.element('fIpTitle').value, '접이식 거치대');
+});
+
+test('an administrator can delete an application from the review list or the detail screen', async () => {
+  const eligible = baseApplication({ chainStatus: 'Eligible', status: 'review', bankWallet: BANK, access: ['bank', 'admin'] });
+  const h = await boot({ session: { address: BANK, roles: ['bank', 'admin'] }, applications: [eligible] });
+  assert.equal(h.activeView(), 'review');
+  assert.match(h.element('reviewBody').innerHTML, /신청 기록 삭제/);
+  await h.run("deleteApplication('LN-2026-100001')");
+  const request = h.calls.find(call => call[1] === '/applications/LN-2026-100001' && call[2].method === 'DELETE');
+  assert.ok(request);
+  assert.equal(h.run('APPLICATIONS.length'), 0);
+  assert.match(h.element('reviewBody').innerHTML, /배정된 심사 건이 없습니다/);
+  assert.match(h.element('toast').textContent, /삭제했습니다/);
+  const bank = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [{ ...eligible, access: ['bank'] }] });
+  assert.doesNotMatch(bank.element('reviewBody').innerHTML, /신청 기록 삭제/);
+  const admin = await boot({ session: { address: WALLET, roles: ['admin'] }, applications: [{ ...eligible, access: ['admin'] }] });
+  admin.run("openDetail('LN-2026-100001')");
+  assert.match(admin.element('detailDocs').innerHTML, /신청 기록 삭제/);
 });
