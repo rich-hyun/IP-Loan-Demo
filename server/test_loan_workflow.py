@@ -322,6 +322,27 @@ class LoanWorkflowTests(unittest.TestCase):
         del self.roles[self.evaluator.address]
         self.assertEqual(403, self.client.post(f'/api/applications/{app_id}/evaluation', json={'action': 'status', 'auth': {'session': token}}).status_code)
 
+    def test_public_status_refreshes_provider_and_report_opens_without_wallet(self):
+        self.result = self.provider_job('queued')
+        app_id = self.create().json['id']
+        self.result = self.provider_job('completed')
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute('UPDATE loan_evaluations SET checkedAt=0 WHERE appId=?', (app_id,))
+        status = self.client.get(f'/api/applications/{app_id}/evaluation')
+        self.assertEqual(200, status.status_code, status.get_data(as_text=True))
+        self.assertEqual('completed', status.json['evaluation']['state'])
+        self.assertEqual(['pdf'], status.json['evaluation']['artifacts'])
+        self.assertNotIn('readSession', status.json)
+        report = self.client.get(f'/api/applications/{app_id}/evaluation/artifacts/pdf')
+        self.assertEqual(200, report.status_code)
+        self.assertTrue(report.data.startswith(b'%PDF-'))
+        self.assertTrue(report.headers['Content-Disposition'].startswith('inline'))
+        download = self.client.get(f'/api/applications/{app_id}/evaluation/artifacts/pdf?download=1')
+        self.assertTrue(download.headers['Content-Disposition'].startswith('attachment'))
+        self.assertEqual(403, self.client.post(f'/api/applications/{app_id}/evaluation/document', json={}).status_code)
+        self.assertEqual(404, self.client.get('/api/applications/missing/evaluation').status_code)
+        self.assertEqual(1, len(self.submissions))
+
     def test_missing_contract_config_never_passes_and_legacy_writes_closed(self):
         with patch.object(native.chain, 'MANAGER_ADDRESS', ''):
             response = self.create()

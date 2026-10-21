@@ -283,8 +283,8 @@ def application_to_public(row):
         public["documents"] = [public["docFileName"]]
     evaluation = loan_workflow.summary(get_db(), public["id"])
     if evaluation:
-        # Public list retains existing demo metadata; reports and review contents
-        # require wallet authentication through the dedicated evaluation API.
+        # Public list retains existing demo metadata; reports and progress come from the
+        # evaluation API, and the patent original requires wallet authentication.
         public["workflow"] = True
         public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt")}
         case = get_db().execute("SELECT applicationId FROM credit_cases WHERE applicationId=?", (public["id"],)).fetchone()

@@ -444,6 +444,28 @@ def register(native):
         db.commit()
         return jsonify({'nonce': nonce, 'message': message})
 
+    def evaluation_result(app_id):
+        db = native.get_db()
+        current = job(db, app_id)
+        application = native.find_application(app_id)
+        if application.get('chainStatus') == 'Evaluating':
+            after_sync(db, application, {'chainStatus': 'Evaluating'})
+            db.commit()
+        result = native.application_to_public(native.find_application(app_id))
+        result['evaluation'] = {**summary(db, app_id), 'artifacts': json.loads(current['artifacts'])}
+        result['evaluation']['attempts'] = [dict(r) for r in db.execute(
+            'SELECT attempt,jobId,state,error,updatedAt FROM loan_evaluation_attempts WHERE appId=? ORDER BY attempt', (app_id,))]
+        result['ltvPolicy'] = {'limitPercent': 70, 'source': 'v2-contract', 'demo': True}
+        return result
+
+    @app.route('/api/applications/<app_id>/evaluation', methods=['GET'])
+    def evaluation_status(app_id):
+        # Progress and reports are open to viewers; the patent original still needs a wallet signature.
+        if not job(native.get_db(), app_id):
+            raise WorkflowError('통합 신청을 찾을 수 없습니다.', 404)
+        refresh(native, app_id)
+        return jsonify(evaluation_result(app_id))
+
     @app.route('/api/applications/<app_id>/evaluation', methods=['POST'])
     def evaluation(app_id):
         data = request.get_json(silent=True) or {}
@@ -489,15 +511,7 @@ def register(native):
                 db.rollback()
                 update(db, app_id, state='submission_unknown', error='복구 결과 저장 실패. 같은 공급자 작업번호로 다시 확인하세요.')
                 raise
-        current = job(db, app_id)
-        application = native.find_application(app_id)
-        if application.get('chainStatus') == 'Evaluating':
-            after_sync(db, application, {'chainStatus': 'Evaluating'})
-            db.commit()
-        result = native.application_to_public(native.find_application(app_id))
-        result['evaluation'] = {**summary(db, app_id), 'artifacts': json.loads(current['artifacts'])}
-        result['evaluation']['attempts'] = [dict(r) for r in db.execute(
-            'SELECT attempt,jobId,state,error,updatedAt FROM loan_evaluation_attempts WHERE appId=? ORDER BY attempt', (app_id,))]
+        result = evaluation_result(app_id)
         if action == 'status' and not (data.get('auth') or {}).get('session'):
             token = secrets.token_urlsafe(32)
             db.execute('DELETE FROM workflow_read_sessions WHERE expires<?', (time.time(),))
@@ -505,19 +519,21 @@ def register(native):
                        (hashlib.sha256(token.encode()).hexdigest(), app_id, wallet, time.time()+900))
             db.commit()
             result['readSession'] = token
-        result['ltvPolicy'] = {'limitPercent': 70, 'source': 'v2-contract', 'demo': True}
         return jsonify(result)
 
-    @app.route('/api/applications/<app_id>/evaluation/artifacts/<kind>', methods=['POST'])
+    @app.route('/api/applications/<app_id>/evaluation/artifacts/<kind>', methods=['GET', 'POST'])
     def evaluation_artifact(app_id, kind):
-        data = request.get_json(silent=True) or {}
-        if not isinstance(data, dict):
-            raise WorkflowError('JSON 요청이 필요합니다.', 400)
-        authorize(native, 'artifact', app_id, {'kind': kind}, data.get('auth'))
+        # GET shows the report without a wallet (inline unless ?download=1); POST keeps the signed download.
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            if not isinstance(data, dict):
+                raise WorkflowError('JSON 요청이 필요합니다.', 400)
+            authorize(native, 'artifact', app_id, {'kind': kind}, data.get('auth'))
         body, _ = artifact(native.get_db(), app_id, kind)
         types = {'pdf': 'application/pdf', 'html': 'text/html; charset=utf-8', 'quality': 'application/json',
                  'timing': 'application/json', 'trace': 'text/plain; charset=utf-8', 'log': 'text/plain; charset=utf-8'}
-        response = Response(body, content_type=types[kind], headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': f'attachment; filename="{app_id}-{kind}.{kind}"'})
+        disposition = 'inline' if request.method == 'GET' and request.args.get('download') != '1' else 'attachment'
+        response = Response(body, content_type=types[kind], headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': f'{disposition}; filename="{app_id}-{kind}.{kind}"'})
         if kind == 'html':
             response.headers['Content-Security-Policy'] = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
         return response
