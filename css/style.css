@@ -659,3 +659,25 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 .workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .workflow-error { color: #a32924; padding: 12px; background: #fff1ef; border-radius: 6px; }
+.token-gallery { margin-top: 24px; padding: 24px; border: 1px solid var(--line, #dde3e9); border-radius: 14px; background: #f7f9fc; color: #152740; }
+.token-gallery-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+.token-gallery-heading h3 { margin: 0; font-size: 18px; }
+.token-gallery-heading > span, .token-gallery-note { color: #647184; font-size: 12px; line-height: 1.7; }
+.token-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.token-card { overflow: hidden; background: #fff; border: 1px solid #dce2eb; border-radius: 12px; min-width: 0; }
+.token-card-art { position: relative; background: #fff; aspect-ratio: 1; }
+.token-card-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.token-state { position: absolute; top: 14px; right: 14px; padding: 5px 9px; border-radius: 20px; background: #edf0f4; color: #506078; font-size: 11px; font-weight: 700; }
+.token-state.issued { background: #e5f3eb; color: #226442; }
+.token-state.burned { background: #e9edf3; color: #536176; }
+.token-card-info { padding: 18px; border-top: 1px solid #edf0f5; }
+.token-card-info h4 { font-size: 15px; margin: 0 0 14px; }
+.token-card-info dl { margin: 0; }
+.token-card-info dl > div { margin-top: 10px; }
+.token-card-info dt { color: #708098; font-size: 11px; }
+.token-card-info dd { margin: 3px 0 0; font-size: 13px; }
+.token-address { font-family: ui-monospace, monospace; overflow-wrap: anywhere; line-height: 1.5; }
+.token-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.token-card-caption { color: #78849a; font-size: 12px; line-height: 1.6; margin-bottom: 0; }
+.token-gallery-note { margin: 14px 0 0; }
+@media (max-width: 680px) { .token-card-grid { grid-template-columns: 1fr; } .token-gallery { padding: 14px; } }

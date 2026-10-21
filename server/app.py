@@ -801,6 +801,11 @@ def request_too_large(_error):
 
 
 loan_workflow.register(sys.modules[__name__])
+if __package__:
+    from . import token_cards_api
+else:
+    import token_cards_api
+token_cards_api.register(sys.modules[__name__])
 init_db()
 
 

@@ -518,6 +518,11 @@ function openDetail(id) {
     LoanWorkflow.panel(app, 'workflowDetail');
   }
 
+  if (app.appKey && typeof LoanTokenCards !== 'undefined') {
+    document.getElementById('detailDocs').innerHTML += LoanTokenCards.placeholder(app);
+    LoanTokenCards.load(app);
+  }
+
   VIEW_META.detail.sub = `${app.id} 신청의 진행 상황을 확인합니다`;
   goView('detail');
 }
@@ -1164,6 +1169,10 @@ function loadChainReviewCase(app) {
   if (app.workflow && typeof LoanWorkflow !== 'undefined') {
     document.getElementById('reviewBody').innerHTML += '<div class="panel" id="workflowReview"></div>';
     LoanWorkflow.panel(app, 'workflowReview');
+  }
+  if (typeof LoanTokenCards !== 'undefined') {
+    document.getElementById('reviewBody').innerHTML += LoanTokenCards.placeholder(app);
+    LoanTokenCards.load(app);
   }
 }
 async function syncChainReview(id) {

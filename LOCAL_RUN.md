@@ -35,6 +35,8 @@ $env:IPLOAN_LOCAL_BANK = '은행 공개 지갑 주소'
 
 ## 준비한 실제 특허 1건
 
+이미 실행 중인 8003의 최종승인 건을 유지하면서 최신 NFT UI를 보려면 별도 터미널에서 `cd blockchain; node scripts/local-ui.mjs`를 실행하고 http://127.0.0.1:8004/ 를 연다. 8003 프로세스가 기존 개발 체인을 제공하므로 계속 실행해 둔다. 이 명령은 새 체인이나 NFT를 만들지 않고 기존 DB·계약의 일치를 확인해 연결한다. 상세 동작과 지갑 이미지의 제약은 `server/TOKEN_MEDIA.md`를 참고한다.
+
 파일: `demo-files/real-patent/KR102877748B1.pdf` (16쪽, 993,736바이트).
 
 | 항목 | 공고문 내용 |

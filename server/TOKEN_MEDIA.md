@@ -1,40 +1,40 @@
-# NFT·SBT 이미지 발급
+# SBT·NFT 카드 UI
 
-신규 온체인 신청에서는 서버가 신청번호·기업명·대표자명·IP 제목을 사용해 1200×1200 PNG 두 장을 생성한다. 열람 SBT는 네이비, 채권 NFT는 코퍼 색이며, 두 장을 SBT·NFT 순으로 나란히 놓으면 배경 동심원이 이어진다. 외부 AI 호출이나 별도 API 키는 사용하지 않는다. 카드 본문에는 신청 IP 제목만 표시하며, `평가보고서` 문구를 덧붙이지 않는다. 메타데이터의 보고서 속성에는 보고서 종류를 함께 기록한다.
+`feat/token-card-design`의 `e55b582` 이미지 생성기를 통합했다. `server/token_media.py`는 번들 IBM Plex 글꼴(Plex Sans KR·Mono, SIL OFL 1.1)과 Pillow로 1200×1200 PNG를 생성한다. 외부 AI나 별도 API 키는 필요 없다.
 
-각 이미지와 공개 메타데이터 JSON을 기존 `IPLOAN_IPFS_UPLOAD_URL`로 업로드한다. JSON은 `name`, `description`, `image: ipfs://<image CID>`, `attributes`를 포함한다. JSON CID를 SQLite 신청에 저장하고 지갑 거래에서 계약에 전달한다. 이미지나 JSON 업로드가 실패하면 신청 접수를 완료하지 않으며 지갑 발급으로 진행하지 않는다. 업로드 일부가 성공한 뒤 실패하면 미참조 IPFS 파일이 남을 수 있다.
+## 현재 구현
 
-- 신청 등록: 차주의 `submitApplicationWithMetadata(..., sbtMetadataUri)` 거래가 평가자에게 SBT를 발급한다.
-- 평가 확정: 기존대로 SBT가 소각된다. 소각된 SBT는 메타마스크의 현재 보유 NFT로 표시할 수 없다.
-- 최종 승인: 은행의 `finalApproveWithMetadata(appKey, debtMetadataUri)` 거래가 은행에게 NFT를 발급한다.
-- `tokenURI(tokenId)`는 해당 공개 JSON의 IPFS URI를 반환한다.
-- 메타데이터와 이미지는 신청 시 미리 준비한다. 실제 발급 여부·현재 상태·상환금액은 계약 및 신청 화면에서 확인한다. 공개 JSON은 최초 발급용 표지이며 상환 때 갱신하지 않는다.
+- 신청 상세, 통합 평가사 검토, 은행 심사 화면에 SBT·NFT 카드 두 장을 표시한다.
+- 실제 로컬/설정 RPC의 계약 상태와 소유권을 검증한 뒤 발급 완료·소각 완료·미발급을 구분한다. 카드 그림이 준비됐다는 이유로 발급 완료로 표시하지 않는다.
+- 토큰 계약 주소, Token ID, 수령/소유 지갑과 체인 ID를 표시한다. 계약 주소·발급된 ID 복사와 원본 카드 크게 보기를 제공한다. Manager 주소와 토큰 계약 주소를 구분한다.
+- 평가 확정으로 소각된 SBT는 발급 이력용 표지이며 현재 소유 지갑은 없다. 승인/완납한 채권 NFT만 은행의 현재 보유 토큰으로 표시한다.
+- `GET /api/applications/<id>/tokens`는 계약과 DB의 바인딩을 검증한다. RPC 실패나 상태 불일치를 발급 완료로 대체하지 않는다.
+- `GET /api/applications/<id>/token-cards/sbt.png`, `debt.png`는 앱 미리보기 PNG다. 입력은 기존 공개 신청 정보 중 신청번호·기업명·대표자명·IP 제목 네 필드로 제한한다. 원본 PDF·사업자번호·연락처·AES 키·salt를 렌더러에 전달하지 않는다. 렌더링 결과는 제한된 메모리 캐시와 ETag를 사용한다.
 
-기존 ABI 함수는 이전 흐름의 호환성을 위해 보존한다. 새 웹은 이미지 메타데이터가 있는 새 발급 함수만 사용한다. 기존 함수로 직접 발급한 토큰은 기존 기본 메타데이터를 반환한다. 배포 계약은 `contractVersion() == 2`, `tokenMediaVersion() == 1`이어야 한다.
+## 지갑 이미지와의 구분
 
-## 설치와 새 계약 연결
+**현재 발급된 v2 토큰의 tokenURI에는 image 필드가 없다. 이번 UI는 그 메타데이터나 기존 계약을 변경하지 않는다.** 화면에 표시하는 생성 표지는 앱 미리보기이며 MetaMask에서 동일 이미지가 표시된다고 주장하지 않는다. 발급된 NFT는 MetaMask 수령 계정과 네트워크를 선택한 뒤 토큰 계약 주소·Token ID로 가져올 수 있다. 소각된 SBT는 현재 보유 NFT로 가져올 수 없다.
 
-1. `server/requirements.txt`를 설치한다(Pillow 추가).
-2. 카드 글꼴(IBM Plex Sans KR·Mono, SIL OFL 1.1)은 `server/fonts/`에 포함되어 있어 OS와 관계없이 같은 이미지가 생성된다. 별도 설치나 환경변수는 필요 없다. 글꼴 파일이 없으면 명확한 오류를 반환한다.
-3. `blockchain` 폴더에서 `npm run compile`을 실행한다.
-4. `admin.html`에서 관리자 지갑으로 새 Manager를 배포한다. 기존 Mustsem 배포 주소는 이 기능이 없는 이전 계약이다. 새 계약에는 차주 등 필요한 역할을 다시 등록한다.
-5. 서버 환경변수 `IPLOAN_MANAGER_ADDRESS`를 새 주소로 설정한다. 기존 신청이 이전 계약에 묶여 있으므로 새 DB 경로도 지정한다(예: `IPLOAN_DB_PATH=/절대경로/iploan-mustsem-media.db`). 이전 DB·배포 증적은 보존한다. 서버를 다시 시작한다.
-6. `/api/chain/config`의 `tokenMediaVersion`이 `1`인지 확인하고 새 신청으로 발급한다.
+이미지 JSON을 tokenURI에 연결하려면 별도로 계약의 메타데이터 지원과 신규 발급 흐름을 설계·배포해야 한다. `e55b582`의 이전 문서에 적혀 있던 `tokenMediaVersion`, `submitApplicationWithMetadata`, `finalApproveWithMetadata`는 해당 커밋에 구현되어 있지 않아 완료 기능으로 안내하지 않는다. 생성기의 `prepare()`는 PNG와 JSON을 IPFS에 업로드할 수 있는 재사용 함수이며 현재 신청 접수 경로에서 자동 호출하지 않는다.
 
-이 변경은 이미 배포된 계약 또는 이미 발급한 토큰을 수정하지 않는다. 실제 체인의 배포·지갑 서명과 메타마스크 표시 검증은 운영 지갑에서 수행해야 한다. 서버는 거래를 대신 서명하지 않는다.
+## 로컬 실행
 
-## 메타마스크 확인
+새 로컬 실행은 저장소 루트의 `start-local.ps1`을 사용한다. 이미 최종승인한 8003 세션을 유지하며 UI·API만 갱신하려면 다음을 실행한다.
 
-신청 상세·통합 평가·은행 심사 화면에 이미지 미리보기, NFT 이름, 발급된 Token ID 및 NFT 계약 주소를 표시한다. 웹 미리보기의 게이트웨이는 `IPLOAN_IPFS_GATEWAY`를 사용한다(기본 `https://rwa-gw.mustree.kr/ipfs/`).
+```powershell
+cd blockchain
+node scripts/local-ui.mjs
+# http://127.0.0.1:8004/
+```
 
-메타마스크에서 해당 네트워크와 수령자 계정을 선택한다. 자동 표시되지 않으면 NFT 탭의 **NFT 가져오기**에 **SBT 또는 NFT 계약 주소**와 Token ID를 입력한다. Manager 주소와 구분한다. Mustsem에서는 자동 탐지를 전제로 하지 않는다. IPFS 파일이 공개적으로 조회 가능하고 지속적으로 보관되어야 하며, 지갑 캐시·게이트웨이·네트워크 지원에 따라 표시가 지연되거나 제한될 수 있다.
-
-이미지와 JSON에 포함되는 기업명·대표자명·IP 제목은 공개된다. 원본 PDF, 전화번호, 사업자번호, AES 키, salt는 공개 이미지·메타데이터에 넣지 않는다.
+이 명령은 `output/local-real/latest.json`의 기존 DB·RPC에 연결하고 저장된 신청의 체인 바인딩을 검증한다. 기존 8003 프로세스가 개발 체인을 제공하므로 계속 실행해 둔다. 8004를 종료해도 기존 체인을 종료하지 않는다. 이전 로컬 DB를 새로 초기화된 체인에 연결하면 검증이 실패한다.
 
 ## 검증
 
-- `server/venv/Scripts/python.exe -m unittest server.test_token_media server.test_app server.test_loan_workflow -q` (Windows)
-- `node --test js/chain.test.cjs js/admin.test.cjs js/app.test.cjs`
-- `blockchain` 폴더에서 `node --test test/mvp.test.mjs test/integration.test.mjs test/workflow.test.mjs`
+```powershell
+$env:PYTHONPATH="$PWD/server"
+server/venv/Scripts/python.exe -m unittest server.test_token_media server.test_token_cards_api -q
+node --test js/token-cards.test.cjs js/app.test.cjs js/chain.test.cjs js/admin.test.cjs
+```
 
-검증은 임시 DB·로컬 EVM·가짜 IPFS로 수행한다. 실제 IPFS 업로드나 Mustsem 거래를 발생시키지 않는다.
+렌더링·ETag·개인 필드 배제·잘못된 신청·RPC 실패·미발급/소각/발급 상태·HTML 이스케이프를 검사한다. 기존 승인 건 LN-2026-4233에 대해 브라우저에서 생성 PNG 두 장과 NFT 계약 주소·Token ID 1·은행 소유권 표시를 확인했다. 운영 배포나 새 NFT 거래를 만들지 않았다.
