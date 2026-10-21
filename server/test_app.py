@@ -411,7 +411,6 @@ class V3ApiTest(unittest.TestCase):
         listed = self.get("/applications", "bank").get_json()
         self.assertEqual([(created["id"], ["bank_notice"])], [(a["id"], a["access"]) for a in listed])
         self.assertEqual(403, self.post(f"/applications/{created['id']}/sync", "bank").status_code)
-        self.assertEqual(403, self.get(f"/applications/{created['id']}/credit-score", "bank").status_code)
         self.assertEqual(200, self.get(f"/applications/{created['id']}/evaluation", "bank").status_code)
         self.assertEqual([], self.get("/applications", "outsider").get_json())
         with sqlite3.connect(app_module.DB_PATH) as conn:
@@ -443,13 +442,13 @@ class V3ApiTest(unittest.TestCase):
         self.bank_role = False
         self.assertEqual(403, self.get(f"/applications/{created['id']}/document", "bank").status_code)
 
-    def test_credit_score_button_returns_demo_grade_for_assigned_bank(self):
+    def test_credit_rating_from_the_report_is_kept_for_the_bank(self):
         created = self.apply()
-        self.stage = {"chainStatus": "Evaluating"}
-        self.complete_job(created["id"])
-        self.prepare(created["id"])
-        self.assertEqual("CC", self.get(f"/applications/{created['id']}/credit-score", "bank").get_json()["grade"])
-        self.assertEqual(403, self.get(f"/applications/{created['id']}/credit-score", "evaluator").status_code)
+        self.set_last_check(30)
+        with patch.object(app_module.patent_api, "status", return_value=job("completed", {"pdf": "/x"}, credit_rating=" bb+ ")):
+            done = self.get(f"/applications/{created['id']}/evaluation", "evaluator").get_json()["evaluation"]
+        self.assertEqual("BB+", done["credit_rating"])
+        self.assertEqual(404, self.get(f"/applications/{created['id']}/credit-score", "bank").status_code)
 
     # ------------------------------------------------------------ 이전 데이터
 

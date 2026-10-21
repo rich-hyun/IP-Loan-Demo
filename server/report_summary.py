@@ -52,6 +52,14 @@ def clean_valuation(raw):
     }
 
 
+def clean_credit_rating(raw):
+    """The credit grade written in the attached company report (e.g. "bb"), in the form the contract accepts (BB)."""
+    if not isinstance(raw, str):
+        return None
+    grade = re.match(r"[A-Z]{1,3}[+-]?", raw.strip().upper())
+    return grade.group(0) if grade else None
+
+
 def clean_financials(raw):
     """최근 3개 결산연도, 오래된 해부터. 자본잠식 여부는 자본총계로 다시 계산한다."""
     if not isinstance(raw, list):

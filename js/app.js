@@ -1010,9 +1010,8 @@ function loadReviewCase(id) {
         <p>입력한 조건은 최종 승인 거래로 블록체인에 기록되며 수정할 수 없습니다. 승인과 함께 이 은행 지갑에 RWA 토큰이 발급됩니다.</p>
         <div class="form-grid">
           <div class="field"><label for="creditGrade">신용등급<span class="req">*</span></label>
-            <div class="input-with-button"><input id="creditGrade" maxlength="8" placeholder="예: BBB+" autocomplete="off" required>
-            <button class="btn btn-outline btn-sm" type="button" id="loadCreditBtn">신용평가 불러오기</button></div>
-            <span class="help" id="creditHelp">대문자·+·- 최대 8자 (AAA, BB+, CC 등)</span></div>
+            <input id="creditGrade" maxlength="8" placeholder="예: BBB+" autocomplete="off" value="${escapeHtml(app.evaluation?.credit_rating || '')}" required>
+            <span class="help" id="creditHelp">${app.evaluation?.credit_rating ? '평가보고서 회사자료 기준 등급입니다. 확인 후 필요하면 수정하세요.' : '은행 CB 조회 결과를 입력하세요 (AAA, BB+ 등)'}</span></div>
           <div class="field"><label for="loanRate">약정 금리 (연 %)<span class="req">*</span></label><input id="loanRate" type="number" min="0.01" max="100" step="0.01" placeholder="예: 4.30" required></div>
           <div class="field"><label for="loanTerm">약정 기간 (개월)<span class="req">*</span></label><input id="loanTerm" type="number" min="1" max="600" step="1" value="${escapeHtml(app.termMonths || 12)}" required></div>
           <div class="field"><label>약정 금액</label><input value="${escapeHtml(Number(app.amount).toLocaleString('ko-KR'))}원" disabled></div>
@@ -1046,18 +1045,6 @@ function loadReviewCase(id) {
         <div class="button-row"><button class="btn btn-primary" type="button" onclick="recordChainRepayment('${escapeHtml(app.id)}')">MetaMask로 상환 기록 추가</button></div></div>` : ''}
       <p class="review-chain-note">상환은 송금 없이 기록만 남습니다.</p>
     </div></div>`;
-  const creditButton = document.getElementById('loadCreditBtn');
-  if (creditButton) creditButton.addEventListener('click', () => loadCreditGrade(app.id));
-}
-async function loadCreditGrade(id) {
-  const button = document.getElementById('loadCreditBtn');
-  button.disabled = true;
-  try {
-    const result = await api(`/applications/${encodeURIComponent(id)}/credit-score`);
-    document.getElementById('creditGrade').value = result.grade;
-    document.getElementById('creditHelp').textContent = `${result.source} · 기준일 ${result.asOf}. 확인 후 필요하면 수정하세요.`;
-  } catch (error) { showToast(error.message); }
-  finally { button.disabled = false; }
 }
 async function syncChainReview(id) {
   if (chainOperationBusy) return;

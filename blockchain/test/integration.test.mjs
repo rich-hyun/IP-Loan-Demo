@@ -88,7 +88,6 @@ test('temporary Flask + actual local EVM: wallet login, LLM report registration,
   state=await sync(evaluator);assert.equal(state.chainStatus,'Eligible');assert.equal(state.status,'review');assert.equal(state.appraisedValue,100);await document(evaluator,403);
   const registered=await fetch(startup.url+`/applications/${application.id}/evaluation-report/document`,{headers:await login(bank)});
   assert.equal(registered.status,200);assert.match(await registered.text(),/^%PDF-1\.7\nLLM report job-/);
-  assert.equal((await api(`/applications/${application.id}/credit-score`,bank)).data.grade,'CC');
   await (await manager.connect(bank).finalApprove(application.appKey,'CC',430,24)).wait();
   state=await sync(bank);assert.equal(state.chainStatus,'Approved');assert.equal(state.rwaTokenId,'1');
   assert.deepEqual([state.creditGrade,state.rateBps,state.approvedTermMonths],['CC',430,24]);await document(bank,200);

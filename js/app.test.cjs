@@ -50,7 +50,6 @@ async function boot({ session = null, loginSession = null, applications = [], pr
       if (path === '/borrower-profiles') return profiles;
       if (path.endsWith('/evaluation-report')) return { cid: 'bafyreport', hash: '0xreport', appraisedValue: JSON.parse(options.body).appraisedValue, bankWallet: BANK };
       if (path === '/documents/fields') return { ipType: '실용신안권', ipTitle: '접이식 거치대', ipRegNo: '20-2023-0001234' };
-      if (path.endsWith('/credit-score')) return { grade: 'CC', source: '예시 등급', asOf: '2026-10-20' };
       if (path.endsWith('/evaluation')) return applications.find(a => path.includes(a.id));
       throw new Error('unexpected ' + path);
     },
@@ -215,15 +214,17 @@ test('report not finished or not yet registered on chain cannot be confirmed', a
   assert.match(h.element('evalReportPanel').innerHTML, /신청 서명이 끝나면/);
 });
 
-test('bank loads the demo credit grade and approves with the loan agreement terms', async () => {
+test('the bank enters the credit grade (prefilled from the report when it has one) and approves with the terms', async () => {
   const eligible = baseApplication({ chainStatus: 'Eligible', status: 'review', bankWallet: BANK, access: ['bank'], appraisedValue: 100000000, ltv: 70 });
   const h = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [eligible] });
   h.run("goView('review')");
-  assert.match(h.element('reviewBody').innerHTML, /신용평가 불러오기/);
+  assert.doesNotMatch(h.element('reviewBody').innerHTML, /불러오기/);
+  assert.match(h.element('reviewBody').innerHTML, /은행 CB 조회 결과를 입력하세요/);
+  const rated = await boot({ session: { address: BANK, roles: ['bank'] },
+    applications: [{ ...eligible, evaluation: { ...eligible.evaluation, credit_rating: 'BB' } }] });
+  assert.match(rated.element('reviewBody').innerHTML, /id="creditGrade"[^>]*value="BB"/);
+  assert.match(rated.element('reviewBody').innerHTML, /평가보고서 회사자료 기준 등급/);
   assert.equal(h.element('loanTerm').value, '');  // the template sets value="24"; the harness does not parse HTML
-  await h.element('loadCreditBtn').listeners.click();
-  assert.equal(h.element('creditGrade').value, 'CC');
-  assert.match(h.element('creditHelp').textContent, /예시 등급/);
   h.element('creditGrade').value = 'bb+';
   h.element('loanRate').value = '4.35';
   h.element('loanTerm').value = '24';

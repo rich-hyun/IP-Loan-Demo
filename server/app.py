@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS evaluation_jobs (
 );
 """
 # LLM valuation and the last three fiscal years, sent by the report API with a completed job (validated JSON).
-JOB_COLUMNS = {"valuation": "TEXT", "financials": "TEXT"}
+JOB_COLUMNS = {"valuation": "TEXT", "financials": "TEXT", "creditRating": "TEXT"}
 REPORT_COLUMNS = {"reportKey": "TEXT", "reportSalt": "TEXT", "kind": "TEXT", "note": "TEXT", "createdAt": "TEXT"}
 ACTIVE_JOB_STATUSES = {"queued", "running", "awaiting_identity"}
 STAFF_ROLES = {"evaluator", "bank", "admin"}
@@ -583,6 +583,7 @@ def public_application(application, capacities):
             "confirmed_at": job["confirmedAt"], "reviewer_note": job["reviewerNote"],
             "artifacts": sorted(kind for kind in json.loads(job["artifacts"] or "{}") if kind in patent_api.kinds),
             "valuation": json.loads(job["valuation"]) if job["valuation"] else None,
+            "credit_rating": job["creditRating"],
         }
         if job["status"] == "completed":
             financials = json.loads(job["financials"]) if job["financials"] else []
@@ -832,16 +833,17 @@ def save_job(db, app_id, job):
                  if kind in patent_api.kinds and isinstance(path, str) and path}
     valuation = report_summary.clean_valuation(job.get("valuation"))
     financials = report_summary.clean_financials(job.get("financials"))
+    credit_rating = report_summary.clean_credit_rating(job.get("credit_rating"))
     now = timestamp()
     # 공급자 자유문에서 인증값을 제거한다.
     safe_text = lambda value: str(value or "").replace(patent_api.token, "[redacted]") if patent_api.token else str(value or "")
     db.execute("""UPDATE evaluation_jobs SET jobId=?, status=?, stage=?, businessNumber=?, identityMessage=?, artifacts=?,
-        error=?, detail=NULL, readError=NULL, retryAfter=NULL, updatedAt=?, lastCheckedAt=?, valuation=?, financials=?
-        WHERE appId=?""", (
+        error=?, detail=NULL, readError=NULL, retryAfter=NULL, updatedAt=?, lastCheckedAt=?, valuation=?, financials=?,
+        creditRating=? WHERE appId=?""", (
         job["job_id"], job["status"], safe_text(job.get("stage")), job.get("business_number"),
         safe_text(job.get("identity_message")), json.dumps(artifacts), safe_text(job.get("error")), now, now,
         json.dumps(valuation, ensure_ascii=False) if valuation else None,
-        json.dumps(financials, ensure_ascii=False) if financials else None, app_id,
+        json.dumps(financials, ensure_ascii=False) if financials else None, credit_rating, app_id,
     ))
     db.commit()
 
@@ -1179,16 +1181,6 @@ def read_document(app_id):
         return error_response(str(exc), 403, "document_forbidden")
     except Exception:
         return error_response("원본을 다운로드·복호화하지 못했습니다.", 502, "document_unavailable")
-
-
-@app.route("/api/applications/<app_id>/credit-score", methods=["GET"])
-@login_required
-def credit_score(app_id):
-    found, denied = load_application(app_id, "bank")
-    if denied:
-        return denied
-    # Stand-in for a credit bureau lookup until one is connected; the reviewer confirms or edits it before approval.
-    return jsonify({"grade": "CC", "source": "예시 등급", "asOf": date.today().isoformat()})
 
 
 @app.errorhandler(413)

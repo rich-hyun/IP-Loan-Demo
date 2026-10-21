@@ -2,7 +2,7 @@
 
 import unittest
 
-from server.report_summary import clean_financials, clean_valuation, financial_checks, public_financials
+from server.report_summary import clean_credit_rating, clean_financials, clean_valuation, financial_checks, public_financials
 
 
 def year(y, **values):
@@ -24,6 +24,14 @@ class ValuationTests(unittest.TestCase):
             self.assertIsNone(clean_valuation({"ip_value_krw": bad}), bad)
         self.assertIsNone(clean_valuation(["ip_value_krw", 1]))
         self.assertIsNone(clean_valuation({"ip_value_krw": 5, "valuation_date": "20261020"})["valuation_date"])
+
+
+class CreditRatingTests(unittest.TestCase):
+    def test_report_grade_in_contract_form(self):
+        self.assertEqual("BB", clean_credit_rating("bb"))
+        self.assertEqual("BBB-", clean_credit_rating(" bbb- (안정적)"))
+        for bad in (None, "", "등급 없음", 3, "12"):
+            self.assertIsNone(clean_credit_rating(bad), bad)
 
 
 class FinancialsTests(unittest.TestCase):

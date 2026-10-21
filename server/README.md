@@ -43,7 +43,7 @@ IPLOAN_MANAGER_ADDRESS=<v3 Manager 주소> bash blockchain/scripts/start-mustsem
 - /sync는 실제 체인 상태만 반영한다. 클라이언트가 보낸 tokenId·status·상환금액·담당자 주소를 쓰지 않는다.
 - 원부와 평가보고서는 AES-256-GCM으로 암호화해 IPFS에 올린다. 키·salt는 SQLite에만 있고 API로 내보내지 않는다.
   SQLite 백업도 비밀 데이터로 취급한다. DB와 암호문을 잃으면 원본 복구가 불가능할 수 있다.
-- 신용평가 조회(`/credit-score`)는 모의 응답(`CC`)이다. 실제 API를 연결하면 이 엔드포인트만 교체한다.
+- 신용등급은 심사역이 은행 CB 조회 결과를 입력한다. 평가 API가 회사자료(TCB 보고서)의 등급(`credit_rating`)을 주면 그 값을 미리 채운다.
 - LLM 보고서 API의 산정액·재무는 형식을 검증해 저장한다. 재무 점검은 참고용이며 자료가 없으면 판정 불가로 둔다.
 - 원부 진위 대조는 mock이다. 실제 개인정보·영업비밀을 쓰지 않는다.
 
