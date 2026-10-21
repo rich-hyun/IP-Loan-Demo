@@ -6,14 +6,15 @@
 ## 1. 배포 계약과 지갑
 
 Solidity 0.8.24, EVM Paris, optimizer 200, viaIR 설정을 사용한다.
-배포된 v2 계약(`contractVersion() == 2`)을 사용하며 테스트를 위해 재배포하지 않는다.
+2026-10-21 배포한 HTTPS 메타데이터 계약(`contractVersion() == 2`, `tokenMediaVersion() == 2`)을 사용한다. 배포·코드 검증 증거는 deployments/mustsem-https.json에 있다. 기존 deployments/mustsem.json의 계약·데이터는 보존하며 신규 계약으로 덮어쓰지 않는다.
 
 | 구분 | 주소 |
 |---|---|
-| Manager | 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38 |
-| 평가 SBT | 0xD384631492432479B029840D31dfa4149F4B7ddb |
-| 채권 NFT | 0xd9dc057e19956Ab88B81E959bD4fBe1E436556d9 |
-| 관리자 | 0xcdfBfb91DE6a35f243c10c8a291B632A7F20156e |
+| Manager | 0x65C40E399b145A9f9021652192C3e781dadbD2FA |
+| 평가 SBT | 0x8B06c5bfc253414BA29fa98B762Adc7AD9730f75 |
+| 채권 NFT | 0x8d819dcb3EB5aC2C113D7E0f6199d7498cb8EccE |
+| 배포자·관리자 | 0xB3Ec5f2bbB80e90ec457165d13EF469893a54951 |
+| 테스트 차주 | 0x5C921C1a2A25a05996Ce465Dbc36262bcdEfb207 |
 | 첫 평가사 (생성자 등록) | 0x28b53A7a9ce4905F81F258913E6056a53c670cdE |
 | 첫 은행·여신심사역 (생성자 등록) | 0xB3Ec5f2bbB80e90ec457165d13EF469893a54951 |
 
@@ -23,7 +24,7 @@ Solidity 0.8.24, EVM Paris, optimizer 200, viaIR 설정을 사용한다.
 차주 본인은 담당자가 될 수 없고 평가사는 같은 신청의 은행이 될 수 없다(서버·계약 모두 검사).
 
 RPC: https://block.mustree.kr
-배포 증적(배포 거래, 생성자 인자·바이트코드 검증): deployments/mustsem.json.
+배포 증적(배포 거래, 생성자 인자·런타임 코드 검증): deployments/mustsem-https.json. 사용자 설명과 별개로 배포자 주소는 실제 거래 발신자로 기록했다. 테스트 관리자와 은행 주소가 같지만 차주는 별도 주소이며, 기존 차주·평가사·은행 분리 규칙을 유지한다.
 deployments/sepolia.json은 이전 단일 담당자 계약의 검증 기록이며 현재 설정이 아니다.
 정상 네트워크 수수료를 사용한다. 각 거래 지갑에 MST가 필요하다.
 
@@ -47,6 +48,12 @@ cd ..
 
 ## 3. 실행
 
+현재 Windows 로컬 테스트는 저장소 루트에서 `.\start-mustsem-local.ps1`을 실행한다. 이미 실행 중인 주소는 **http://127.0.0.1:8008/**, 관리자는 http://127.0.0.1:8008/admin.html 이다. 이 실행기는 실제 Mustsem·실제 IPFS·실제 평가 API를 사용하며 로컬 체인을 만들지 않는다. API는 loopback 임시 포트로 실행되고 UI와 같은 origin의 /api로 연결된다. DB는 `output/mustsem-https-local/<manager주소>/`에 보존되어 재실행 시 재사용한다. `.\start-local.ps1`은 로컬 EVM용 별도 실행기다.
+
+현재 8008이 실행 중이면 중복 실행하지 않는다. 최초 설치 시 Node 의존성과 컴파일·build:web 및 Python 의존성이 필요하다. `server/.env`에는 평가 API 인증 설정이 있어야 한다. `-Bootstrap`은 계약 주소를 비운 신규 배포 준비 전용이며 이미 배포한 계약을 사용한 테스트에는 지정하지 않는다.
+
+아래는 기존 Linux/WSL 실행 방법이다.
+
 저장소 루트의 WSL 터미널 A:
 
 ```bash
@@ -61,7 +68,7 @@ server/.venv/bin/python -m http.server 8001 --bind 127.0.0.1
 
 API는 5001, 프론트는 http://127.0.0.1:8001/index.html 이다.
 이미 실행 중인 포트에 중복 실행하지 않는다.
-v2 Mustsem DB는 server/iploan-mustsem-v2.db다. 신청은 등록한 계약에 묶이므로 다른 계약의 DB를 재사용하지 않는다.
+새 HTTPS 계약의 기본 DB는 server/iploan-mustsem-https.db다. 기존 server/iploan-mustsem-v2.db는 보존한다. 신청은 등록한 계약에 묶이므로 다른 계약의 DB를 재사용하지 않는다. systemd 등에서 기존 환경변수를 지정했다면 새 계약 주소와 새 DB 경로를 명시적으로 설정해야 한다.
 .env.example은 참고용이며 자동 로드하지 않는다. IPFS 설정은 ../server/README.md를 참고한다.
 
 MetaMask 확장이 있는 Chrome/Edge에서 Mustsem RPC·chainId 7601·MST를 확인한다.

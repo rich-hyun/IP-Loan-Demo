@@ -1,0 +1,55 @@
+{
+  "network": "Mustsem",
+  "chainId": 7601,
+  "rpcUrl": "https://block.mustree.kr",
+  "contractVersion": 2,
+  "tokenMediaVersion": 2,
+  "tokenMediaGateway": "https://rwa-gw.mustree.kr/ipfs/",
+  "managerAddress": "0x65C40E399b145A9f9021652192C3e781dadbD2FA",
+  "accessSBTAddress": "0x8B06c5bfc253414BA29fa98B762Adc7AD9730f75",
+  "debtNFTAddress": "0x8d819dcb3EB5aC2C113D7E0f6199d7498cb8EccE",
+  "admin": "0xB3Ec5f2bbB80e90ec457165d13EF469893a54951",
+  "initialEvaluator": "0x28b53A7a9ce4905F81F258913E6056a53c670cdE",
+  "initialBank": "0xB3Ec5f2bbB80e90ec457165d13EF469893a54951",
+  "registeredRoles": {
+    "DEFAULT_ADMIN_ROLE": [
+      "0xB3Ec5f2bbB80e90ec457165d13EF469893a54951"
+    ],
+    "BORROWER_ROLE": [
+      "0x5C921C1a2A25a05996Ce465Dbc36262bcdEfb207"
+    ],
+    "EVALUATOR_ROLE": [
+      "0x28b53A7a9ce4905F81F258913E6056a53c670cdE"
+    ],
+    "BANK_ROLE": [
+      "0xB3Ec5f2bbB80e90ec457165d13EF469893a54951"
+    ]
+  },
+  "compiler": {
+    "version": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+    "evmVersion": "paris",
+    "viaIR": true,
+    "optimizerRuns": 200
+  },
+  "deploymentTransactionHash": "0xe5f0c9d3b8965e226137ad046969340ded639ddf690e5ab443d59ff5764e97c5",
+  "deploymentBlock": 13257348,
+  "deploymentNonce": 6,
+  "gasUsed": "4568646",
+  "effectiveGasPriceWei": "107",
+  "runtimeCodeKeccak": {
+    "IPLoanManager": "0xa890d7af3913c2ab85dc7e25bab02436fe473f526c3e1a0af951533d73bebc32",
+    "IPLoanAccessSBT": "0x54392510f10373f094a3eed516f22dbe0b72486005196b039bd6c7511f96040e",
+    "IPLoanDebtNFT": "0xcb9c8fed50cd10170d7449287e0130afac7ddd0c78c397200b006bf9f2487d85"
+  },
+  "verification": {
+    "creationCodeAndConstructorArgs": true,
+    "runtimeCodeManagerSBTNFT": true,
+    "tokenManagers": true,
+    "roles": true,
+    "httpsMetadataCapability": true
+  },
+  "verifiedDate": "2026-10-21",
+  "supersedesForNewApplications": "mustsem.json",
+  "note": "New deployment for HTTPS token media. Previous Mustsem contract and data are preserved. The deployment signer is the initial bank and administrator; borrower wallet is recorded in registeredRoles.",
+  "rolesVerifiedBlock": 13257588
+}

@@ -2,8 +2,8 @@
 
 신규 대출·특허평가는 단일 신청으로 연결됩니다. 신규 실행과 서명 API, 자동 산출 금액 어댑터, 재시도/복구, 로컬 QA 및 검증 방법은 [통합 흐름 가이드](LOAN_WORKFLOW.md)를 우선 참고하세요. 아래의 이전 공개 보고서 준비 API 설명은 기존 신청의 회귀 호환성에 해당합니다. 신규 신청은 서명된 업로드와 담당 평가사 검토를 요구합니다.
 
-Mustsem(7601, MST)에 배포한 v2 Manager 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38에 연결한다.
-서버는 `contractVersion() == 2`인 Manager에만 연결하며, DB는 server/iploan-mustsem-v2.db를 사용한다.
+신규 신청은 Mustsem(7601, MST)의 HTTPS 이미지 Manager 0x65C40E399b145A9f9021652192C3e781dadbD2FA에 연결한다.
+`contractVersion() == 2`, `tokenMediaVersion() == 2`이며 새 DB server/iploan-mustsem-https.db를 사용한다. 기존 계약 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38과 server/iploan-mustsem-v2.db는 보존하며 새 계약으로 이관하지 않는다.
 IPLOAN_ZERO_GAS_PRICE=0으로 정상 수수료를 사용한다.
 
 ```bash
@@ -22,8 +22,8 @@ bash blockchain/scripts/start-mustsem-api.sh
 cd IP-Loan-Demo  # 저장소 루트
 export IPLOAN_RPC_URL=https://block.mustree.kr
 export IPLOAN_CHAIN_ID=7601
-export IPLOAN_MANAGER_ADDRESS=0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38
-export IPLOAN_DB_PATH="$PWD/server/iploan-mustsem-v2.db"
+export IPLOAN_MANAGER_ADDRESS=0x65C40E399b145A9f9021652192C3e781dadbD2FA
+export IPLOAN_DB_PATH="$PWD/server/iploan-mustsem-https.db"
 export IPLOAN_ZERO_GAS_PRICE=0
 export PORT=5001
 server/.venv/bin/python server/app.py

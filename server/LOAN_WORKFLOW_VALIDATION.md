@@ -104,3 +104,12 @@ TypeScript 프로젝트가 아니므로 별도의 타입 검사기는 없다. �
 - 저장소 코드 변경 없이 Git 제외 `output/metamask-image-check/`의 임시 확인 페이지(8007)에서 공식 wallet_watchAsset ERC721 요청을 보냈다. 사용자는 은행 연결·NFT 추가를 승인했다. 브라우저에서 wallet_watchAsset=true를 확인했고, 사용자는 대화에서 **“승인했고 MetaMask에 이미지가 보임”**으로 실제 지갑 표시를 확인했다. IPFS 설정 변경을 요구하지 않았고 메시지 서명·지갑 거래 승인도 요청하지 않았다.
 - 지갑 내부 화면을 에이전트가 직접 캡처한 것은 아니다. 표시 완료의 근거는 사용자 확인이며, API 성공·HTTP 200만으로 지갑 표시 성공을 추정하지 않았다. 증거: `output/metamask-image-check/mint-proof.json`, `browser-import-result.png`(API 결과 화면이며 지갑 내부 캡처는 아님).
 - 기존 31337 LN-2026-4233 Approved 및 31338 LN-2026-3599 Eligible·각 여신심사 1건을 다시 확인했다. 업무·인증·로컬 실행 코드는 여전히 997f3ae와 동일하다. 이 검증은 최소 이미지 전달 경로에 한정하며 실제 대출 업무를 새로 완주했다는 의미는 아니다.
+
+### 통합 브랜치 반영 및 Mustsem 인수 환경 (2026-10-21)
+
+- 9b360b0에서 codex/loan-evaluation-integration의 추적 파일을 검증된 최소 구성 80a8f23과 일치시켰다. 이전 실험은 codex/archive-loan-evaluation-4054b27에 보존했다. 이후 변경은 새 배포 manifest, 별도 Mustsem 로컬 실행기, 설정 예제와 안내 문서이며 업무·인증 코드는 바꾸지 않았다.
+- 사용자가 MetaMask로 Mustsem에 Manager 0x65C40E399b145A9f9021652192C3e781dadbD2FA를 배포했다. 배포 거래 0xe5f0c9d3b8965e226137ad046969340ded639ddf690e5ab443d59ff5764e97c5, block 13257348, receipt 성공을 실제 RPC에서 확인했다. 생성 바이트코드·생성자 인자 및 immutable 슬롯을 반영한 Manager/SBT/NFT 런타임 코드가 컴파일 산출물과 일치한다. 계약 mediaVersion=2, 고정 HTTPS gateway, 토큰의 Manager 연결도 확인했다. 공개 증거는 blockchain/deployments/mustsem-https.json이다.
+- 실제 배포자·관리자·은행은 B3Ec…4951, 평가사는 28b5…0cdE이다. 사용자 역할 추가 승인 후 차주 5C92…b207의 BORROWER_ROLE을 실제 체인 및 로컬 /api/chain/config에서 확인했다. 역할 검증 block 13257588. 차주·평가사·은행은 서로 다르다. 추가 배포·역할 승인은 필요 없다.
+- start-mustsem-local.ps1은 실제 Mustsem RPC 및 기존 실제 IPFS·평가 API를 사용하는 8008 UI를 실행한다. 새 Manager별 영속 DB를 쓰며 기존 계약·DB와 로컬 체인 프로세스를 교체하지 않는다. 실제 HTTP 설정에서 enabled=true, chainId=7601, mediaVersion=2와 세 역할을 확인했다. 비밀 설정 경로는 HTTP 404이며 서버 키를 프런트에 노출하지 않는다.
+- 실행기 JS 구문 검사, PowerShell 파싱 및 실제 서버 기동·설정 응답을 확인했다. 최소 기능의 기존 Python 94 / JS 41 / 계약·통합 21건 통과 기록은 위와 같다. 이번 설정 추가로 업무 코드 테스트를 변경하지 않았다.
+- 새 Mustsem 계약에서의 대출 접수부터 최종승인·MetaMask NFT 표시까지는 사용자 인수 테스트가 남아 있다. 앞선 MetaMask 표시 성공은 별도 로컬 이미지 검증이며 새 Mustsem 대출의 완료 근거로 사용하지 않는다. Git push·운영 서버 배포·실제 외부 알림 발송은 수행하지 않았다.
