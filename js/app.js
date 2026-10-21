@@ -279,20 +279,11 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 
 const userChip = document.getElementById('userChip');
 const roleMenu = document.getElementById('roleMenu');
-/* NFTs this wallet holds: the bank's RWA tokens and the evaluator's access SBTs still in evaluation. */
-function myNfts() {
-  const me = session()?.address?.toLowerCase(), cfg = IPLoanChain.config() || {};
-  return APPLICATIONS.flatMap(a => [
-    a.rwaTokenId && a.bankWallet?.toLowerCase() === me ? [cfg.rwaTokenAddress, a.rwaTokenId] : null,
-    a.sbtTokenId && a.chainStatus === 'Evaluating' && a.evaluatorWallet?.toLowerCase() === me ? [cfg.accessSBTAddress, a.sbtTokenId] : null,
-  ]).filter(Boolean);
-}
-async function addNftsToWallet(tokens = myNfts()) {
-  toggleRoleMenu(false);
-  if (!tokens.length) return showToast('이 지갑에 있는 NFT가 없습니다');
+/* The RWA token minted to the bank at approval, shown in MetaMask's NFT list. */
+async function showRwaToken(tokenId) {
   try {
-    for (const [address, tokenId] of tokens) await IPLoanChain.watchNft(address, tokenId);
-    showToast(`MetaMask에서 NFT ${tokens.length}개를 확인할 수 있습니다`);
+    await IPLoanChain.watchNft(IPLoanChain.config().rwaTokenAddress, tokenId);
+    showToast('MetaMask에서 RWA 토큰을 확인할 수 있습니다');
   } catch (error) { showToast(error.message); }
 }
 function toggleRoleMenu(open) {
@@ -300,7 +291,6 @@ function toggleRoleMenu(open) {
   userChip.setAttribute('aria-expanded', String(open));
 }
 userChip.addEventListener('click', () => toggleRoleMenu(roleMenu.hidden));
-document.getElementById('addNftBtn').addEventListener('click', () => addNftsToWallet());
 document.getElementById('roleOptions').addEventListener('click', (e) => {
   const option = e.target.closest('[data-role]');
   if (option) { toggleRoleMenu(false); setRole(option.dataset.role); }
@@ -1037,7 +1027,7 @@ function loadReviewCase(id) {
       <div class="button-row" style="margin-top:16px;">
         ${evaluated ? `<button class="btn btn-outline btn-sm" type="button" data-registered-report="${escapeHtml(app.id)}">등록된 평가보고서 열람</button>` : ''}
         ${agreed ? `<button class="btn btn-outline btn-sm" type="button" onclick="viewChainDocument('${escapeHtml(app.id)}')">등록원부 원본 열람</button>` : ''}
-        ${app.rwaTokenId && app.bankWallet?.toLowerCase() === session()?.address?.toLowerCase() ? `<button class="btn btn-outline btn-sm" type="button" onclick="addNftsToWallet([[IPLoanChain.config().rwaTokenAddress, '${escapeHtml(app.rwaTokenId)}']])">MetaMask에서 RWA 토큰 확인</button>` : ''}
+        ${app.rwaTokenId && app.bankWallet?.toLowerCase() === session()?.address?.toLowerCase() ? `<button class="btn btn-outline btn-sm" type="button" onclick="showRwaToken('${escapeHtml(app.rwaTokenId)}')">MetaMask에서 RWA 토큰 확인</button>` : ''}
         ${hasAccess(app, 'bank') ? `<button class="btn btn-outline btn-sm" type="button" onclick="syncChainReview('${escapeHtml(app.id)}')">체인 확인·복구</button>` : ''}
       </div>
       ${chainDecisionHTML(app)}

@@ -353,17 +353,15 @@ test('switching MetaMask accounts resumes a signed-in wallet on its work screen 
   assert.equal(h.activeView(), 'review');
 });
 
-test('the NFT buttons add the tokens this wallet holds to MetaMask', async () => {
+test('the bank shows the RWA token of an approved loan in MetaMask', async () => {
   const approved = baseApplication({ chainStatus: 'Approved', status: 'approved', bankWallet: BANK, rwaTokenId: '1', access: ['bank'] });
-  const other = baseApplication({ id: 'LN-2026-100002', chainStatus: 'Evaluating', sbtTokenId: '2', access: ['bank'] });
-  const h = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [approved, other] });
-  assert.match(h.element('reviewBody').innerHTML, /MetaMask에서 RWA 토큰 확인/);
-  await h.run('addNftsToWallet()');
+  const h = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [approved] });
+  assert.match(h.element('reviewBody').innerHTML, /showRwaToken\('1'\)">MetaMask에서 RWA 토큰 확인/);
+  await h.run("showRwaToken('1')");
   assert.deepEqual(h.calls.filter(call => call[0] === 'watchNft'), [['watchNft', '0xrwa', '1']]);
-  assert.match(h.element('toast').textContent, /MetaMask에서 NFT 1개를 확인/);
-  const e = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [baseApplication({ sbtTokenId: '7' })] });
-  await e.run('addNftsToWallet()');
-  assert.deepEqual(e.calls.filter(call => call[0] === 'watchNft'), [['watchNft', '0xsbt', '7']]);
+  assert.match(h.element('toast').textContent, /MetaMask에서 RWA 토큰을 확인할 수 있습니다/);
+  const evaluating = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [baseApplication({ sbtTokenId: '7' })] });
+  assert.doesNotMatch(evaluating.element('evalReportPanel').innerHTML, /MetaMask에서/);
 });
 
 test('the minimum passing value matches the contract rule exactly (amount × 100 ≤ value × 70)', async () => {
