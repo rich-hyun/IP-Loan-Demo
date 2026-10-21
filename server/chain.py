@@ -10,7 +10,11 @@ CHAIN_ID = int(os.environ.get("IPLOAN_CHAIN_ID", "7601"))
 MANAGER_ADDRESS = os.environ.get("IPLOAN_MANAGER_ADDRESS", "").strip()
 ARTIFACT = Path(__file__).resolve().parents[1] / "blockchain/artifacts/IPLoanManager.json"
 TOKEN_ABI = [{"type": "function", "name": "ownerOf", "stateMutability": "view", "inputs": [{"name": "tokenId", "type": "uint256"}], "outputs": [{"name": "owner", "type": "address"}]}]
-FIELDS = ["borrower", "docCid", "fileHash", "amount", "reportCid", "reportHash", "appraisedValue", "tokenId", "repaidAmount", "status", "evaluator", "bank"]
+FIELDS = ["borrower", "docCid", "fileHash", "amount", "reportCid", "reportHash", "appraisedValue", "tokenId", "repaidAmount", "status",
+          "evaluator", "bank", "creditGrade", "rateBps", "termMonths", "approvedAt"]
+CONTRACT_VERSION = 3
+ROLE_NAMES = {"BORROWER_ROLE": "borrower", "EVALUATOR_ROLE": "evaluator", "BANK_ROLE": "bank"}
+ADMIN_ROLE_ID = b"\x00" * 32
 STAGES = ["None", "Evaluating", "Eligible", "RuleRejected", "Approved", "Rejected", "Repaid"]
 
 class ChainError(Exception):
@@ -58,11 +62,11 @@ def config():
         return result
     w3, manager = _manager()
     try:
-        if manager.functions.contractVersion().call() != 2:
-            raise ChainError("설정한 주소가 v2 Manager 계약이 아닙니다.")
+        if manager.functions.contractVersion().call() != CONTRACT_VERSION:
+            raise ChainError("설정한 주소가 v3 Manager 계약이 아닙니다.")
         block = w3.eth.block_number
-        result.update(managerAddress=manager.address, abi=manager.abi, contractVersion=2,
-                      accessSBTAddress=manager.functions.accessSBT().call(), debtNFTAddress=manager.functions.debtNFT().call(),
+        result.update(managerAddress=manager.address, abi=manager.abi, contractVersion=CONTRACT_VERSION, blockNumber=block,
+                      accessSBTAddress=manager.functions.accessSBT().call(), rwaTokenAddress=manager.functions.rwaToken().call(),
                       roleMembers={role: role_members(manager, role, block) for role in ["BORROWER_ROLE", "EVALUATOR_ROLE", "BANK_ROLE"]})
         return result
     except ChainError:
@@ -117,6 +121,20 @@ def has_role(wallet, role):
     except Exception as exc:
         raise ChainError("지갑 역할을 확인하지 못했습니다.") from exc
 
+def roles(wallet):
+    """Current on-chain roles of a wallet, as login role names (borrower/evaluator/bank/admin)."""
+    _, manager = _manager()
+    try:
+        wallet = address(wallet)
+        held = [name for role, name in ROLE_NAMES.items() if manager.functions.hasRole(Web3.keccak(text=role), wallet).call()]
+        if manager.functions.hasRole(ADMIN_ROLE_ID, wallet).call():
+            held.append("admin")
+        return held
+    except ChainError:
+        raise
+    except Exception as exc:
+        raise ChainError("지갑 역할을 확인하지 못했습니다.") from exc
+
 def snapshot(application):
     w3, manager = _manager()
     if application.get("managerAddress", "").lower() != manager.address.lower() or application.get("chainId") != CHAIN_ID:
@@ -151,15 +169,21 @@ def snapshot(application):
             if owner.lower() != evaluator.lower():
                 raise ChainError("평가 SBT 소유자가 다릅니다.")
         elif status in (4, 6):
-            token_address = manager.functions.debtNFT().call(block_identifier=block)
+            token_address = manager.functions.rwaToken().call(block_identifier=block)
             owner = w3.eth.contract(address=token_address, abi=TOKEN_ABI).functions.ownerOf(token_id).call(block_identifier=block)
             if owner.lower() != bank.lower():
-                raise ChainError("채권 NFT 소유자가 은행 주소와 다릅니다.")
+                raise ChainError("RWA 토큰 소유자가 은행 주소와 다릅니다.")
         result = {} if status != 3 else {"bankWallet": None}  # a rule rejection clears a bank prepared for an earlier draft
+        approved = status in (4, 6)
+        # Loan agreement terms exist only once the bank has approved on chain.
         return {**result, "chainStatus": STAGES[status], "chainBlock": block, "sbtTokenId": str(token_id),
-                "debtTokenId": str(token_id) if status in (4, 6) else None,
+                "rwaTokenId": str(token_id) if approved else None,
                 "reportCid": record["reportCid"], "reportHash": Web3.to_hex(record["reportHash"]),
-                "appraisedValue": record["appraisedValue"], "repaidAmount": record["repaidAmount"]}
+                "appraisedValue": record["appraisedValue"], "repaidAmount": record["repaidAmount"],
+                "creditGrade": record["creditGrade"] if approved else None,
+                "rateBps": record["rateBps"] if approved else None,
+                "approvedTermMonths": record["termMonths"] if approved else None,
+                "approvedAt": record["approvedAt"] if approved else None}
     except ChainError:
         raise
     except Exception as exc:

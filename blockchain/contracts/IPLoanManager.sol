@@ -5,7 +5,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IPLoanAccessSBT} from "./IPLoanAccessSBT.sol";
-import {IPLoanDebtNFT} from "./IPLoanDebtNFT.sol";
+import {IPLoanRWAToken} from "./IPLoanRWAToken.sol";
 
 contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     using Strings for uint256;
@@ -26,10 +26,15 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         Status status;
         address evaluator;
         address bank;
+        // Loan agreement fixed by the bank at final approval (v3).
+        string creditGrade;
+        uint256 rateBps;
+        uint256 termMonths;
+        uint256 approvedAt;
     }
-    uint256 public constant contractVersion = 2;
+    uint256 public constant contractVersion = 3;
     IPLoanAccessSBT public immutable accessSBT;
-    IPLoanDebtNFT public immutable debtNFT;
+    IPLoanRWAToken public immutable rwaToken;
     uint256 public nextTokenId = 1;
     mapping(bytes32 => Application) private _applications;
     mapping(uint256 => bytes32) public applicationKey;
@@ -42,7 +47,7 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     error DuplicateRepayment();
     event Submitted(bytes32 indexed appKey, address indexed borrower, address indexed evaluator, uint256 tokenId, string cid, bytes32 fileHash, uint256 amount);
     event EvaluationConfirmed(bytes32 indexed appKey, string reportCid, bytes32 reportHash, uint256 value, bool eligible, address indexed bank);
-    event FinalApproved(bytes32 indexed appKey, address indexed bank, uint256 debtTokenId);
+    event FinalApproved(bytes32 indexed appKey, address indexed bank, uint256 rwaTokenId, string creditGrade, uint256 rateBps, uint256 termMonths);
     event FinalRejected(bytes32 indexed appKey);
     event RepaymentRecorded(bytes32 indexed appKey, bytes32 indexed paymentRef, uint256 amount, uint256 total, bool fullyRepaid);
 
@@ -52,7 +57,7 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         _grantRole(EVALUATOR_ROLE, evaluator_);
         _grantRole(BANK_ROLE, bank_);
         accessSBT = new IPLoanAccessSBT(address(this));
-        debtNFT = new IPLoanDebtNFT(address(this));
+        rwaToken = new IPLoanRWAToken(address(this));
     }
     function getApplication(bytes32 appKey) external view returns (Application memory) { return _applications[appKey]; }
     // The borrower submits with the server-selected evaluator; it is fixed for this application.
@@ -63,7 +68,9 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         if (evaluator_ == address(0) || evaluator_ == msg.sender) revert InvalidInput();
         if (!hasRole(EVALUATOR_ROLE, evaluator_)) revert WrongEvaluator();
         uint256 tokenId = nextTokenId++;
-        _applications[appKey] = Application(msg.sender, cid, fileHash, amount, "", bytes32(0), 0, tokenId, 0, Status.Evaluating, evaluator_, address(0));
+        Application storage a = _applications[appKey];
+        (a.borrower, a.docCid, a.fileHash, a.amount, a.tokenId) = (msg.sender, cid, fileHash, amount, tokenId);
+        (a.status, a.evaluator) = (Status.Evaluating, evaluator_);
         applicationKey[tokenId] = appKey;
         accessSBT.mint(evaluator_, tokenId);
         emit Submitted(appKey, msg.sender, evaluator_, tokenId, cid, fileHash, amount);
@@ -87,13 +94,18 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         accessSBT.burn(a.tokenId);
         emit EvaluationConfirmed(appKey, reportCid, reportHash, value, eligible, bank_);
     }
-    function finalApprove(bytes32 appKey) external onlyRole(BANK_ROLE) nonReentrant {
+    /// Creates the loan agreement: the reviewer's credit grade, the rate (basis points) and the term are
+    /// fixed on chain, and the RWA token is minted to the assigned bank in the same transaction.
+    function finalApprove(bytes32 appKey, string calldata creditGrade, uint256 rateBps, uint256 termMonths)
+        external onlyRole(BANK_ROLE) nonReentrant {
         Application storage a = _applications[appKey];
         if (a.status != Status.Eligible) revert WrongStage(appKey);
         if (msg.sender != a.bank) revert WrongBank();
+        if (!_validGrade(creditGrade) || rateBps == 0 || rateBps > 10000 || termMonths == 0 || termMonths > 600) revert InvalidInput();
         a.status = Status.Approved;
-        debtNFT.mint(a.bank, a.tokenId);
-        emit FinalApproved(appKey, a.bank, a.tokenId);
+        (a.creditGrade, a.rateBps, a.termMonths, a.approvedAt) = (creditGrade, rateBps, termMonths, block.timestamp);
+        rwaToken.mint(a.bank, a.tokenId);
+        emit FinalApproved(appKey, a.bank, a.tokenId, creditGrade, rateBps, termMonths);
     }
     function finalReject(bytes32 appKey) external onlyRole(BANK_ROLE) nonReentrant {
         Application storage a = _applications[appKey];
@@ -116,13 +128,29 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         if (a.repaidAmount == a.amount) a.status = Status.Repaid;
         emit RepaymentRecorded(appKey, paymentRef, amount, a.repaidAmount, a.status == Status.Repaid);
     }
-    function metadata(uint256 tokenId, bool debt) external view returns (string memory) {
+    function metadata(uint256 tokenId, bool rwa) external view returns (string memory) {
         Application storage a = _applications[applicationKey[tokenId]];
         if (a.status == Status.None) revert InvalidInput();
-        bytes memory data = abi.encodePacked('{"name":"', debt ? "IP Loan Demo Debt #" : "IP Loan Appraisal Access #", tokenId.toString(),
+        bytes memory data = abi.encodePacked('{"name":"', rwa ? "IP Loan RWA #" : "IP Loan Appraisal Access #", tokenId.toString(),
             '","cid":"', a.docCid, '","fileHash":"', Strings.toHexString(uint256(a.fileHash), 32),
-            '","enc":"AES-256-GCM","status":', uint256(a.status).toString(), ',"repaidAmount":"', a.repaidAmount.toString(), '"}');
-        return string.concat("data:application/json;base64,", Base64.encode(data));
+            '","enc":"AES-256-GCM","status":', uint256(a.status).toString(), ',"repaidAmount":"', a.repaidAmount.toString(), '"');
+        if (rwa) {
+            data = abi.encodePacked(data, ',"amount":"', a.amount.toString(), '","appraisedValue":"', a.appraisedValue.toString(),
+                '","reportCid":"', a.reportCid, '","reportHash":"', Strings.toHexString(uint256(a.reportHash), 32),
+                '","creditGrade":"', a.creditGrade, '","rateBps":', a.rateBps.toString(), ',"termMonths":', a.termMonths.toString(),
+                ',"approvedAt":', a.approvedAt.toString());
+        }
+        return string.concat("data:application/json;base64,", Base64.encode(abi.encodePacked(data, "}")));
+    }
+    // Letter grades such as AAA, BB+ or CC: 1-8 characters of A-Z, '+' or '-'.
+    function _validGrade(string calldata grade) private pure returns (bool) {
+        bytes memory v = bytes(grade);
+        if (v.length == 0 || v.length > 8) return false;
+        for (uint256 i; i < v.length; ++i) {
+            bytes1 c = v[i];
+            if (!((c >= 0x41 && c <= 0x5a) || c == 0x2b || c == 0x2d)) return false;
+        }
+        return true;
     }
     function _validCid(string calldata cid) private pure returns (bool) {
         bytes memory v = bytes(cid);

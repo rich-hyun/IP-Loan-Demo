@@ -10,7 +10,7 @@ const application = { id: 'LN-TEST', appKey: '0xkey', docCid: 'bafytestcid', doc
   evaluatorWallet: '0x3333333333333333333333333333333333333333', bankWallet: '0x4444444444444444444444444444444444444444' };
 
 async function harness(options = {}) {
-  const state = { stage: 0, sends: 0, syncs: 0, methods: [], ...options };
+  const state = { stage: 0, sends: 0, syncs: 0, methods: [], requests: [], handlers: {}, ended: 0, ...options };
   const storage = new Map();
   if (state.pending) storage.set(`iploan-tx:31337:${manager}:LN-TEST:submit`, '0xpending');
   const send = async (...args) => {
@@ -26,7 +26,7 @@ async function harness(options = {}) {
     console, setTimeout, alert() {},
     document: { getElementById: () => null },
     localStorage: { getItem: k => storage.get(k), removeItem: k => storage.delete(k), setItem: (k, v) => storage.set(k, v) },
-    ethereum: { on() {}, request: async ({ method }) => {
+    ethereum: { on(name, fn) { state.handlers[name] = fn; }, request: async ({ method }) => {
       state.methods.push(method);
       if (method === 'eth_chainId') return state.wrongNetwork ? '0x1' : `0x${(state.chainId || 31337).toString(16)}`;
       if (method === 'wallet_switchEthereumChain') { state.wrongNetwork = false; return null; }
@@ -34,18 +34,25 @@ async function harness(options = {}) {
     } },
     ethers: {
       ZeroAddress: '0x0000000000000000000000000000000000000000', getAddress: a => a, toBeHex: n => `0x${n.toString(16)}`, id: s => s,
-      BrowserProvider: class { async getSigner() { return {}; } async getTransactionReceipt() { return state.receipt || null; } },
+      BrowserProvider: class { async getSigner() { return { signMessage: async message => { state.signed = message; return '0xsigned'; } }; } async getTransactionReceipt() { return state.receipt || null; } },
       Contract: class { hasRole = async () => state.hasRole !== false;
-        getApplication = async () => ({ status: state.stage }); submitApplication = send; confirmEvaluation = send; },
+        getApplication = async () => ({ status: state.stage }); submitApplication = send; confirmEvaluation = send; finalApprove = send; finalReject = send; },
     },
-    fetch: async url => {
-      if (url.endsWith('/chain/config')) return { ok: true, json: async () => ({ enabled: true, chainId: state.chainId || 31337, zeroGasPrice: state.zeroGasPrice, managerAddress: manager, abi: [] }) };
+    fetch: async (url, options = {}) => {
+      state.requests.push({ url, options });
+      const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
+      if (url.endsWith('/chain/config')) return reply({ enabled: true, chainId: state.chainId || 31337, zeroGasPrice: state.zeroGasPrice, managerAddress: manager, abi: [] });
+      if (url.endsWith('/auth/challenge')) return reply({ nonce: 'n-1', message: 'sign in ' + JSON.parse(options.body).address });
+      if (url.endsWith('/auth/login')) return reply({ token: 'session-token', address: wallet, roles: ['borrower'], expiresAt: 'later' });
+      if (url.endsWith('/auth/me')) return state.expired ? reply({ message: 'login' }, 401) : reply({ address: wallet, roles: ['bank'] });
+      if (url.endsWith('/auth/logout')) return reply({ status: 'ok' });
       state.syncs++;
-      return { ok: !state.syncFailure, json: async () => state.syncFailure ? { message: 'server unavailable' } : { ...application, chainStatus: 'Evaluating' } };
+      if (state.unauthorized) return reply({ message: '지갑으로 로그인해 주세요.' }, 401);
+      return reply(state.syncFailure ? { message: 'server unavailable' } : { ...application, chainStatus: 'Evaluating' }, state.syncFailure ? 502 : 200);
     },
   });
   vm.runInContext(source, context);
-  await context.IPLoanChain.init('/api');
+  await context.IPLoanChain.init('/api', () => { state.ended++; });
   return { api: context.IPLoanChain, state, storage };
 }
 
@@ -122,4 +129,46 @@ test('evaluation sends the server-assigned bank for a passing report and the zer
   h = await harness({ stage: 1 });
   await h.api.evaluate(evaluating, { ...report, appraisedValue: 99, bankWallet: null });
   assert.equal(h.state.sentArgs.at(-1), '0x0000000000000000000000000000000000000000');
+});
+
+test('login signs the server challenge once and later API calls carry the session token', async () => {
+  const h = await harness();
+  const session = await h.api.login();
+  assert.equal(session.token, 'session-token');
+  assert.equal(h.state.signed, 'sign in ' + wallet);
+  assert.equal(JSON.parse(h.storage.get('iploan-session')).address, wallet);
+  const login = h.state.requests.find(r => r.url.endsWith('/auth/login'));
+  assert.deepEqual(JSON.parse(login.options.body), { address: wallet, nonce: 'n-1', signature: '0xsigned' });
+  await h.api.sync(application);
+  assert.equal(h.state.requests.at(-1).options.headers.Authorization, 'Bearer session-token');
+  assert.deepEqual((await h.api.restore()).roles, ['bank']);
+  await h.api.logout();
+  assert.equal(h.api.session(), null); assert.equal(h.storage.has('iploan-session'), false);
+});
+test('switching the MetaMask account or an expired session signs out', async () => {
+  const h = await harness();
+  await h.api.login();
+  h.state.handlers.accountsChanged([manager]);
+  assert.equal(h.api.session(), null); assert.equal(h.state.ended, 1);
+  await h.api.login();
+  h.state.unauthorized = true;
+  await assert.rejects(h.api.sync(application), /로그인/);
+  assert.equal(h.api.session(), null); assert.equal(h.state.ended, 2);
+  await h.api.login(); h.state.expired = true;
+  assert.equal(await h.api.restore(), null);
+});
+test('transactions must come from the signed-in wallet', async () => {
+  const h = await harness();
+  await h.api.login();
+  h.state.wrongWallet = true;
+  await assert.rejects(h.api.register(application), /로그인한 지갑/);
+  assert.equal(h.state.sends, 0);
+});
+test('approval sends the loan agreement terms; rejection sends only the application key', async () => {
+  let h = await harness({ stage: 2 });
+  await h.api.approve({ ...application, bankWallet: wallet }, true, { creditGrade: 'CC', rateBps: 430, termMonths: 24 });
+  assert.deepEqual(h.state.sentArgs, ['0xkey', 'CC', 430n, 24n]);
+  h = await harness({ stage: 2 });
+  await h.api.approve({ ...application, bankWallet: wallet }, false);
+  assert.deepEqual(h.state.sentArgs, ['0xkey']);
 });

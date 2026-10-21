@@ -3,11 +3,12 @@ pragma solidity ^0.8.24;
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ILoanMetadata} from "./IPLoanAccessSBT.sol";
 
-/// MVP receipt held by the bank; trading/real legal claims are outside this demo.
-contract IPLoanDebtNFT is ERC721 {
+/// RWA token for an approved IP-collateral loan, minted to the assigned bank account.
+/// Demo only: no legal claim, and transfers after minting are disabled.
+contract IPLoanRWAToken is ERC721 {
     address public immutable manager;
     error ManagerOnly();
-    constructor(address manager_) ERC721("IP Loan Demo Debt", "IPLD") { manager = manager_; }
+    constructor(address manager_) ERC721("IP Loan RWA Token", "IPRWA") { manager = manager_; }
     function mint(address bank, uint256 tokenId) external {
         if (msg.sender != manager) revert ManagerOnly();
         _safeMint(bank, tokenId);

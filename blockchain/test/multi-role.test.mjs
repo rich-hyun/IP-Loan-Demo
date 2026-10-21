@@ -11,6 +11,7 @@ import { BrowserProvider, ContractFactory, Contract, id, ZeroAddress } from 'eth
 import { compile } from '../scripts/compile.mjs';
 
 // Temporary Flask (restarted with different assignment settings on one temp DB) + actual local EVM.
+// Every API call is made by the wallet that signed in; sessions survive restarts because they live in the DB.
 test('multi-role: evaluator assigned at application, bank at passing evaluation; tampering, owners and revocation', { timeout: 240000 }, async t => {
   const connection=await network.connect('localTest');
   const provider=new BrowserProvider(connection.provider); provider.pollingInterval=10;
@@ -22,7 +23,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   await v2.waitForDeployment();
   const [R,E,B]=await Promise.all(['BORROWER_ROLE','EVALUATOR_ROLE','BANK_ROLE'].map(r=>v2[r]()));
   for (const [role,s] of [[R,borrower1],[R,borrower2],[E,evalB],[B,bankB]]) await (await v2.grantRole(role,s.address)).wait();
-  const sbt=new Contract(await v2.accessSBT(),artifacts.IPLoanAccessSBT.abi,provider), nft=new Contract(await v2.debtNFT(),artifacts.IPLoanDebtNFT.abi,provider);
+  const sbt=new Contract(await v2.accessSBT(),artifacts.IPLoanAccessSBT.abi,provider), rwa=new Contract(await v2.rwaToken(),artifacts.IPLoanRWAToken.abi,provider);
 
   const rpc=http.createServer(async(req,res)=>{
     try {
@@ -51,40 +52,51 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
       child.once('error',reject); child.once('exit',code=>{if(code)reject(new Error(errors));});
     })).url;
   }
-  async function api(urlPath, body=null) {
-    const options=body===null?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  const tokens=new Map();
+  async function login(signer) {
+    if (!tokens.has(signer.address)) {
+      const challenge=await (await fetch(base+'/auth/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:signer.address})})).json();
+      const response=await fetch(base+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({address:signer.address,nonce:challenge.nonce,signature:await signer.signMessage(challenge.message)})});
+      assert.equal(response.status,200); tokens.set(signer.address,(await response.json()).token);
+    }
+    return {Authorization:'Bearer '+tokens.get(signer.address)};
+  }
+  async function api(urlPath, signer=null, body=null) {
+    const headers=signer?await login(signer):{};
+    const options=body===null?{headers}:{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)};
     const response=await fetch(base+urlPath,options);
     return {response, data:await response.json()};
   }
   const plaintexts={};
   async function apply(borrower, extra={}) {
     const form=new FormData();
-    for (const [k,v] of Object.entries({company:'가상 다중담당 기업',bizNo:'123-45-67890',ceo:'시연대표',contact:'010-0000-0000',amount:'70',borrowerWallet:borrower.address,...extra})) form.append(k,v);
+    // A distinct company per wallet: profiles belong to the wallet that saved them.
+    for (const [k,v] of Object.entries({company:'가상 다중담당 기업 '+borrower.address.slice(2,8),bizNo:'123-45-67890',ceo:'시연대표',contact:'010-0000-0000',amount:'70',...extra})) form.append(k,v);
     const plaintext=`%PDF-1.7\nmulti-role ${Math.random()}`;
     form.append('registryDocument',new Blob([plaintext],{type:'application/pdf'}),'registry.pdf');
-    const response=await fetch(base+'/applications',{method:'POST',body:form});
+    form.append('patentDocument',new Blob(['%PDF-1.4\ngazette'],{type:'application/pdf'}),'gazette.pdf');
+    const response=await fetch(base+'/applications',{method:'POST',headers:await login(borrower),body:form});
     const data=await response.json();
     if (response.status===201) plaintexts[data.id]=plaintext;
     return {response,data};
   }
-  const sync=a=>api(`/applications/${a.id}/sync`,{status:'approved',evaluatorWallet:outsider.address,bankWallet:outsider.address});
+  const sync=a=>api(`/applications/${a.id}/sync`,admin,{status:'approved',evaluatorWallet:outsider.address,bankWallet:outsider.address});
   const synced=async(a,stage)=>{const r=await sync(a);assert.equal(r.response.status,200,JSON.stringify(r.data));assert.equal(r.data.chainStatus,stage);return r.data;};
+  // 404: the wallet is not (or no longer) a participant of the application; 403: a participant without access now.
   async function documentStatus(a, signer) {
-    const challenge=(await api(`/applications/${a.id}/document-nonce`,{address:signer.address})).data;
-    const signature=await signer.signMessage(challenge.message);
-    const response=await fetch(base+`/applications/${a.id}/document`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({...challenge,address:signer.address,signature})});
+    const response=await fetch(base+`/applications/${a.id}/document`,{headers:await login(signer)});
     if (response.status===200) assert.equal(await response.text(),plaintexts[a.id]);
     return response.status;
   }
-  const prepare=(a,value=100,extra={})=>api(`/applications/${a.id}/evaluation-report`,{appraisedValue:value,summary:'공개 가상 시연 보고서',...extra});
+  const signerOf=address=>[evalA,evalB,bankA,bankB,borrower1,borrower2].find(s=>s.address===address);
+  const prepare=(a,value=100,extra={})=>api(`/applications/${a.id}/evaluation-report`,signerOf(a.evaluatorWallet),{appraisedValue:value,...extra});
   async function prepared(a,value=100,extra={}) { const r=await prepare(a,value,extra); assert.ok([200,201].includes(r.response.status),JSON.stringify(r.data)); return r.data; }
   async function confirm(a, evaluator, report, bank=report.bankWallet||ZeroAddress) {
     await (await v2.connect(evaluator).confirmEvaluation(a.appKey,report.cid,report.hash,report.appraisedValue,bank)).wait();
   }
   const submit=(a,borrower,evaluator=a.evaluatorWallet)=>v2.connect(borrower).submitApplication(a.appKey,a.docCid,a.docFileHash,70,evaluator).then(tx=>tx.wait());
-  const signerOf=address=>[evalA,evalB,bankA,bankB,borrower1,borrower2].find(s=>s.address===address);
-  const stored=async a=>(await api('/applications')).data.find(x=>x.id===a.id);
+  const stored=async a=>(await api('/applications',admin)).data.find(x=>x.id===a.id);
   async function reverts(promise, name, abi=artifacts.IPLoanManager.abi) {
     const selector=new Contract(await v2.getAddress(),abi).interface.getError(name).selector;
     await assert.rejects(promise,e=>e.revert?.name===name||JSON.stringify(e,(_,v)=>typeof v==='bigint'?String(v):v).includes(selector));
@@ -93,11 +105,11 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   // Phase 1: specific evaluator/bank settings; client-supplied participant fields are ignored.
   await start(v2, evalB.address, bankB.address);
   let cfg=(await api('/chain/config')).data;
-  assert.equal(cfg.contractVersion,2);
+  assert.equal(cfg.contractVersion,3);
   assert.deepEqual(cfg.roleMembers,{BORROWER_ROLE:[borrower1.address,borrower2.address],EVALUATOR_ROLE:[evalA.address,evalB.address],BANK_ROLE:[bankA.address,bankB.address]});
   const L2=(await apply(borrower1,{evaluatorWallet:evalA.address,bankWallet:bankA.address})).data;
   assert.deepEqual([L2.evaluatorWallet,L2.managerAddress],[evalB.address,await v2.getAddress()]); assert.ok(!('bankWallet' in L2));
-  let refused=await apply(outsider); assert.equal(refused.response.status,400); assert.equal(refused.data.error,'chain_not_ready');
+  let refused=await apply(outsider); assert.equal(refused.response.status,403); assert.equal(refused.data.error,'forbidden');
   await submit(L2,borrower1);
   assert.equal((await synced(L2,'Evaluating')).bankWallet,undefined);
   const r2=await prepared(L2,100,{bankWallet:bankA.address}); assert.equal(r2.bankWallet,bankB.address);
@@ -117,7 +129,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   const s3=await synced(L3,'Evaluating'), s2=await synced(L2,'Evaluating');
   assert.equal(await sbt.ownerOf(s2.sbtTokenId),evalB.address); assert.equal(await sbt.ownerOf(s3.sbtTokenId),evalA.address);
   let bad=await sync(L4); assert.equal(bad.response.status,409); assert.equal(bad.data.error,'chain_verification_failed');
-  assert.equal(await documentStatus(L4,evalB),403); assert.equal(await documentStatus(L4,evalA),403);
+  assert.equal(await documentStatus(L4,evalB),404); assert.equal(await documentStatus(L4,evalA),403);
   assert.equal((await prepare(L4)).response.status,409);
   const r3=await prepared(L3); assert.equal(r3.bankWallet,bankA.address);
 
@@ -149,16 +161,17 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   await confirm(L8,evalA,r8,other.address);
   bad=await sync(L8); assert.equal(bad.response.status,409); assert.equal(bad.data.error,'chain_verification_failed');
 
-  assert.equal(await documentStatus(L2,evalA),403); assert.equal(await documentStatus(L2,evalB),200);
-  assert.equal(await documentStatus(L3,evalB),403); assert.equal(await documentStatus(L3,evalA),200);
+  assert.equal(await documentStatus(L2,evalA),404); assert.equal(await documentStatus(L2,evalB),200);
+  assert.equal(await documentStatus(L3,evalB),404); assert.equal(await documentStatus(L3,evalA),200);
   await reverts(v2.connect(evalA).confirmEvaluation.staticCall(L2.appKey,r2.cid,r2.hash,100,bankB.address),'WrongEvaluator');
   await confirm(L2,evalB,await prepared(L2)); await confirm(L3,evalA,r3);
   assert.equal((await synced(L2,'Eligible')).bankWallet,bankB.address); assert.equal((await synced(L3,'Eligible')).bankWallet,bankA.address);
-  await reverts(v2.connect(bankA).finalApprove.staticCall(L2.appKey),'WrongBank');
-  await (await v2.connect(bankB).finalApprove(L2.appKey)).wait(); await (await v2.connect(bankA).finalApprove(L3.appKey)).wait();
+  await reverts(v2.connect(bankA).finalApprove.staticCall(L2.appKey,'CC',430,12),'WrongBank');
+  await (await v2.connect(bankB).finalApprove(L2.appKey,'CC',430,12)).wait(); await (await v2.connect(bankA).finalApprove(L3.appKey,'BB',390,24)).wait();
   const a2=await synced(L2,'Approved'), a3=await synced(L3,'Approved');
-  assert.equal(await nft.ownerOf(a2.debtTokenId),bankB.address); assert.equal(await nft.ownerOf(a3.debtTokenId),bankA.address);
-  assert.equal(await documentStatus(L2,bankA),403); assert.equal(await documentStatus(L2,bankB),200); assert.equal(await documentStatus(L3,bankA),200);
+  assert.equal(await rwa.ownerOf(a2.rwaTokenId),bankB.address); assert.equal(await rwa.ownerOf(a3.rwaTokenId),bankA.address);
+  assert.deepEqual([a3.creditGrade,a3.rateBps,a3.approvedTermMonths],['BB',390,24]);
+  assert.equal(await documentStatus(L2,bankA),404); assert.equal(await documentStatus(L2,bankB),200); assert.equal(await documentStatus(L3,bankA),200);
   await (await v2.connect(bankB).recordRepayment(L2.appKey,70,id('REF-L2'))).wait();
   assert.equal((await synced(L2,'Repaid')).repaidAmount,70);
 
@@ -171,7 +184,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   // Revocation: revoked participants lose execution and document access; recorded assignments stay fixed.
   await (await v2.revokeRole(B,bankA.address)).wait();
   await reverts(v2.connect(bankA).recordRepayment.staticCall(L3.appKey,1,id('REF-L3')),'AccessControlUnauthorizedAccount');
-  assert.equal(await documentStatus(L3,bankA),403); assert.equal((await synced(L3,'Approved')).bankWallet,bankA.address);
+  assert.equal(await documentStatus(L3,bankA),404); assert.equal((await synced(L3,'Approved')).bankWallet,bankA.address);
   const L5=(await apply(borrower2)).data; await submit(L5,borrower2);
   assert.equal((await prepared(L5)).bankWallet,bankB.address);
   // A prepared bank that loses its role before the evaluator confirms is re-chosen from current holders.
@@ -182,7 +195,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   const evaluator6=signerOf(L6.evaluatorWallet);
   await (await v2.revokeRole(E,evaluator6.address)).wait();
   await reverts(v2.connect(evaluator6).confirmEvaluation.staticCall(L6.appKey,r5.cid,r5.hash,100,bankA.address),'AccessControlUnauthorizedAccount');
-  assert.equal(await documentStatus(L6,evaluator6),403);
+  assert.equal(await documentStatus(L6,evaluator6),404);
   cfg=(await api('/chain/config')).data;
   assert.ok(!cfg.roleMembers.EVALUATOR_ROLE.includes(evaluator6.address)); assert.deepEqual(cfg.roleMembers.BANK_ROLE,[bankA.address]);
   const L7=(await apply(borrower1)).data; assert.notEqual(L7.evaluatorWallet,evaluator6.address);

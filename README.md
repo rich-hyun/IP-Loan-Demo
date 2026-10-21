@@ -1,48 +1,50 @@
 # IP-Loan-Demo
 
-정적 HTML/CSS/JavaScript + Flask/SQLite + MetaMask 계약으로 구성된 시범 MVP.
+LLM 기반 기술평가 IP담보 자동대출 시범 서비스. 정적 HTML/CSS/JavaScript + Flask/SQLite + MetaMask 서명 계약으로 구성한다.
+주식회사 머스트리 · NH농협은행 실증 협의용 시범 MVP이며 실제 자금 이동·법적 채권 효력은 없다.
 
-신청 기록·평가 중 SBT·은행 최종 승인 시 채권 NFT를 사용한다.
-평가 확정 때 SBT를 소각하고 70% 규칙을 실행한다. 상환은 실제 자금 이동 없이 기록만 남긴다.
+한 신청이 한 화면에서 끝까지 이어진다.
+
+1. 지갑 서명으로 로그인하면 체인에 등록된 역할(차주·평가사·은행·관리자)로 업무 화면이 열린다.
+2. 차주가 특허등록원부와 특허 공고전문을 제출한다. 원부는 암호화해 IPFS에, 공고전문으로는 LLM 가치평가보고서를 만든다.
+3. 담당 평가사가 LLM 보고서를 검토해 평가액을 확정한다. 보고서는 암호화 등록되고 해시가 체인에 기록되며, 계약이 70% 기준을 자동 심사한다.
+4. 담당 은행 심사역이 신용등급·금리·기간으로 대출약정을 체결하면 은행 지갑에 RWA 토큰이 발급된다. 상환은 기록만 남긴다.
+
 서버 개인키·대리 발급·에스크로·정식 금융 기능은 없다.
 
-- [확정 설계와 구현 체크리스트](docs/대출신청-암호화-토큰-설계.md)
-- [WSL 실행·관리자 준비·파일별 상세 수동 통합 테스트](blockchain/README.md)
-- [서버 설정과 API](server/README.md)
+- [확정 설계·로드맵 대비 구현 현황](docs/대출신청-암호화-토큰-설계.md)
+- [WSL 실행·관리자 준비·수동 통합 테스트](blockchain/README.md)
+- [서버 설정·API·운영 반영 순서](server/README.md)
+- [LLM 특허평가 API 연동](server/PATENT_API.md)
 
-현재 구현 브랜치: codex/ip-loan-mvp, origin/main 084cc650 기준.
-원래 checkout의 작업을 보존하기 위해 새 worktree에서 구현했다.
-로컬 프론트는 8001, API는 5001. 기존 8000/5000과 구분한다.
-Mustsem 실제 배포·거래·IPFS 업로드를 자동 테스트가 수행하지 않는다.
+로컬 프론트는 8001, API는 5001을 사용한다. 자동 테스트는 Mustsem 실제 배포·거래·IPFS 업로드를 수행하지 않는다.
 
-## 제출본 구성
+## 구성
 
-현재 서비스는 루트의 index.html, js/, css/, server/와 blockchain/contracts/를 사용한다.
-IP-Loan-Demo-main/은 이전 독립 PoC이며 현재 서비스에서는 사용하지 않는다.
+| 경로 | 내용 |
+|---|---|
+| index.html, js/app.js, js/chain.js, css/style.css | 업무 화면(로그인·신청·가치평가·여신 심사·보관함) |
+| admin.html, js/admin.js | 계약 배포·역할 주소 관리(관리자 지갑) |
+| server/app.py, server/auth.py, server/chain.py, server/patent_api.py | API(로그인·신청·LLM 보고서·체인 동기화) |
+| blockchain/contracts/ | IPLoanManager(v3)·평가 SBT·RWA 토큰 |
+| IP-Loan-Demo-main/ | 이전 독립 PoC. 현재 서비스에서는 사용하지 않는다 |
 
-GitHub 저장소를 제출본으로 사용한다. 기존 IP-Loan-Demo-main/은 변경하지 않고 보존한다.
-미사용 로컬 체인 시연용 배포·지갑 준비 스크립트는 제거했다.
-로컬 DB, 비밀 환경변수, 업로드 파일, node_modules 및 컴파일 산출물도 Git 추적에서 제외한다.
+로컬 DB, 비밀 환경변수, 업로드 파일, node_modules 및 컴파일 산출물은 Git 추적에서 제외한다.
 
-제출 코드에는 Solidity 소스, 웹·서버 코드, 공개 배포 기록, 라이선스 및 자동 테스트를 포함한다.
-Hardhat 설정과 테스트는 검증용 일회성 EVM에 필요하며 시연용 로컬 노드 실행 명령은 제공하지 않는다.
-현재 실행은 Mustsem 7601의 배포된 계약에 연결한다:
+## 실행
 
 ```bash
-bash blockchain/scripts/start-mustsem-api.sh
+IPLOAN_MANAGER_ADDRESS=<v3 Manager 주소> bash blockchain/scripts/start-mustsem-api.sh
 # 별도 WSL 터미널
 server/.venv/bin/python -m http.server 8001 --bind 127.0.0.1
 ```
 
-Python 의존성 설치와 IPFS 환경변수 준비는 server/README.md를 참고한다.
+Python 의존성 설치, IPFS·LLM API 환경변수는 server/README.md를 참고한다.
 
-## 특허 공고전문 평가보고서
-
-메인 화면의 **특허평가 신청** 또는 [특허평가 화면](patent.html#apply)에서 사업자등록번호와 공고전문 PDF로 보고서 생성을 신청합니다. [평가자 보고서함](patent.html#evaluate)에서 생성 상태, PDF/HTML, 근거자료를 확인하고 담보가치를 확정합니다.
-
-기존 역할 전환·지갑·IPFS 업무 화면과 API를 유지하며 특허평가 API는 `/api/patent`에서 제공합니다. 원본 PDF와 작업번호는 별도 `server/patent-iploan.db`, `server/patent-uploads/`에 저장합니다. API 인증값은 Git에서 제외한 `server/.env`에 설정합니다. [특허평가 연동 가이드](server/PATENT_API.md)를 참고하세요.
+## 테스트
 
 ```bash
-cd server
-./venv/bin/python -m unittest -q test_server_compat test_evaluations
+server/.venv/bin/python -m unittest server.test_app server.test_patent_api server.test_participant_assignment
+node --test js/app.test.cjs js/chain.test.cjs js/admin.test.cjs
+cd blockchain && npm test
 ```

@@ -1,4 +1,4 @@
-"""TEST ONLY: temporary DB and in-memory IPFS; local RPC supplied by test runner."""
+"""TEST ONLY: temporary DB, in-memory IPFS and a mock LLM report service; local RPC supplied by test runner."""
 import hashlib
 import io
 import json
@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import uuid
 from unittest.mock import Mock
 from werkzeug.serving import make_server
 
@@ -13,8 +14,9 @@ from werkzeug.serving import make_server
 test_dir = None if os.environ.get("IPLOAN_TEST_DATA_DIR") else tempfile.TemporaryDirectory()
 data_dir = Path(os.environ.get("IPLOAN_TEST_DATA_DIR") or test_dir.name)
 os.environ["IPLOAN_DB_PATH"] = str(data_dir / "integration.db")
-os.environ["IPLOAN_PATENT_DB_PATH"] = str(data_dir / "patents.db")
-os.environ["IPLOAN_PATENT_UPLOAD_DIR"] = str(data_dir / "patent-uploads")
+os.environ["IPLOAN_PATENT_DB_PATH"] = str(data_dir / "no-archive.db")
+os.environ["IPLOAN_UPLOAD_DIR"] = str(data_dir / "uploads")
+os.environ["IPLOAN_ROLE_CACHE_SECONDS"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server import app as app_module
 
@@ -32,8 +34,16 @@ def mock_gateway(url, **kwargs):
     response.iter_content.side_effect = lambda size: (payload[i:i+size] for i in range(0, len(payload), size))
     return response
 
+# The report is ready as soon as it is submitted; its bytes identify the job so tests can verify decryption.
+def mock_submit(path, filename, business_number):
+    return {"job_id": "job-" + uuid.uuid4().hex, "status": "completed",
+            "business_number": business_number, "artifacts": {"pdf": "/report.pdf"}}
+
 app_module.upload_ipfs_payload = mock_upload
 app_module.requests.get = mock_gateway
+app_module.patent_api.token = "integration-test-token"
+app_module.patent_api.submit = mock_submit
+app_module.patent_api.artifact = lambda job_id, kind: io.BytesIO(b"%PDF-1.7\nLLM report " + job_id.encode())
 httpd = make_server("127.0.0.1", 0, app_module.app)
 print(json.dumps({"url": f"http://127.0.0.1:{httpd.server_port}/api"}), flush=True)
 try:
