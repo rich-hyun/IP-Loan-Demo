@@ -35,6 +35,8 @@ $env:IPLOAN_LOCAL_BANK = '은행 공개 지갑 주소'
 
 ## NFT 이미지용 별도 로컬 체인
 
+최신 HTTPS 발급 검증: `.\start-local.ps1 -Port 8006 -RpcPort 8547 -ChainId 31339 -DataGroup local-https-media`. 차주 공개 주소 환경변수는 아래와 동일하게 지정한다. `tokenMediaVersion=2` 계약에서 PNG와 JSON을 IPFS에 업로드하고, 두 tokenURI와 JSON의 image에는 `https://rwa-gw.mustree.kr/ipfs/<CID>`를 저장한다. MetaMask의 사용자 IPFS 게이트웨이 설정 변경은 필요 없다. 기존 8003 승인 세션과 8005 IPFS URI 검증 세션을 계속 보존한다. 현재 실행 중인 8006은 새로 실행할 필요가 없다.
+
 기존 8003/31337 승인 세션을 유지하고 신규 이미지 계약을 검증하려면 `.\start-local.ps1 -Port 8005 -RpcPort 8546 -ChainId 31338 -DataGroup local-media`를 사용한다. 기존 개인 차주 지갑을 쓸 경우 위 `IPLOAN_LOCAL_BORROWER` 공개 주소 설정도 유지한다. 8005는 실제 IPFS PNG·JSON을 준비하고 차주의 MetaMask 거래로 두 tokenURI를 새 계약에 고정한다. 기존 승인 토큰은 변경하지 않는다. 매 실행은 새 체인·DB를 생성하므로 실행 중인 검증 세션을 불필요하게 재시작하지 않는다. 사이트 연결 계정이 다르면 상단 **MetaMask 계정 다시 선택**에서 해당 역할 계정만 선택한다. 상세 규격과 검증 제약은 `server/TOKEN_MEDIA.md`를 참고한다.
 
 ## 준비한 실제 특허 1건

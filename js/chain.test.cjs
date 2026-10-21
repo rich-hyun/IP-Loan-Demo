@@ -71,6 +71,15 @@ test('wrong assigned wallet or missing role never broadcasts', async () => {
     await assert.rejects(h.api.register(application)); assert.equal(h.state.sends, 0);
   }
 });
+
+test('HTTPS issuance requires media version 2 and sends the exact stored gateway URIs', async () => {
+  const app={...application,sbtMetadataUri:'https://rwa-gw.mustree.kr/ipfs/bafySbt123456',debtMetadataUri:'https://rwa-gw.mustree.kr/ipfs/bafyDebt12345'};
+  const old=await harness({tokenMediaVersion:1});
+  await assert.rejects(old.api.register(app)); assert.equal(old.state.sends,0);
+  const next=await harness({tokenMediaVersion:2}); await next.api.register(app);
+  assert.equal(next.state.sentArgs[5], app.sbtMetadataUri);
+  assert.equal(next.state.sentArgs[6], app.debtMetadataUri);
+});
 test('wrong network requests a switch before broadcasting', async () => {
   const h = await harness({ wrongNetwork: true }); await h.api.register(application);
   assert.ok(h.state.methods.includes('wallet_switchEthereumChain')); assert.equal(h.state.sends, 1);

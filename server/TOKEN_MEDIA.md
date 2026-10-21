@@ -13,15 +13,28 @@
 
 ## 실제 IPFS 이미지와 신규 발급
 
-새 Manager는 기존 `contractVersion() == 2`에 더해 `tokenMediaVersion() == 1`을 제공한다. 서버가 실제 배포 계약에서 capability를 조회한다. 대출 신청의 암호화 PDF 업로드 후 `token_media.prepare()`가 SBT PNG/JSON, 채권 NFT PNG/JSON을 실제 업로드 함수로 전송한다. JSON의 `image`는 `ipfs://<PNG CID>`이다. 두 이미지 URI·두 메타데이터 URI와 이름을 신청에 저장한다. 재제출은 같은 신청과 URI를 반환한다. 네 자산 업로드가 모두 성공해야 신청과 평가 작업을 생성한다. 부분 실패로 이미 업로드된 자산은 남을 수 있지만 신청·평가 작업은 생성되지 않는다.
+새 Manager는 기존 `contractVersion() == 2`에 더해 `tokenMediaVersion() == 2`와 `tokenMediaGateway()`를 제공한다. 서버가 실제 계약 capability와 게이트웨이를 조회한다. 대출 신청의 암호화 PDF 업로드 후 `token_media.prepare()`가 SBT PNG/JSON, 채권 NFT PNG/JSON을 실제 IPFS 업로드 함수로 전송한다. 새 버전 JSON의 `image`와 온체인 `tokenURI`는 모두 `https://rwa-gw.mustree.kr/ipfs/<CID>`이다. 우리 HTTPS 게이트웨이가 IPFS 파일을 제공하므로 MetaMask의 사용자 IPFS 설정에 의존하지 않는다. MetaMask가 URL을 조회하는 방식이며 서버가 지갑에 데이터를 푸시하는 방식은 아니다. 기존 tokenMediaVersion 1 계약의 신규 신청은 기존 `ipfs://` 경로를 유지한다.
 
-차주가 MetaMask로 `submitApplicationWithMetadata` 거래를 승인하면 두 JSON URI가 신청에 함께 고정된다. SBT의 `tokenURI`와 최종승인 때 은행에 발급되는 NFT의 `tokenURI`가 각각 해당 JSON을 반환한다. URI 변경 setter는 없다. 채권 발급 시 별도 메타데이터 거래나 재업로드는 필요 없다. 계약은 `ipfs://`와 영숫자 CID 형식을 요구하며 HTTP 주소·경로·쿼리를 거부한다. 실제 CID 조회는 오프체인에서 검증한다.
+두 이미지 URI·두 메타데이터 URI와 이름을 신청에 저장한다. CID는 HTTPS 경로의 마지막 세그먼트로 그대로 보존된다. 재제출은 같은 신청과 URI를 반환한다. 네 자산 업로드가 모두 성공해야 신청과 평가 작업을 생성한다. 부분 실패로 이미 업로드된 자산은 남을 수 있지만 신청·평가 작업은 생성되지 않는다. 계약 게이트웨이와 서버 상수가 다르면 신규 접수를 실패 처리한다.
+
+차주가 MetaMask로 `submitApplicationWithMetadata` 거래를 승인하면 두 JSON URI가 신청에 함께 고정된다. SBT의 `tokenURI`와 최종승인 때 은행에 발급되는 NFT의 `tokenURI`가 각각 해당 JSON을 반환한다. URI 변경 setter는 없다. 채권 발급 시 별도 메타데이터 거래나 재업로드는 필요 없다. 계약은 고정 HTTPS 게이트웨이 + 영숫자 CID 또는 기존 `ipfs://CID`만 허용하며 다른 호스트·평문 HTTP·경로 추가·쿼리를 거부한다. 실제 CID 조회는 오프체인에서 검증한다. 게이트웨이 변경은 소스 설정과 신규 계약 배포가 필요하며 기존 토큰을 덮어쓰지 않는다.
 
 **기존 배포 토큰의 tokenURI는 그대로 보존한다.** 기존 계약에 capability 함수가 없으면 legacy 경로를 유지한다. RPC 장애는 capability 미지원으로 숨기지 않는다. 기존 승인 건의 DB·체인을 새 계약으로 바꾸지 않는다. 카드 API는 실제 상태·소유권·신청과 저장된 tokenURI의 일치를 검증한다. `walletImageAvailable`은 온체인 연결 확인을 뜻하며 MetaMask의 실제 이미지 렌더링 성공을 뜻하지 않는다.
 
 공개 JSON과 PNG에는 신청번호·기업명·대표자명·IP 제목만 사용한다. 실제 이름을 사용하는 경우 IPFS 공개 자산에 포함됨을 고려해야 한다. 현재 검증은 명시적 테스트 이름을 사용한다. MetaMask에서 수령 계정과 네트워크를 선택한 뒤 NFT 계약 주소·Token ID로 가져온다. Manager 주소와 NFT 주소는 다르다. 소각된 SBT는 현재 보유 NFT로 가져올 수 없다.
 
 ## 로컬 실행
+
+최신 HTTPS 신규 발급은 기존 8003/31337 및 8005/31338을 유지한 상태에서 다음과 같이 실행한다.
+
+```powershell
+$env:IPLOAN_LOCAL_BORROWER = '0xcdfBfb91DE6a35f243c10c8a291B632A7F20156e'
+.\start-local.ps1 -Port 8006 -RpcPort 8547 -ChainId 31339 -DataGroup local-https-media
+```
+
+현재 검증 세션의 UI는 8006, RPC 8547, 체인 31339이다. 설정과 DB 기록은 `output/local-https-media/`에 저장된다. 사용자 IPFS 설정은 변경하지 않는다. 기존 공개 HTTPS 게이트웨이를 재사용하며 별도 운영 서버나 CDN을 배포하지 않았다. 도메인·TLS·게이트웨이 가용성 유지와 공개 CID 콘텐츠의 보존은 운영 시 필요한 외부 인프라 조건이다. MetaMask의 NFT 미디어 차단·수동 가져오기·캐시 동작까지 앱이 강제로 제어하지 않는다.
+
+아래 8005 안내는 이전 IPFS URI 검증 세션 설명이다.
 
 새 로컬 실행은 저장소 루트의 `start-local.ps1`을 사용한다. 이미 최종승인한 8003 세션을 유지하며 UI·API만 갱신하려면 다음을 실행한다.
 

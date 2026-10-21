@@ -159,6 +159,22 @@ class LoanWorkflowTests(unittest.TestCase):
         self.assertEqual(self.count('applications'), before)
         self.assertEqual(self.submissions, [])
 
+    def test_https_media_contract_uses_gateway_paths_and_rejects_gateway_mismatch(self):
+        from server import token_media
+        self.cfg.update(tokenMediaVersion=2, tokenMediaGateway='https://wrong.example/ipfs/')
+        before = self.count('applications')
+        self.assertEqual(self.create().status_code, 503)
+        self.assertEqual(self.count('applications'), before)
+        self.assertEqual(self.submissions, [])
+        self.cfg['tokenMediaGateway'] = token_media.HTTPS_GATEWAY
+        created = self.create()
+        self.assertEqual(created.status_code, 201, created.get_data(as_text=True))
+        self.assertTrue(created.json['debtMetadataUri'].startswith(token_media.HTTPS_GATEWAY))
+        self.assertTrue(created.json['debtImageUri'].startswith(token_media.HTTPS_GATEWAY))
+        replay = self.create()
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.json['debtMetadataUri'], created.json['debtMetadataUri'])
+
     def test_one_upload_report_review_confirm_ltv_credit_case_and_restart(self):
         app_id = self.completed()
         status = self.call(app_id, signer=self.evaluator)

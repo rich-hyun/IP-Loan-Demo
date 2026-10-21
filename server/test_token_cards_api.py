@@ -76,6 +76,19 @@ class TokenCardsAPITest(unittest.TestCase):
             self.assertEqual(repeated.status_code, 304)
             self.assertEqual(card.call_count, 1)
 
+    def test_https_cid_urls_are_used_directly_and_arbitrary_hosts_are_not_published(self):
+        base = token_cards_api.token_media.HTTPS_GATEWAY
+        for prefix in ('sbt','debt'):
+            self.record[prefix+'MetadataUri'] = base+'bafyMetadata123456'
+            self.record[prefix+'ImageUri'] = base+'bafyImage123456789'
+        result = self.client.get(self.url+'/tokens').get_json()
+        self.assertTrue(result['walletImageAvailable'])
+        self.assertEqual(result['tokens'][1]['imageUrl'], self.record['debtImageUri'])
+        self.record['debtImageUri'] = 'https://evil.test/track'
+        result = self.client.get(self.url+'/tokens').get_json()
+        self.assertFalse(result['walletImageAvailable'])
+        self.assertNotIn('imageUrl', result['tokens'][1])
+
     def test_invalid_targets_and_rpc_failure_do_not_show_false_ownership(self):
         self.assertEqual(self.client.get('/api/applications/missing/tokens').status_code, 404)
         self.assertEqual(self.client.get(self.url + '/token-cards/secret.png').status_code, 404)

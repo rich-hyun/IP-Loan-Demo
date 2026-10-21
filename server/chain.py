@@ -76,6 +76,8 @@ def config():
                       tokenMediaVersion=media_version,
                       accessSBTAddress=manager.functions.accessSBT().call(), debtNFTAddress=manager.functions.debtNFT().call(),
                       roleMembers={role: role_members(manager, role, block) for role in ["BORROWER_ROLE", "EVALUATOR_ROLE", "BANK_ROLE"]})
+        if media_version >= 2:
+            result['tokenMediaGateway'] = manager.functions.tokenMediaGateway().call()
         return result
     except ChainError:
         raise

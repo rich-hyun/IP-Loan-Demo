@@ -152,6 +152,7 @@ globalThis.IPLoanChain = (() => {
     const args = [app.appKey, app.docCid, app.docFileHash, BigInt(app.amount), app.evaluatorWallet];
     if (app.sbtMetadataUri || app.debtMetadataUri) {
       if (!app.sbtMetadataUri || !app.debtMetadataUri || Number(cfg?.tokenMediaVersion || 0) < 1) throw new Error('이미지 메타데이터를 지원하는 계약과 두 토큰 URI를 확인하세요.');
+      if ([app.sbtMetadataUri, app.debtMetadataUri].some(uri => uri.startsWith('https://')) && Number(cfg.tokenMediaVersion) < 2) throw new Error('HTTPS 메타데이터를 지원하는 새 계약을 확인하세요.');
       return execute(app, 'submit', 'submitApplicationWithMetadata', [...args, app.sbtMetadataUri, app.debtMetadataUri], 'BORROWER_ROLE', app.borrowerWallet);
     }
     return execute(app, 'submit', 'submitApplication', args, 'BORROWER_ROLE', app.borrowerWallet);

@@ -266,15 +266,35 @@ def card(application, debt=False):
     return plate.png(), metadata
 
 
-def prepare(application, upload):
+HTTPS_GATEWAY = 'https://rwa-gw.mustree.kr/ipfs/'
+
+
+def media_cid(uri):
+    """Accept only canonical IPFS or our immutable CID gateway paths."""
+    import re
+    if not isinstance(uri, str):
+        return None
+    for prefix in ('ipfs://', HTTPS_GATEWAY):
+        if uri.startswith(prefix):
+            cid = uri[len(prefix):]
+            return cid if re.fullmatch(r'[A-Za-z0-9]{10,128}', cid) else None
+    return None
+
+
+def prepare(application, upload, *, https=False):
     # Render both before uploading, so font errors never cause partial uploads.
     cards = [(prefix, *card(application, debt)) for prefix, debt in [('sbt', False), ('debt', True)]]
     result = {}
     for prefix, png, metadata in cards:
         image = upload(png, f'{application["id"]}-{prefix}.png', 'image/png')
-        metadata['image'] = 'ipfs://' + image['cid']
+        if not media_cid('ipfs://' + str(image['cid'])):
+            raise TokenMediaError('Invalid image CID')
+        uri_prefix = HTTPS_GATEWAY if https else 'ipfs://'
+        metadata['image'] = uri_prefix + image['cid']
         payload = json.dumps(metadata, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         document = upload(payload, f'{application["id"]}-{prefix}.json', 'application/json')
-        result.update({prefix + 'MetadataUri': 'ipfs://' + document['cid'],
+        if not media_cid('ipfs://' + str(document['cid'])):
+            raise TokenMediaError('Invalid metadata CID')
+        result.update({prefix + 'MetadataUri': uri_prefix + document['cid'],
                        prefix + 'ImageUri': metadata['image'], prefix + 'Name': metadata['name']})
     return result

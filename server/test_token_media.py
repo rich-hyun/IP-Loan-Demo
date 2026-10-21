@@ -44,6 +44,26 @@ class TokenMediaTest(unittest.TestCase):
                 token_media.prepare(self.application, lambda *args: calls.append(args))
             self.assertEqual(calls, [])
 
+    def test_https_metadata_and_image_are_both_actual_uploaded_cid_paths(self):
+        files = {}
+        def upload(body, filename, mime):
+            cid = 'bafy' + hashlib.sha256(body).hexdigest()
+            files[cid] = body
+            return {'cid': cid}
+        result = token_media.prepare(self.application, upload, https=True)
+        self.assertEqual(len(files), 4)
+        for prefix in ('sbt', 'debt'):
+            uri = result[prefix+'MetadataUri']
+            self.assertTrue(uri.startswith(token_media.HTTPS_GATEWAY))
+            metadata = json.loads(files[token_media.media_cid(uri)])
+            image = metadata['image']
+            self.assertTrue(image.startswith(token_media.HTTPS_GATEWAY))
+            self.assertEqual(files[token_media.media_cid(image)][:8], b'\x89PNG\r\n\x1a\n')
+            self.assertNotIn('ipfs://', json.dumps(metadata))
+        for uri in ['https://evil.test/ipfs/bafyValid12345', token_media.HTTPS_GATEWAY+'../bafyValid12345',
+                    token_media.HTTPS_GATEWAY+'bafyValid12345?x=1']:
+            self.assertIsNone(token_media.media_cid(uri))
+
     def test_upload_failure_is_not_reported_as_prepared(self):
         def fail(*args):
             raise RuntimeError('IPFS failed')

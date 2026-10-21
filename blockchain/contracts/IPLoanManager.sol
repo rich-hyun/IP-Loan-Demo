@@ -28,7 +28,8 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         address bank;
     }
     uint256 public constant contractVersion = 2;
-    uint256 public constant tokenMediaVersion = 1;
+    uint256 public constant tokenMediaVersion = 2;
+    string public constant tokenMediaGateway = "https://rwa-gw.mustree.kr/ipfs/";
     IPLoanAccessSBT public immutable accessSBT;
     IPLoanDebtNFT public immutable debtNFT;
     uint256 public nextTokenId = 1;
@@ -143,6 +144,14 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     }
     function _validMetadataUri(string calldata uri) private pure returns (bool) {
         bytes memory value = bytes(uri);
+        bytes memory gateway = bytes(tokenMediaGateway);
+        if (value.length >= gateway.length + 10 && value.length <= gateway.length + 128) {
+            bool matches = true;
+            for (uint256 i; i < gateway.length; ++i) {
+                if (value[i] != gateway[i]) { matches = false; break; }
+            }
+            if (matches) return _validCid(uri[gateway.length:]);
+        }
         if (value.length < 17 || value.length > 135) return false;
         if (value[0] != 'i' || value[1] != 'p' || value[2] != 'f' || value[3] != 's' || value[4] != ':' || value[5] != '/' || value[6] != '/') return false;
         return _validCid(uri[7:]);

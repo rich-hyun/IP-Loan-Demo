@@ -3,7 +3,6 @@ import functools
 import hashlib
 import json
 import os
-import re
 from threading import Lock
 
 from flask import Response, jsonify, request
@@ -66,18 +65,22 @@ def register(native):
             uri, image_uri = app.get(prefix+'MetadataUri'), app.get(prefix+'ImageUri')
             if not uri or not image_uri:
                 return {}
-            if not all(re.fullmatch(r'ipfs://[A-Za-z0-9]{10,128}', value) for value in (uri, image_uri)):
+            image_cid = token_media.media_cid(image_uri)
+            if not token_media.media_cid(uri) or not image_cid:
                 return {}
-            return {'metadataUri': uri, 'imageUri': image_uri, 'imageUrl': gateway+image_uri[7:], 'onChainMetadata': stage != 'None'}
-        published = bool(app.get('sbtMetadataUri') and app.get('debtMetadataUri'))
+            return {'metadataUri': uri, 'imageUri': image_uri,
+                    'imageUrl': image_uri if image_uri.startswith('https://') else gateway+image_cid,
+                    'onChainMetadata': stage != 'None'}
+        sbt_media, debt_media = media('sbt'), media('debt')
+        published = bool(sbt_media and debt_media)
         return jsonify({'applicationId': app_id, 'chainStatus': stage, 'artworkSource': 'ipfs' if published else 'application-preview',
                         'walletImageAvailable': published and stage != 'None', 'tokens': [
             {**common, 'kind': 'sbt', 'label': '평가보고서 열람 SBT', 'contractAddress': cfg['accessSBTAddress'],
              'state': 'issued' if stage == 'Evaluating' else 'pending' if stage == 'None' else 'burned',
              'owner': app['evaluatorWallet'] if stage == 'Evaluating' else None,
-             'recipient': app['evaluatorWallet'], 'imagePath': origin + 'sbt.png', **media('sbt')},
+             'recipient': app['evaluatorWallet'], 'imagePath': origin + 'sbt.png', **sbt_media},
             {**common, 'kind': 'debt', 'label': '대출채권 NFT', 'contractAddress': cfg['debtNFTAddress'],
              'state': 'issued' if stage in {'Approved', 'Repaid'} else 'pending',
              'owner': app.get('bankWallet') if stage in {'Approved', 'Repaid'} else None,
-             'recipient': app.get('bankWallet'), 'imagePath': origin + 'debt.png', **media('debt')},
+             'recipient': app.get('bankWallet'), 'imagePath': origin + 'debt.png', **debt_media},
         ]})
