@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS applications (
 """
 
 MIGRATION_COLUMNS = {
+    **{prefix + suffix: 'TEXT' for prefix in ('sbt', 'debt') for suffix in ('MetadataUri', 'ImageUri', 'Name')},
     "appKey": "TEXT", "borrowerWallet": "TEXT", "evaluatorWallet": "TEXT", "bankWallet": "TEXT",
     "managerAddress": "TEXT", "chainId": "INTEGER", "chainStatus": "TEXT", "chainBlock": "INTEGER",
     "sbtTokenId": "TEXT", "debtTokenId": "TEXT", "reportCid": "TEXT", "reportHash": "TEXT", "repaidAmount": "INTEGER",
@@ -129,6 +130,7 @@ FIELDS = ["id", "company", "bizNo", "ipType", "ipTitle", "amount", "status", "ha
           "appliedDate", "appraisedValue", "ltv", "creditScore", "rate", "rejectReason"]
 ALLOWED_PATCH_FIELDS = {"status", "appraisedValue", "ltv", "creditScore", "rate", "rejectReason"}
 PUBLIC_FIELDS = set(FIELDS) | {
+    *[prefix + suffix for prefix in ('sbt', 'debt') for suffix in ('MetadataUri', 'ImageUri', 'Name')],
     "appKey", "borrowerWallet", "evaluatorWallet", "bankWallet", "managerAddress", "chainId", "chainStatus", "chainBlock",
     "sbtTokenId", "debtTokenId", "reportCid", "reportHash", "repaidAmount",
     "docCid", "docIpfsUri", "docFileHash", "docFileName", "hashMatch", "ipRegNo",
@@ -524,8 +526,18 @@ def create_application():
         return jsonify(response), 422
 
     encrypted = encrypt_registry_document(plaintext)
+    media = {}
     try:
         uploaded = upload_encrypted_document(encrypted["payload"], document.filename)
+        if chain_fields and cfg.get('tokenMediaVersion', 0) >= 1:
+            if __package__:
+                from . import token_media
+            else:
+                import token_media
+            try:
+                media = token_media.prepare(base_record, upload_ipfs_payload)
+            except token_media.TokenMediaError:
+                return error_response('토큰 카드 생성 설정을 확인해 주세요.', 503, 'token_media_failed')
     except IpfsUploadError as exc:
         return error_response(str(exc), exc.status_code, "ipfs_upload_failed")
 
@@ -538,6 +550,7 @@ def create_application():
 
     record = {
         **base_record,
+        **media,
         "borrowerProfileId": updated_profile["id"],
         "hash": encrypted["file_hash"],
         "docCid": uploaded["cid"],

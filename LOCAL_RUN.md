@@ -33,6 +33,10 @@ $env:IPLOAN_LOCAL_BANK = '은행 공개 지갑 주소'
 
 `-Fixture`는 기존 QA 도구를 실행해 자동 서명·IPFS·평가 API를 모두 테스트 대역으로 사용한다. 실제 연동 검증에는 이 옵션을 사용하지 않는다.
 
+## NFT 이미지용 별도 로컬 체인
+
+기존 8003/31337 승인 세션을 유지하고 신규 이미지 계약을 검증하려면 `.\start-local.ps1 -Port 8005 -RpcPort 8546 -ChainId 31338 -DataGroup local-media`를 사용한다. 기존 개인 차주 지갑을 쓸 경우 위 `IPLOAN_LOCAL_BORROWER` 공개 주소 설정도 유지한다. 8005는 실제 IPFS PNG·JSON을 준비하고 차주의 MetaMask 거래로 두 tokenURI를 새 계약에 고정한다. 기존 승인 토큰은 변경하지 않는다. 매 실행은 새 체인·DB를 생성하므로 실행 중인 검증 세션을 불필요하게 재시작하지 않는다. 사이트 연결 계정이 다르면 상단 **MetaMask 계정 다시 선택**에서 해당 역할 계정만 선택한다. 상세 규격과 검증 제약은 `server/TOKEN_MEDIA.md`를 참고한다.
+
 ## 준비한 실제 특허 1건
 
 이미 실행 중인 8003의 최종승인 건을 유지하면서 최신 NFT UI를 보려면 별도 터미널에서 `cd blockchain; node scripts/local-ui.mjs`를 실행하고 http://127.0.0.1:8004/ 를 연다. 8003 프로세스가 기존 개발 체인을 제공하므로 계속 실행해 둔다. 이 명령은 새 체인이나 NFT를 만들지 않고 기존 DB·계약의 일치를 확인해 연결한다. 상세 동작과 지갑 이미지의 제약은 `server/TOKEN_MEDIA.md`를 참고한다.

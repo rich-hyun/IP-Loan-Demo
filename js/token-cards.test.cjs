@@ -39,3 +39,11 @@ test('failed chain verification displays the error instead of an issued card', a
   assert.equal(content.textContent, 'RPC unavailable');
   assert.equal(content.innerHTML, undefined);
 });
+
+test('prepared IPFS media is distinguished from minting and legacy previews', async () => {
+  const { module, content } = harness({ chainStatus: 'None', artworkSource: 'ipfs', walletImageAvailable: false,
+    tokens: [{ kind: 'debt', label: 'NFT', state: 'pending', chainBlock: 8 }] });
+  await module.load({ id: 'LN-1' });
+  assert.match(content.innerHTML, /온체인 발급은 대기 중/);
+  assert.doesNotMatch(content.innerHTML, /기존 발급 토큰의 메타데이터에는 이미지가 없습니다/);
+});

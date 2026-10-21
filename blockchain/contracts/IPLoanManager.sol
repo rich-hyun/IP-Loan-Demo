@@ -28,12 +28,15 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         address bank;
     }
     uint256 public constant contractVersion = 2;
+    uint256 public constant tokenMediaVersion = 1;
     IPLoanAccessSBT public immutable accessSBT;
     IPLoanDebtNFT public immutable debtNFT;
     uint256 public nextTokenId = 1;
     mapping(bytes32 => Application) private _applications;
     mapping(uint256 => bytes32) public applicationKey;
     mapping(bytes32 => bool) public repaymentReferences;
+    mapping(uint256 => string) private _sbtMetadata;
+    mapping(uint256 => string) private _debtMetadata;
     error InvalidInput();
     error AlreadySubmitted(bytes32 appKey);
     error WrongStage(bytes32 appKey);
@@ -58,6 +61,16 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     // The borrower submits with the server-selected evaluator; it is fixed for this application.
     function submitApplication(bytes32 appKey, string calldata cid, bytes32 fileHash, uint256 amount, address evaluator_)
         external onlyRole(BORROWER_ROLE) nonReentrant {
+        _submitApplication(appKey, cid, fileHash, amount, evaluator_, "", "");
+    }
+    function submitApplicationWithMetadata(bytes32 appKey, string calldata cid, bytes32 fileHash, uint256 amount,
+        address evaluator_, string calldata sbtUri, string calldata debtUri)
+        external onlyRole(BORROWER_ROLE) nonReentrant {
+        if (!_validMetadataUri(sbtUri) || !_validMetadataUri(debtUri)) revert InvalidInput();
+        _submitApplication(appKey, cid, fileHash, amount, evaluator_, sbtUri, debtUri);
+    }
+    function _submitApplication(bytes32 appKey, string calldata cid, bytes32 fileHash, uint256 amount,
+        address evaluator_, string memory sbtUri, string memory debtUri) private {
         if (appKey == bytes32(0) || !_validCid(cid) || fileHash == bytes32(0) || amount == 0 || amount > type(uint128).max) revert InvalidInput();
         if (_applications[appKey].status != Status.None) revert AlreadySubmitted(appKey);
         if (evaluator_ == address(0) || evaluator_ == msg.sender) revert InvalidInput();
@@ -65,6 +78,8 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         uint256 tokenId = nextTokenId++;
         _applications[appKey] = Application(msg.sender, cid, fileHash, amount, "", bytes32(0), 0, tokenId, 0, Status.Evaluating, evaluator_, address(0));
         applicationKey[tokenId] = appKey;
+        _sbtMetadata[tokenId] = sbtUri;
+        _debtMetadata[tokenId] = debtUri;
         accessSBT.mint(evaluator_, tokenId);
         emit Submitted(appKey, msg.sender, evaluator_, tokenId, cid, fileHash, amount);
     }
@@ -119,10 +134,18 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     function metadata(uint256 tokenId, bool debt) external view returns (string memory) {
         Application storage a = _applications[applicationKey[tokenId]];
         if (a.status == Status.None) revert InvalidInput();
+        string memory uri = debt ? _debtMetadata[tokenId] : _sbtMetadata[tokenId];
+        if (bytes(uri).length != 0) return uri;
         bytes memory data = abi.encodePacked('{"name":"', debt ? "IP Loan Demo Debt #" : "IP Loan Appraisal Access #", tokenId.toString(),
             '","cid":"', a.docCid, '","fileHash":"', Strings.toHexString(uint256(a.fileHash), 32),
             '","enc":"AES-256-GCM","status":', uint256(a.status).toString(), ',"repaidAmount":"', a.repaidAmount.toString(), '"}');
         return string.concat("data:application/json;base64,", Base64.encode(data));
+    }
+    function _validMetadataUri(string calldata uri) private pure returns (bool) {
+        bytes memory value = bytes(uri);
+        if (value.length < 17 || value.length > 135) return false;
+        if (value[0] != 'i' || value[1] != 'p' || value[2] != 'f' || value[3] != 's' || value[4] != ':' || value[5] != '/' || value[6] != '/') return false;
+        return _validCid(uri[7:]);
     }
     function _validCid(string calldata cid) private pure returns (bool) {
         bytes memory v = bytes(cid);

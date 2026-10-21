@@ -128,6 +128,37 @@ class LoanWorkflowTests(unittest.TestCase):
         with closing(sqlite3.connect(native.DB_PATH)) as db, db:
             return db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
 
+    def test_image_metadata_prepared_once_and_bound_to_replayed_submission(self):
+        self.cfg['tokenMediaVersion'] = 1
+        original = native.upload_ipfs_payload
+        with patch.object(native, 'upload_ipfs_payload', side_effect=original) as upload:
+            created = self.create()
+            self.assertEqual(created.status_code, 201, created.get_data(as_text=True))
+            self.assertEqual(upload.call_count, 5)
+            for prefix in ('sbt', 'debt'):
+                self.assertTrue(created.json[prefix+'MetadataUri'].startswith('ipfs://bafy'))
+                self.assertTrue(created.json[prefix+'ImageUri'].startswith('ipfs://bafy'))
+            replay = self.create()
+            self.assertEqual(replay.status_code, 200)
+            self.assertEqual(replay.json['id'], created.json['id'])
+            self.assertEqual(replay.json['debtMetadataUri'], created.json['debtMetadataUri'])
+            self.assertEqual(upload.call_count, 5)
+
+    def test_image_upload_failure_never_creates_application_or_provider_job(self):
+        self.cfg['tokenMediaVersion'] = 1
+        before = self.count('applications')
+        calls = []
+        def upload(body, filename, mime):
+            calls.append(filename)
+            if len(calls) == 3:
+                raise native.IpfsUploadError('image upload failed')
+            return {'cid': 'bafy' + hashlib.sha256(body).hexdigest(), 'ipfs': 'ipfs://test'}
+        with patch.object(native, 'upload_ipfs_payload', side_effect=upload):
+            response = self.create()
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(self.count('applications'), before)
+        self.assertEqual(self.submissions, [])
+
     def test_one_upload_report_review_confirm_ltv_credit_case_and_restart(self):
         app_id = self.completed()
         status = self.call(app_id, signer=self.evaluator)

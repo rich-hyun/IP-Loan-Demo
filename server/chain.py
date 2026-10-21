@@ -4,6 +4,7 @@ import os
 import secrets
 from pathlib import Path
 from web3 import Web3
+from web3.exceptions import BadFunctionCallOutput, ContractLogicError, Web3RPCError
 
 RPC_URL = os.environ.get("IPLOAN_RPC_URL", "https://block.mustree.kr")
 CHAIN_ID = int(os.environ.get("IPLOAN_CHAIN_ID", "7601"))
@@ -61,7 +62,18 @@ def config():
         if manager.functions.contractVersion().call() != 2:
             raise ChainError("설정한 주소가 v2 Manager 계약이 아닙니다.")
         block = w3.eth.block_number
+        try:
+            media_version = int(manager.functions.tokenMediaVersion().call())
+        except (BadFunctionCallOutput, ContractLogicError):
+            media_version = 0  # Existing deployed v2 contracts remain supported.
+        except Web3RPCError as exc:
+            detail = (exc.rpc_response or {}).get('error', {})
+            if detail.get('data') == '0x' and 'revert' in str(detail.get('message', '')).lower():
+                media_version = 0
+            else:
+                raise
         result.update(managerAddress=manager.address, abi=manager.abi, contractVersion=2,
+                      tokenMediaVersion=media_version,
                       accessSBTAddress=manager.functions.accessSBT().call(), debtNFTAddress=manager.functions.debtNFT().call(),
                       roleMembers={role: role_members(manager, role, block) for role in ["BORROWER_ROLE", "EVALUATOR_ROLE", "BANK_ROLE"]})
         return result
@@ -145,6 +157,10 @@ def snapshot(application):
         elif bank.lower() != (application.get("bankWallet") or "").lower():
             raise ChainError("체인의 은행·여신심사역이 서버가 배정한 담당자와 다릅니다.")
         token_id = record["tokenId"]
+        for prefix, debt in (("sbt", False), ("debt", True)):
+            uri = application.get(prefix + 'MetadataUri')
+            if uri and manager.functions.metadata(token_id, debt).call(block_identifier=block) != uri:
+                raise ChainError("토큰 메타데이터 URI가 신청에 저장된 URI와 다릅니다.")
         if status == 1:
             token_address = manager.functions.accessSBT().call(block_identifier=block)
             owner = w3.eth.contract(address=token_address, abi=TOKEN_ABI).functions.ownerOf(token_id).call(block_identifier=block)

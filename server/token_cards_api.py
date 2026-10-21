@@ -2,6 +2,8 @@
 import functools
 import hashlib
 import json
+import os
+import re
 from threading import Lock
 
 from flask import Response, jsonify, request
@@ -59,16 +61,23 @@ def register(native):
         origin = '/api/applications/' + app_id + '/token-cards/'
         common = {'chainId': app['chainId'], 'managerAddress': app['managerAddress'],
                   'tokenId': token_id, 'chainBlock': snapshot['chainBlock']}
-        # The existing v2 deployment exposes metadata without an image field.
-        # The generated PNG is an application preview, never advertised as its tokenURI.
-        return jsonify({'applicationId': app_id, 'chainStatus': stage, 'artworkSource': 'application-preview',
-                        'walletImageAvailable': False, 'tokens': [
+        gateway = os.environ.get('IPLOAN_IPFS_GATEWAY', 'https://rwa-gw.mustree.kr/ipfs/').rstrip('/') + '/'
+        def media(prefix):
+            uri, image_uri = app.get(prefix+'MetadataUri'), app.get(prefix+'ImageUri')
+            if not uri or not image_uri:
+                return {}
+            if not all(re.fullmatch(r'ipfs://[A-Za-z0-9]{10,128}', value) for value in (uri, image_uri)):
+                return {}
+            return {'metadataUri': uri, 'imageUri': image_uri, 'imageUrl': gateway+image_uri[7:], 'onChainMetadata': stage != 'None'}
+        published = bool(app.get('sbtMetadataUri') and app.get('debtMetadataUri'))
+        return jsonify({'applicationId': app_id, 'chainStatus': stage, 'artworkSource': 'ipfs' if published else 'application-preview',
+                        'walletImageAvailable': published and stage != 'None', 'tokens': [
             {**common, 'kind': 'sbt', 'label': '평가보고서 열람 SBT', 'contractAddress': cfg['accessSBTAddress'],
              'state': 'issued' if stage == 'Evaluating' else 'pending' if stage == 'None' else 'burned',
              'owner': app['evaluatorWallet'] if stage == 'Evaluating' else None,
-             'recipient': app['evaluatorWallet'], 'imagePath': origin + 'sbt.png'},
+             'recipient': app['evaluatorWallet'], 'imagePath': origin + 'sbt.png', **media('sbt')},
             {**common, 'kind': 'debt', 'label': '대출채권 NFT', 'contractAddress': cfg['debtNFTAddress'],
              'state': 'issued' if stage in {'Approved', 'Repaid'} else 'pending',
              'owner': app.get('bankWallet') if stage in {'Approved', 'Repaid'} else None,
-             'recipient': app.get('bankWallet'), 'imagePath': origin + 'debt.png'},
+             'recipient': app.get('bankWallet'), 'imagePath': origin + 'debt.png', **media('debt')},
         ]})

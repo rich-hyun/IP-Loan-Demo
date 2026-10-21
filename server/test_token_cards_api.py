@@ -51,6 +51,19 @@ class TokenCardsAPITest(unittest.TestCase):
                 self.assertIsNone(debt['owner'])
                 self.assertEqual(sbt['state'], 'issued' if stage == 'Evaluating' else 'pending' if stage == 'None' else 'burned')
 
+    def test_ipfs_artwork_and_metadata_are_reported_separately_from_legacy_previews(self):
+        for prefix in ('sbt', 'debt'):
+            self.record[prefix+'MetadataUri'] = 'ipfs://bafyMetadata123456789'
+            self.record[prefix+'ImageUri'] = 'ipfs://bafyImage123456789012'
+        result = self.client.get(self.url+'/tokens').get_json()
+        self.assertTrue(result['walletImageAvailable'])
+        self.assertEqual(result['artworkSource'],'ipfs')
+        self.assertEqual(result['tokens'][1]['metadataUri'],self.record['debtMetadataUri'])
+        self.assertTrue(result['tokens'][1]['imageUrl'].endswith('bafyImage123456789012'))
+        self.stage = 'None'
+        result = self.client.get(self.url+'/tokens').get_json()
+        self.assertFalse(result['walletImageAvailable'])
+
     def test_real_png_is_cached_and_renderer_never_receives_private_fields(self):
         with patch.object(token_cards_api.token_media, 'card', wraps=token_cards_api.token_media.card) as card:
             response = self.client.get(self.url + '/token-cards/debt.png')

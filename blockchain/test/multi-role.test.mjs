@@ -82,7 +82,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   async function confirm(a, evaluator, report, bank=report.bankWallet||ZeroAddress) {
     await (await v2.connect(evaluator).confirmEvaluation(a.appKey,report.cid,report.hash,report.appraisedValue,bank)).wait();
   }
-  const submit=(a,borrower,evaluator=a.evaluatorWallet)=>v2.connect(borrower).submitApplication(a.appKey,a.docCid,a.docFileHash,70,evaluator).then(tx=>tx.wait());
+  const submit=(a,borrower,evaluator=a.evaluatorWallet)=>v2.connect(borrower).submitApplicationWithMetadata(a.appKey,a.docCid,a.docFileHash,70,evaluator,a.sbtMetadataUri,a.debtMetadataUri).then(tx=>tx.wait());
   const signerOf=address=>[evalA,evalB,bankA,bankB,borrower1,borrower2].find(s=>s.address===address);
   const stored=async a=>(await api('/applications')).data.find(x=>x.id===a.id);
   async function reverts(promise, name, abi=artifacts.IPLoanManager.abi) {

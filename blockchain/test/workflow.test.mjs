@@ -58,7 +58,7 @@ test('unified workflow: real EVM + signed API + fixture provider; LTV, retry, du
     return { status: response.status, data: await response.json() };
   }
   async function register(app) {
-    await (await manager.connect(borrower).submitApplication(app.appKey, app.docCid, app.docFileHash, app.amount, app.evaluatorWallet)).wait();
+    await (await manager.connect(borrower).submitApplicationWithMetadata(app.appKey, app.docCid, app.docFileHash, app.amount, app.evaluatorWallet, app.sbtMetadataUri, app.debtMetadataUri)).wait();
     const synced = await post(`/applications/${app.id}/sync`, {}); assert.equal(synced.status, 200, JSON.stringify(synced.data));
     return synced.data;
   }

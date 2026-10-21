@@ -43,6 +43,16 @@ globalThis.IPLoanChain = (() => {
       if (hint) hint.textContent = error.message;
     }
     const button = document.getElementById('walletConnect');
+    const accountButton = document.getElementById('walletSelectAccount');
+    if (accountButton) accountButton.onclick = async () => {
+      accountButton.disabled = true;
+      try {
+        if (!globalThis.ethereum) throw new Error('MetaMask를 설치하세요.');
+        await ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+        await connect();
+      } catch (error) { alert(message(error)); }
+      finally { accountButton.disabled = false; await renderWallet(); }
+    };
     if (button) button.onclick = async () => {
       try { await connect(); } catch (error) { alert(message(error)); }
       await renderWallet();
@@ -140,6 +150,10 @@ globalThis.IPLoanChain = (() => {
   async function register(app) {
     if (!app.evaluatorWallet) throw new Error('신청에 저장된 담당 평가사 주소를 확인하세요.');
     const args = [app.appKey, app.docCid, app.docFileHash, BigInt(app.amount), app.evaluatorWallet];
+    if (app.sbtMetadataUri || app.debtMetadataUri) {
+      if (!app.sbtMetadataUri || !app.debtMetadataUri || Number(cfg?.tokenMediaVersion || 0) < 1) throw new Error('이미지 메타데이터를 지원하는 계약과 두 토큰 URI를 확인하세요.');
+      return execute(app, 'submit', 'submitApplicationWithMetadata', [...args, app.sbtMetadataUri, app.debtMetadataUri], 'BORROWER_ROLE', app.borrowerWallet);
+    }
     return execute(app, 'submit', 'submitApplication', args, 'BORROWER_ROLE', app.borrowerWallet);
   }
   async function evaluate(app, report) {

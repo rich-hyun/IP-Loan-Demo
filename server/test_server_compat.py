@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # 운영 DB에 영향을 주지 않도록 import 전에 별도 DB 환경 지정
 _tmp = tempfile.TemporaryDirectory(prefix='iploan-test-')
@@ -25,6 +26,14 @@ PDF = b'%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n'
 class TestApiCompatibility(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Other suites may have imported patent_app before this module's env setup.
+        # Bind the suite's own temporary paths instead of depending on import order.
+        for name, value in [('DB_PATH', Path(_tmp.name) / 'test.db'),
+                            ('UPLOAD_DIR', Path(_tmp.name) / 'uploads')]:
+            patcher = patch.object(server, name, value)
+            patcher.start()
+            cls.addClassCleanup(patcher.stop)
+        server.init_db()
         cls.client = server.app.test_client()
 
     def test_01_health(self):

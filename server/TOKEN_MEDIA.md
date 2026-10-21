@@ -11,15 +11,30 @@
 - `GET /api/applications/<id>/tokens`는 계약과 DB의 바인딩을 검증한다. RPC 실패나 상태 불일치를 발급 완료로 대체하지 않는다.
 - `GET /api/applications/<id>/token-cards/sbt.png`, `debt.png`는 앱 미리보기 PNG다. 입력은 기존 공개 신청 정보 중 신청번호·기업명·대표자명·IP 제목 네 필드로 제한한다. 원본 PDF·사업자번호·연락처·AES 키·salt를 렌더러에 전달하지 않는다. 렌더링 결과는 제한된 메모리 캐시와 ETag를 사용한다.
 
-## 지갑 이미지와의 구분
+## 실제 IPFS 이미지와 신규 발급
 
-**현재 발급된 v2 토큰의 tokenURI에는 image 필드가 없다. 이번 UI는 그 메타데이터나 기존 계약을 변경하지 않는다.** 화면에 표시하는 생성 표지는 앱 미리보기이며 MetaMask에서 동일 이미지가 표시된다고 주장하지 않는다. 발급된 NFT는 MetaMask 수령 계정과 네트워크를 선택한 뒤 토큰 계약 주소·Token ID로 가져올 수 있다. 소각된 SBT는 현재 보유 NFT로 가져올 수 없다.
+새 Manager는 기존 `contractVersion() == 2`에 더해 `tokenMediaVersion() == 1`을 제공한다. 서버가 실제 배포 계약에서 capability를 조회한다. 대출 신청의 암호화 PDF 업로드 후 `token_media.prepare()`가 SBT PNG/JSON, 채권 NFT PNG/JSON을 실제 업로드 함수로 전송한다. JSON의 `image`는 `ipfs://<PNG CID>`이다. 두 이미지 URI·두 메타데이터 URI와 이름을 신청에 저장한다. 재제출은 같은 신청과 URI를 반환한다. 네 자산 업로드가 모두 성공해야 신청과 평가 작업을 생성한다. 부분 실패로 이미 업로드된 자산은 남을 수 있지만 신청·평가 작업은 생성되지 않는다.
 
-이미지 JSON을 tokenURI에 연결하려면 별도로 계약의 메타데이터 지원과 신규 발급 흐름을 설계·배포해야 한다. `e55b582`의 이전 문서에 적혀 있던 `tokenMediaVersion`, `submitApplicationWithMetadata`, `finalApproveWithMetadata`는 해당 커밋에 구현되어 있지 않아 완료 기능으로 안내하지 않는다. 생성기의 `prepare()`는 PNG와 JSON을 IPFS에 업로드할 수 있는 재사용 함수이며 현재 신청 접수 경로에서 자동 호출하지 않는다.
+차주가 MetaMask로 `submitApplicationWithMetadata` 거래를 승인하면 두 JSON URI가 신청에 함께 고정된다. SBT의 `tokenURI`와 최종승인 때 은행에 발급되는 NFT의 `tokenURI`가 각각 해당 JSON을 반환한다. URI 변경 setter는 없다. 채권 발급 시 별도 메타데이터 거래나 재업로드는 필요 없다. 계약은 `ipfs://`와 영숫자 CID 형식을 요구하며 HTTP 주소·경로·쿼리를 거부한다. 실제 CID 조회는 오프체인에서 검증한다.
+
+**기존 배포 토큰의 tokenURI는 그대로 보존한다.** 기존 계약에 capability 함수가 없으면 legacy 경로를 유지한다. RPC 장애는 capability 미지원으로 숨기지 않는다. 기존 승인 건의 DB·체인을 새 계약으로 바꾸지 않는다. 카드 API는 실제 상태·소유권·신청과 저장된 tokenURI의 일치를 검증한다. `walletImageAvailable`은 온체인 연결 확인을 뜻하며 MetaMask의 실제 이미지 렌더링 성공을 뜻하지 않는다.
+
+공개 JSON과 PNG에는 신청번호·기업명·대표자명·IP 제목만 사용한다. 실제 이름을 사용하는 경우 IPFS 공개 자산에 포함됨을 고려해야 한다. 현재 검증은 명시적 테스트 이름을 사용한다. MetaMask에서 수령 계정과 네트워크를 선택한 뒤 NFT 계약 주소·Token ID로 가져온다. Manager 주소와 NFT 주소는 다르다. 소각된 SBT는 현재 보유 NFT로 가져올 수 없다.
 
 ## 로컬 실행
 
 새 로컬 실행은 저장소 루트의 `start-local.ps1`을 사용한다. 이미 최종승인한 8003 세션을 유지하며 UI·API만 갱신하려면 다음을 실행한다.
+
+이미지 tokenURI를 신규 발급에서 검증하려면 기존 세션을 유지한 채 별도 네트워크로 실행한다.
+
+```powershell
+$env:IPLOAN_LOCAL_BORROWER = '0xcdfBfb91DE6a35f243c10c8a291B632A7F20156e'
+.\start-local.ps1 -Port 8005 -RpcPort 8546 -ChainId 31338 -DataGroup local-media
+```
+
+새 실행은 새 개발 체인·DB를 만든다. 기록은 `output/local-media/session-*`, 최신 설정은 `output/local-media/latest.json`이다. 재실행이 이전 체인을 복원하지 않으므로 실행 중 프로세스를 유지한다. 실제 API는 기존 `server/.env`를 사용하며 `-Fixture`를 지정하지 않는다. 사이트 연결 계정이 다르면 상단 **MetaMask 계정 다시 선택**에서 필요한 역할 계정만 선택한다. **실제 등록특허 PDF 첨부**는 준비된 공개 등록공보 한 건만 첨부한다.
+
+아래는 기존 승인 세션의 UI만 갱신하는 명령이다.
 
 ```powershell
 cd blockchain
@@ -38,3 +53,5 @@ node --test js/token-cards.test.cjs js/app.test.cjs js/chain.test.cjs js/admin.t
 ```
 
 렌더링·ETag·개인 필드 배제·잘못된 신청·RPC 실패·미발급/소각/발급 상태·HTML 이스케이프를 검사한다. 기존 승인 건 LN-2026-4233에 대해 브라우저에서 생성 PNG 두 장과 NFT 계약 주소·Token ID 1·은행 소유권 표시를 확인했다. 운영 배포나 새 NFT 거래를 만들지 않았다.
+
+추가 테스트는 중복 업로드 방지·부분 업로드 실패·URI 불일치 거부와 immutable URI·권한·SBT 소각·은행 NFT 발급·상환 후 URI 보존·legacy 경로를 검사한다. 2026-10-21 실제 업로드 preflight에서 두 JSON과 1200×1200 PNG의 프로젝트 게이트웨이 HTTP 200 및 해시 일치를 확인했다. 증거는 Git 제외 `output/local-media/ipfs-preflight/proof.json`이다. 공용 ipfs.io는 429를 반환했다. 이 preflight는 실제 토큰 발급이 아니며 새 계약에서 MetaMask 발급·지갑 이미지 표시는 검증 진행 중이다. 지갑 게이트웨이·캐시·자동탐지 설정에 따라 실제 표시는 실패할 수 있어 별도 확인이 필요하다. 최종 검증 범위는 `LOAN_WORKFLOW_VALIDATION.md`의 최신 기록을 따른다.

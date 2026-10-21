@@ -86,3 +86,12 @@ TypeScript 프로젝트가 아니므로 별도의 타입 검사기는 없다. �
 - 8004 UI/API를 기존 8003 세션 DB와 RPC 8545에 연결했다. 브라우저 은행 심사 화면에서 소각된 SBT와 발급된 NFT를 구분하고, 1200×1200 PNG 두 장이 정상 로드됨을 확인했다. 은행 NFT 계약은 `0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968`, Token ID 1, 소유자는 기존 배정 은행이다. 화면 증거: `output/local-real/browser-token-gallery.png`.
 - Python 87건, 프런트엔드 38건, 계약·통합 20건 통과. 계약 컴파일 및 웹 의존성 빌드, 새 JS 구문 검사 통과. 기존 계약 코드는 변경하지 않았다. 별도 TypeScript 검사 대상은 없다.
 - 기존 토큰 메타데이터에는 image 필드가 없으므로 MetaMask에서 새 표지가 보인다고 보고하지 않는다. 지갑 이미지까지 바꾸려면 별도의 계약·발급 메타데이터 작업이 필요하다. 운영 배포·push·새 승인 거래는 수행하지 않았다.
+
+## 실제 IPFS tokenURI 신규 발급 검증 (2026-10-21, 진행 중)
+
+- 기존 8003/31337의 LN-2026-4233은 보존하고 새 8005/31338, RPC 8546, 별도 `output/local-media/session-9O9uMI`에 메타데이터 지원 계약을 배포했다. Manager 주소가 결정적 배포로 같아도 서로 다른 체인이다. 기존 승인 건을 재조회하여 Approved·적용 1억원·신청 7천만원·LTV 70%·채권 ID 1·여신심사 1건 보존을 확인했다.
+- 신규 계약은 `tokenMediaVersion=1`, `submitApplicationWithMetadata`로 SBT·채권 JSON URI를 신청 시 불변으로 저장한다. 생성기는 기존 렌더러를 재사용하고 서버는 실제 PNG/JSON 네 자산 업로드 완료 후 신청·평가 작업을 만든다. 기존 계약은 legacy URI를 유지한다. 기존 계약의 미지원 함수 호출이 Hardhat에서 빈 revert Web3RPCError로 반환되는 경우도 호환하되 실제 RPC 장애는 실패 처리한다.
+- 사용자가 실제 MetaMask 차주 연결·접수 메시지 서명·발급 거래를 승인하여 LN-2026-3599가 생성됐다. 원본은 실제 등록특허 KR102877748B1이며 테스트 대표자·연락처를 사용했다. 거래 `0x2d148a4ddb1a2493d9005433f0ae59ca39eaa6d40602510e1134a7a8b18d245f`, 문서 CID `QmazpotnM3YyErHRoHD2uBE6StrV4aKeW44KpcewvvcYUF`, 상태 Evaluating, SBT 1, 소유 평가사 0x3C44…93BC를 확인했다.
+- 실제 SBT tokenURI는 `ipfs://Qmf3YQA1rUE4G29g4HKyRC4MrLWwuSpDXf2DgN8DvSa4Nz`이며 JSON image는 `ipfs://QmYwS21R7PyZSrUUfViZyy3YArhZsTSP1zjUNk94CmSF4M`이다. 채권용 고정 JSON은 `ipfs://QmfZsTusnftDyJ5JW5eBytuJ1os3ugZxDLPp9krA3MKPNv`, image는 `ipfs://QmSunM1uT2yztBkjt5SCzCZBWZ1CGHX9dvp4hroKYEK86k`이다. 프로젝트 게이트웨이에서 두 JSON·두 PNG 조회 및 1200×1200·신청번호·URI 일치를 확인했다. 증거: `output/local-media/real-token-media-proof.json`. 별도 preflight의 공용 ipfs.io 요청은 429였으므로 지갑 기본 게이트웨이 성공으로 간주하지 않는다.
+- Python 전체 discover 91건, 프런트엔드 40건, 계약·통합 21건 통과. 전체 discover에서 드러난 기존 호환성 테스트의 import 순서 의존성을 테스트 전용 임시 경로 바인딩으로 수정했다. 실제 사용자 DB는 수정하지 않았다. 웹 의존성 빌드·JS 구문·PowerShell 구문 검사 통과. TypeScript 프로젝트는 아니다.
+- **현재 이 신규 신청의 보고서 자동 갱신용 MetaMask 서명과 이후 평가사 확정·은행 발급·MetaMask 이미지 표시 검증은 진행 중이다. 전체 지갑 표시 목표를 완료로 보고하지 않는다.** 앱 카드 표시, IPFS 200 응답과 MetaMask 내부 이미지 표시는 별도 검증 항목이다.

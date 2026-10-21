@@ -14,10 +14,14 @@ import { compile } from './compile.mjs';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const port = Number(process.env.IPLOAN_LOCAL_PORT || 8003);
 const rpcPort = Number(process.env.IPLOAN_LOCAL_RPC_PORT || 8545);
+const localChainId = Number(process.env.IPLOAN_LOCAL_CHAIN_ID || 31337);
+if (!Number.isSafeInteger(localChainId) || localChainId < 1) throw new Error('Invalid local chain ID');
 for (const p of [port, rpcPort]) if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('Invalid local port');
 const origin = `http://127.0.0.1:${port}`;
 const rpcUrl = `http://127.0.0.1:${rpcPort}`;
-const output = path.join(root, 'output', 'local-real');
+const group = process.env.IPLOAN_LOCAL_DATA_GROUP || 'local-real';
+if (!/^[a-z0-9-]+$/.test(group)) throw new Error('Invalid local data group');
+const output = path.join(root, 'output', group);
 await mkdir(output, { recursive: true });
 const dataDir = await mkdtemp(path.join(output, 'session-'));
 const connection = await network.connect('localTest');
@@ -78,14 +82,14 @@ const rpc = http.createServer(async (req, res) => {
   } catch { res.writeHead(400); res.end(); }
 });
 const startupScript = `globalThis.IPLOAN_API_BASE='/api';globalThis.IPLOAN_PATENT_API_BASE='/api/patent';
-addEventListener('DOMContentLoaded',()=>{const box=document.createElement('div');box.style='padding:12px;background:#e2f4e8;position:sticky;top:0;z-index:99';box.innerHTML='<b>MetaMask 직접 승인 · 실제 IPFS · 실제 평가 API · 로컬 개발 체인 (실제 자금 없음)</b> <a href="/local-setup.html" target="_blank">지갑·네트워크 설정 안내</a>';document.body.prepend(box);});`;
+addEventListener('DOMContentLoaded',()=>{const box=document.createElement('div');box.style='padding:12px;background:#e2f4e8;position:sticky;top:0;z-index:99';box.innerHTML='<b>MetaMask 직접 승인 · 실제 IPFS · 실제 평가 API · 로컬 개발 체인 ${localChainId} (실제 자금 없음)</b> <a href="/local-setup.html" target="_blank">지갑·네트워크 설정 안내</a> <button type="button" id="localSample">실제 등록특허 PDF 첨부</button>';document.body.prepend(box);document.getElementById('localSample').onclick=async()=>{const r=await fetch('/local-sample.pdf');if(!r.ok)throw new Error('등록특허 예시 파일 없음');const dt=new DataTransfer();dt.items.add(new File([await r.blob()],'KR102877748B1.pdf',{type:'application/pdf'}));const input=document.getElementById('fileInput');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));};});`;
 const mnemonic = 'test test test test test test test test test test test junk';
 const devAccounts = signers.map((s, i) => ({ role: ['관리자', '차주', '평가사', '은행'][i], address: s.address,
   privateKey: HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${i}`).privateKey }));
 for (const [i, account] of devAccounts.entries()) if (HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${i}`).address !== account.address) throw new Error('Development account configuration mismatch');
 const setupHtml = `<!doctype html><html lang="ko"><meta charset="utf-8"><title>실제 연동 로컬 설정</title><style>body{font-family:system-ui;max-width:1000px;margin:32px auto;line-height:1.7}code{overflow-wrap:anywhere}td,th{border:1px solid #ddd;padding:8px}table{border-collapse:collapse}</style>
 <h1>MetaMask · 실제 IPFS 연동</h1><p>MetaMask 확장이 설치된 Chrome/Edge에서 <a href="${origin}">${origin}</a>를 여세요. Codex 내장 브라우저에는 확장이 없을 수 있습니다.</p>
-<p>네트워크: Local MVP, RPC <code>${rpcUrl}</code>, 체인 ID <b>31337</b>, 통화 ETH. 신청 화면의 MetaMask 연결 버튼으로 네트워크 전환을 승인하세요.</p>
+<p>네트워크: Local MVP, RPC <code>${rpcUrl}</code>, 체인 ID <b>${localChainId}</b>, 통화 ETH. 신청 화면의 MetaMask 연결 버튼으로 네트워크 전환을 승인하세요.</p>
 <p>아래 키는 Hardhat의 공개된 로컬 개발 키입니다. 기존 계정의 비밀키나 복구 구문을 입력할 필요가 없습니다. MetaMask의 계정 가져오기에서 개발 계정만 추가하세요. 이 계정에 실제 자산을 입금하지 마세요.</p>
 <table><tr><th>역할</th><th>개발 지갑 주소 / 로컬 전용 키</th></tr>${devAccounts.map(a => `<tr><td>${a.role}</td><td><code>${a.address}</code><br><code>${a.privateKey}</code></td></tr>`).join('')}</table>
 <p>차주로 신청 → MetaMask 메시지 서명 → 실제 IPFS 암호문 업로드 → MetaMask 거래 승인 → 실제 평가 API 접수. 평가사 검토 시 평가사 계정, 은행 심사 시 은행 계정으로 전환하며 화면 우측 역할도 맞춰 주세요. UI 역할 선택은 지갑 계정 전환을 대신하지 않습니다.</p>
@@ -104,6 +108,7 @@ const web = http.createServer(async (req, res) => {
       res.end(Buffer.from(await response.arrayBuffer())); return;
     }
     res.setHeader('Cache-Control', 'no-store');
+    if (url.pathname === '/local-sample.pdf') { res.setHeader('Content-Type','application/pdf'); res.end(await readFile(path.join(root,'demo-files/real-patent/KR102877748B1.pdf'))); return; }
     if (url.pathname === '/local-config.js') { res.setHeader('Content-Type', 'text/javascript; charset=utf-8'); res.end(startupScript); return; }
     if (url.pathname === '/local-setup.html') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(setupHtml); return; }
     const file = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -115,7 +120,7 @@ const web = http.createServer(async (req, res) => {
 });
 try {
   await listen(rpc, rpcPort);
-  const childEnv = { ...process.env, PYTHONUNBUFFERED: '1', IPLOAN_RPC_URL: rpcUrl, IPLOAN_CHAIN_ID: '31337',
+  const childEnv = { ...process.env, PYTHONUNBUFFERED: '1', IPLOAN_RPC_URL: rpcUrl, IPLOAN_CHAIN_ID: String(localChainId),
     IPLOAN_MANAGER_ADDRESS: await manager.getAddress(), IPLOAN_ASSIGNMENT_EVALUATOR: roles.evaluator, IPLOAN_ASSIGNMENT_BANK: roles.bank,
     IPLOAN_DB_PATH: path.join(dataDir, 'iploan.db'), IPLOAN_PATENT_DB_PATH: path.join(dataDir, 'patents.db'), IPLOAN_PATENT_UPLOAD_DIR: path.join(dataDir, 'patent-uploads') };
   for (const key of ['IPLOAN_TEST_WORKFLOW_FIXTURE', 'IPLOAN_TEST_REAL_PROVIDER', 'IPLOAN_TEST_DATA_DIR']) delete childEnv[key];
@@ -127,7 +132,7 @@ try {
   });
   apiUrl = startup.url;
   await listen(web, port);
-  const config = { url: origin, setup: origin + '/local-setup.html', rpcUrl, chainId: 31337, manager: await manager.getAddress(), roles, dataDir,
+  const config = { url: origin, setup: origin + '/local-setup.html', rpcUrl, chainId: localChainId, manager: await manager.getAddress(), roles, dataDir,
     wallet: 'real MetaMask extension required', ipfs: 'real', evaluation: 'real', chain: 'local development EVM' };
   await writeFile(path.join(output, 'latest.json'), JSON.stringify(config, null, 2));
   await writeFile(path.join(dataDir, 'config.json'), JSON.stringify(config, null, 2));

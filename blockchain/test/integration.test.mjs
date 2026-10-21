@@ -50,7 +50,7 @@ test('temporary Flask + actual local EVM: encrypted upload, SBT access, evaluati
   assert.ok(!('docKey'in application));assert.ok(!('docSalt'in application));
   const sync=async()=>{const result=await api(`/applications/${application.id}/sync`,{status:'approved',debtTokenId:'999',repaidAmount:999});assert.equal(result.response.status,200,JSON.stringify(result.data));return result.data;};
   assert.equal((await sync()).chainStatus,'None');
-  await (await manager.connect(borrower).submitApplication(application.appKey,application.docCid,application.docFileHash,70,application.evaluatorWallet)).wait();
+  await (await manager.connect(borrower).submitApplicationWithMetadata(application.appKey,application.docCid,application.docFileHash,70,application.evaluatorWallet,application.sbtMetadataUri,application.debtMetadataUri)).wait();
   let state=await sync();assert.equal(state.chainStatus,'Evaluating');assert.equal(state.status,'evaluating');assert.equal(state.sbtTokenId,'1');assert.ok(!state.debtTokenId);
   async function document(signer, expected) {
     const challenge=(await api(`/applications/${application.id}/document-nonce`,{address:signer.address})).data;
