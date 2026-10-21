@@ -27,7 +27,7 @@ test('temporary Flask + actual local EVM: encrypted upload, SBT access, evaluati
   });
   rpc.listen(0,'127.0.0.1'); await once(rpc,'listening');
   t.after(()=>{rpc.closeAllConnections();rpc.close();});
-  const child=spawn('../server/.venv/bin/python',['../server/integration_runner.py'], {env:{...process.env,
+  const child=spawn(process.env.IPLOAN_TEST_PYTHON || (process.platform === 'win32' ? '../server/venv/Scripts/python.exe' : '../server/.venv/bin/python'),['../server/integration_runner.py'], {env:{...process.env,
     IPLOAN_RPC_URL:`http://127.0.0.1:${rpc.address().port}`,IPLOAN_CHAIN_ID:'31337',IPLOAN_MANAGER_ADDRESS:await manager.getAddress()}});
   t.after(()=>child.kill('SIGTERM'));
   let errors=''; child.stderr.on('data',c=>{errors+=c;});

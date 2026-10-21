@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+<script>globalThis.IPLOAN_LEGACY_HISTORY_ONLY = true; if (location.hash === '#apply') location.replace('index.html#apply');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LLM 기반 기술평가 자동대출 시스템 · 주식회사 머스트리</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316233E'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%230E7A6E' stroke-width='1.6'/%3E%3C/svg%3E">
@@ -9,6 +10,10 @@
 <link rel="stylesheet" href="css/patent.css?v=20261015-patent">
 </head>
 <body>
+<div role="status" style="padding:16px;background:#fff3cf;color:#352500;position:relative;z-index:10">
+  이 화면은 기존 특허평가 이력 조회용입니다. 신규 신청은 <a href="index.html#apply">대출·특허평가 통합 신청</a>에서 파일을 한 번만 제출하세요.
+  신규 평가 검토는 통합 화면의 IP 가치평가 메뉴를 사용하세요.
+</div>
 <div class="app">
 
   <!-- ============ SIDEBAR ============ -->

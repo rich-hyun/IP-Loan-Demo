@@ -42,7 +42,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   t.after(stop);
   async function start(manager, evaluator='', bank='') {
     await stop();
-    child=spawn('../server/.venv/bin/python',['../server/integration_runner.py'],{env:{...process.env,
+    child=spawn(process.env.IPLOAN_TEST_PYTHON || (process.platform === 'win32' ? '../server/venv/Scripts/python.exe' : '../server/.venv/bin/python'),['../server/integration_runner.py'],{env:{...process.env,
       IPLOAN_RPC_URL:`http://127.0.0.1:${rpc.address().port}`,IPLOAN_CHAIN_ID:'31337',IPLOAN_TEST_DATA_DIR:dataDir,
       IPLOAN_MANAGER_ADDRESS:await manager.getAddress(),IPLOAN_ASSIGNMENT_EVALUATOR:evaluator,IPLOAN_ASSIGNMENT_BANK:bank}});
     let errors=''; child.stderr.on('data',c=>{errors+=c;});

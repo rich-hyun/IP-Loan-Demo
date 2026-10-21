@@ -21,6 +21,7 @@ import re
 import sqlite3
 import secrets
 import time
+import sys
 from threading import Lock
 from datetime import date, datetime, timezone
 from uuid import uuid4
@@ -32,9 +33,10 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 if __package__:
-    from . import chain
+    from . import chain, loan_workflow
 else:
     import chain
+    import loan_workflow
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -120,6 +122,7 @@ MIGRATION_COLUMNS = {
     "docFileName": "TEXT",
     "hashMatch": "INTEGER",
     "ipRegNo": "TEXT",
+    "termMonths": "INTEGER",
 }
 
 FIELDS = ["id", "company", "bizNo", "ipType", "ipTitle", "amount", "status", "hash",
@@ -129,7 +132,7 @@ PUBLIC_FIELDS = set(FIELDS) | {
     "appKey", "borrowerWallet", "evaluatorWallet", "bankWallet", "managerAddress", "chainId", "chainStatus", "chainBlock",
     "sbtTokenId", "debtTokenId", "reportCid", "reportHash", "repaidAmount",
     "docCid", "docIpfsUri", "docFileHash", "docFileName", "hashMatch", "ipRegNo",
-    "borrowerProfileId", "ceo", "contact"
+    "borrowerProfileId", "ceo", "contact", "termMonths"
 }
 
 PROFILE_SCHEMA = """
@@ -219,8 +222,9 @@ class IpfsUploadError(Exception):
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
+        g.db = sqlite3.connect(DB_PATH, timeout=30)
         g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys=ON")
     return g.db
 
 
@@ -249,6 +253,7 @@ def init_db():
         conn.execute(SCHEMA)
         conn.execute(PROFILE_SCHEMA)
         conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
+        loan_workflow.migrate(conn)
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
         for column, column_type in MIGRATION_COLUMNS.items():
             if column not in existing_columns:
@@ -274,6 +279,14 @@ def application_to_public(row):
     public = {k: v for k, v in dict(row).items() if k in PUBLIC_FIELDS and v is not None}
     if public.get("docFileName"):
         public["documents"] = [public["docFileName"]]
+    evaluation = loan_workflow.summary(get_db(), public["id"])
+    if evaluation:
+        # Public list retains existing demo metadata; reports and review contents
+        # require wallet authentication through the dedicated evaluation API.
+        public["workflow"] = True
+        public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt")}
+        case = get_db().execute("SELECT applicationId FROM credit_cases WHERE applicationId=?", (public["id"],)).fetchone()
+        public["creditCaseId"] = case["applicationId"] if case else None
     return public
 
 
@@ -418,6 +431,16 @@ def create_application():
     if not plaintext.lstrip().startswith(b"%PDF-"):
         return error_response("올바른 PDF 파일인지 확인해 주세요.", 400, "invalid_pdf")
 
+    workflow_identity = None
+    if data.get("workflow") == "integrated" or not app.config.get("ALLOW_LEGACY_TEST_SUBMISSIONS", False):
+        prior, workflow_identity = loan_workflow.begin_create(sys.modules[__name__], plaintext)
+        if prior:
+            replay = application_to_public(prior)
+            profile = get_db().execute("SELECT * FROM borrower_profiles WHERE id=?", (prior["borrowerProfileId"],)).fetchone()
+            if profile:
+                replay["borrowerProfile"] = dict(profile)
+            return jsonify(replay), 200
+
     db = get_db()
     profile_id = data.get("borrowerProfileId") or None
     if profile_id:
@@ -447,6 +470,9 @@ def create_application():
             raise ValueError()
     except (TypeError, ValueError):
         return error_response("신청금액을 허용 범위의 양의 정수로 입력하세요.", 400, "invalid_amount")
+    term = data.get("termMonths")
+    if term and term not in {"12", "24", "36"}:
+        return error_response("화면에서 제공하는 상환 희망 기간을 선택하세요.", 400, "invalid_term")
 
     registry_result = verify_registry(
         data.get("ipRegNo", ""),
@@ -462,6 +488,7 @@ def create_application():
         "ipType": (data.get("ipType") or "특허권")[:50],
         "ipTitle": (data.get("ipTitle") or "미입력 IP 자산")[:200],
         "amount": amount,
+        "termMonths": int(term) if term else None,
         "status": "doc_verify",
         "hash": "",
         "appliedDate": date.today().isoformat(),
@@ -527,7 +554,11 @@ def create_application():
         f"INSERT INTO applications ({', '.join(columns)}) VALUES ({', '.join(':' + c for c in columns)})",
         record,
     )
+    if workflow_identity:
+        loan_workflow.attach(db, record, encrypted["payload"], workflow_identity)
     db.commit()
+    if workflow_identity:
+        loan_workflow.submit(sys.modules[__name__], record["id"])
     response = application_to_public(record)
     response["borrowerProfile"] = updated_profile
     return jsonify(response), 201
@@ -543,6 +574,8 @@ def patch_application(app_id):
 
     if existing["appKey"]:
         return error_response("지갑으로 트랜잭션을 실행한 뒤 체인 동기화를 사용하세요.", 409, "chain_is_authority")
+    if not app.config.get("ALLOW_LEGACY_TEST_SUBMISSIONS", False):
+        return error_response("기존 미온체인 신청은 이력 조회용입니다. 신규 통합 신청과 평가사 확정 절차를 사용하세요.", 409, "legacy_history_only")
 
     updates = {k: v for k, v in data.items() if k in ALLOWED_PATCH_FIELDS}
     if updates:
@@ -587,6 +620,7 @@ def sync_application(app_id):
                                       (app_id, state["reportHash"], state["reportCid"])).fetchone()
             if not report or report["value"] != state["appraisedValue"]:
                 raise chain.ChainError("체인의 평가보고서가 이 신청에서 준비한 보고서와 다릅니다.")
+        loan_workflow.validate_sync(get_db(), application, state)
         # Never accept caller-provided status, tokenId, repayment or a receipt as proof.
         state["status"] = {"Evaluating": "evaluating", "Eligible": "review", "RuleRejected": "rejected",
                            "Approved": "approved", "Rejected": "rejected", "Repaid": "approved"}[stage]
@@ -599,8 +633,14 @@ def sync_application(app_id):
         else:
             state["rejectReason"] = None
         db = get_db()
+        db.execute("BEGIN IMMEDIATE")
+        latest = db.execute("SELECT * FROM applications WHERE id=?", (app_id,)).fetchone()
+        if latest["chainBlock"] is not None and state.get("chainBlock", 0) < latest["chainBlock"]:
+            db.rollback()
+            return jsonify(application_to_public(latest))
         updates = {**state, "id": app_id}
         db.execute("UPDATE applications SET " + ", ".join(f"{k}=:{k}" for k in state) + " WHERE id=:id", updates)
+        loan_workflow.after_sync(db, application, state)
         db.commit()
         return jsonify(application_to_public(find_application(app_id)))
     except chain.ChainError as exc:
@@ -631,6 +671,10 @@ def prepare_evaluation_report(app_id):
         if chain.snapshot(application)["chainStatus"] != "Evaluating":
             return error_response("평가 중인 신청만 보고서를 준비할 수 있습니다.", 409, "wrong_stage")
         data = request.get_json(silent=True) or {}
+        if loan_workflow.job(get_db(), app_id):
+            if not isinstance(data, dict):
+                raise ValueError()
+            return jsonify(loan_workflow.prepare(sys.modules[__name__], application, data)), 200
         if not isinstance(data, dict) or isinstance(data.get("appraisedValue"), bool):
             raise ValueError()
         value = int(data.get("appraisedValue", 0))
@@ -738,7 +782,7 @@ def read_document(app_id):
 
 @app.route("/api/reset", methods=["POST"])
 def reset_applications():
-    if chain.MANAGER_ADDRESS:
+    if chain.MANAGER_ADDRESS or get_db().execute("SELECT 1 FROM loan_evaluations LIMIT 1").fetchone():
         return error_response("온체인 계약 연결 중에는 DB 초기화를 막습니다. 체인 기록은 초기화되지 않습니다.", 409, "chain_reset_forbidden")
     key = os.environ.get("IPLOAN_ADMIN_KEY", "")
     if not (key and os.environ.get("IPLOAN_ENABLE_RESET") == "1"
@@ -756,6 +800,7 @@ def request_too_large(_error):
     return error_response("파일이 너무 큽니다. 더 작은 PDF로 다시 시도하세요.", 413, "file_too_large")
 
 
+loan_workflow.register(sys.modules[__name__])
 init_db()
 
 
@@ -768,6 +813,12 @@ else:
 
 
 def patent_wsgi(environ, start_response):
+    # Existing DB and GET history remain available. New business mutations must
+    # use the single loan-owned workflow; the old unauthenticated confirm API
+    # cannot create an alternate route to credit review.
+    if environ.get("REQUEST_METHOD") not in {"GET", "HEAD", "OPTIONS"} and not app.config.get("ALLOW_LEGACY_TEST_SUBMISSIONS", False):
+        response = Response(json.dumps({"message": "기존 특허평가는 이력 조회만 지원합니다. 대출·평가 통합 신청을 사용하세요."}, ensure_ascii=False), status=410, mimetype="application/json")
+        return response(environ, start_response)
     forwarded = dict(environ)
     forwarded["PATH_INFO"] = "/api" + environ.get("PATH_INFO", "")
     return patent_app.app(forwarded, start_response)

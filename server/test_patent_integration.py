@@ -1,3 +1,4 @@
+from contextlib import closing
 """기존 대출 API와 특허평가 API의 경로·DB·구버전 마이그레이션을 검사한다."""
 
 import io
@@ -20,6 +21,8 @@ from server import app as native
 class PatentIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.client = native.app.test_client()
+        native.app.config["ALLOW_LEGACY_TEST_SUBMISSIONS"] = True
+        self.addCleanup(lambda: native.app.config.pop("ALLOW_LEGACY_TEST_SUBMISSIONS", None))
 
     def test_existing_and_mounted_health(self):
         self.assertEqual("ok", self.client.get("/api/health").json["status"])
@@ -47,7 +50,7 @@ class PatentIntegrationTests(unittest.TestCase):
     def test_old_created_at_profile_schema_is_preserved(self):
         with tempfile.TemporaryDirectory(prefix="iploan-legacy-schema-") as folder:
             db_path = str(Path(folder) / "legacy.db")
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute(native.SCHEMA)
                 conn.execute("""CREATE TABLE borrower_profiles (
                     id TEXT PRIMARY KEY,company TEXT NOT NULL,bizNo TEXT,ceo TEXT,contact TEXT,
@@ -57,7 +60,7 @@ class PatentIntegrationTests(unittest.TestCase):
                 native.init_db()
                 new = self.client.post("/api/borrower-profiles", json={"company": "새 기업"})
                 self.assertEqual(201, new.status_code, new.get_data(as_text=True))
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 self.assertEqual(1, conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0])
                 self.assertEqual(2, conn.execute("SELECT COUNT(*) FROM borrower_profiles WHERE createdAt IS NOT NULL").fetchone()[0])
 
@@ -66,7 +69,7 @@ class PatentIntegrationTests(unittest.TestCase):
             db_path = str(Path(folder) / "workers.db")
             with patch.object(native, "DB_PATH", db_path), ThreadPoolExecutor(max_workers=2) as pool:
                 list(pool.map(lambda _: native.init_db(), range(2)))
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 self.assertEqual(8, conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0])
 
 

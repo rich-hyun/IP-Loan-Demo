@@ -1,5 +1,7 @@
 # Flask API — 시범 MVP
 
+신규 대출·특허평가는 단일 신청으로 연결됩니다. 신규 실행과 서명 API, 자동 산출 금액 어댑터, 재시도/복구, 로컬 QA 및 검증 방법은 [통합 흐름 가이드](LOAN_WORKFLOW.md)를 우선 참고하세요. 아래의 이전 공개 보고서 준비 API 설명은 기존 신청의 회귀 호환성에 해당합니다. 신규 신청은 서명된 업로드와 담당 평가사 검토를 요구합니다.
+
 Mustsem(7601, MST)에 배포한 v2 Manager 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38에 연결한다.
 서버는 `contractVersion() == 2`인 Manager에만 연결하며, DB는 server/iploan-mustsem-v2.db를 사용한다.
 IPLOAN_ZERO_GAS_PRICE=0으로 정상 수수료를 사용한다.
@@ -79,6 +81,6 @@ npm test
 
 ## 특허 공고전문 평가 API
 
-`patent_app.py`를 `/api/patent`에 연결하여 기존 지갑·IPFS API와 함께 제공합니다. 기존 대출 DB와 별도로 `patent-iploan.db`, `patent-uploads/`를 사용하며, 접수 및 생성 상태와 결과를 보존합니다. 서버 전용 `.env`에서 `IPLOAN_PATENT_API_URL`, `IPLOAN_PATENT_API_TOKEN`을 읽습니다. 자세한 사용법은 [PATENT_API.md](PATENT_API.md)를 참고하세요.
+`patent_app.py`의 `/api/patent` 경로와 기존 `patent-iploan.db`, `patent-uploads/`는 이력 조회용으로 보존합니다. 통합 서버에서 이전 쓰기 경로는 410입니다. 새 보고서 작업은 대출 DB의 `loan_evaluations`에 연결하며 기존 `patent_api.py` 클라이언트로 실제 서비스를 호출합니다. 서버 전용 `.env`에서 `IPLOAN_PATENT_API_URL`, `IPLOAN_PATENT_API_TOKEN`을 읽습니다. [통합 흐름 가이드](LOAN_WORKFLOW.md)와 이전 공급자 API 설명인 [PATENT_API.md](PATENT_API.md)를 구분해 참고하세요.
 
 현재 운영 서버의 `gunicorn.conf.py`는 4개 스레드와 120초 timeout을 설정합니다. 기존 unit의 작업 디렉터리가 이 폴더이면 Gunicorn HUP으로 코드와 이 설정을 함께 읽습니다. Nginx에는 저장소의 `nginx-iploan-api.conf`에 있는 `client_max_body_size 51m`과 120초 프록시 timeout을 적용해야 50MiB PDF를 접수할 수 있습니다.

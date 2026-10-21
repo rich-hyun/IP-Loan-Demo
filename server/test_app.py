@@ -1,3 +1,4 @@
+from contextlib import closing
 import base64
 import hashlib
 import io
@@ -22,7 +23,8 @@ from server import app as app_module  # noqa: E402
 class ApplicationUploadTest(unittest.TestCase):
     def setUp(self):
         app_module.NONCES.clear()
-        app_module.app.config.update(TESTING=True)
+        app_module.app.config.update(TESTING=True, ALLOW_LEGACY_TEST_SUBMISSIONS=True)
+        self.addCleanup(lambda: app_module.app.config.pop("ALLOW_LEGACY_TEST_SUBMISSIONS", None))
         connection = sqlite3.connect(app_module.DB_PATH)
         app_module.seed(connection)
         connection.commit()

@@ -656,3 +656,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .steps-detail { flex-direction: column; gap: 14px; }
   .steps-detail .step-line { display: none; }
 }
+
+.workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.workflow-error { color: #a32924; padding: 12px; background: #fff1ef; border-radius: 6px; }

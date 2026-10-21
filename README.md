@@ -6,6 +6,7 @@
 평가 확정 때 SBT를 소각하고 70% 규칙을 실행한다. 상환은 실제 자금 이동 없이 기록만 남긴다.
 서버 개인키·대리 발급·에스크로·정식 금융 기능은 없다.
 
+
 - [확정 설계와 구현 체크리스트](docs/대출신청-암호화-토큰-설계.md)
 - [WSL 실행·관리자 준비·파일별 상세 수동 통합 테스트](blockchain/README.md)
 - [서버 설정과 API](server/README.md)
@@ -38,9 +39,9 @@ Python 의존성 설치와 IPFS 환경변수 준비는 server/README.md를 참�
 
 ## 특허 공고전문 평가보고서
 
-메인 화면의 **특허평가 신청** 또는 [특허평가 화면](patent.html#apply)에서 사업자등록번호와 공고전문 PDF로 보고서 생성을 신청합니다. [평가자 보고서함](patent.html#evaluate)에서 생성 상태, PDF/HTML, 근거자료를 확인하고 담보가치를 확정합니다.
+메인 화면의 **대출·특허평가 통합 신청**에서 공고전문 PDF를 한 번만 제출합니다. 같은 대출 신청번호로 자동평가·보고서 생성, 담당 평가사의 검토·온체인 확정, 데모 계약의 LTV 판정과 여신심사를 연결합니다. 실패 시 보관된 파일로 재시도하며 접수 불명 상태에서는 중복 접수를 차단합니다.
 
-기존 역할 전환·지갑·IPFS 업무 화면과 API를 유지하며 특허평가 API는 `/api/patent`에서 제공합니다. 원본 PDF와 작업번호는 별도 `server/patent-iploan.db`, `server/patent-uploads/`에 저장합니다. API 인증값은 Git에서 제외한 `server/.env`에 설정합니다. [특허평가 연동 가이드](server/PATENT_API.md)를 참고하세요.
+새 평가 작업·암호화 원본·보고서·검토·여신심사 연결은 기존 대출 DB에 저장합니다. 별도 특허 DB와 `patent.html#evaluate`는 기존 이력 조회용으로 보존합니다. 통합 서버의 `/api/patent` 쓰기는 차단하며 신규 업무는 대출 API를 사용합니다. API 인증값은 Git에서 제외한 `server/.env`에 설정합니다. [통합 흐름 실행·설정·검증·제약](server/LOAN_WORKFLOW.md)을 참고하세요.
 
 ```bash
 cd server

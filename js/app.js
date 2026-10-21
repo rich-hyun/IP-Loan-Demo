@@ -9,7 +9,7 @@
    https:// 도메인을 사용하세요. 자세한 내용은 server/README.md 참고.
    localhost에서 열면 로컬 API(server/app.py, 5001번 포트)를 사용합니다. */
 const IS_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
-const API_BASE = IS_LOCAL ? 'http://127.0.0.1:5001/api' : 'https://iploan-api.mustree.kr/api';
+const API_BASE = globalThis.IPLOAN_API_BASE || (IS_LOCAL ? 'http://127.0.0.1:5001/api' : 'https://iploan-api.mustree.kr/api');
 
 /* ---------------- Status labels ---------------- */
 const STATUS_META = {
@@ -19,6 +19,8 @@ const STATUS_META = {
   review:     { label: '심사중',   badge: 'badge-review'   },
   approved:   { label: '승인',     badge: 'badge-approved' },
   rejected:   { label: '거절',     badge: 'badge-rejected' },
+  report_ready: { label: '평가사 검토 대기', badge: 'badge-review' },
+  report_failed: { label: '평가 생성 실패', badge: 'badge-rejected' },
 };
 
 /* 서버에 연결할 수 없을 때만 쓰는 화면 표시용 대체 데이터(js/seed-data.js).
@@ -114,7 +116,7 @@ function fieldHTML(app, key, fmt) {
 }
 function findApp(id) { return APPLICATIONS.find(a => a.id === id); }
 function statusBadge(status) {
-  const m = STATUS_META[status];
+  const m = STATUS_META[status] || { label: status, badge: 'badge-pending' };
   return `<span class="badge ${m.badge}">${m.label}</span>`;
 }
 function hashCode(str) {
@@ -126,7 +128,7 @@ function hashCode(str) {
 /* ---------------- 평가보고서: 큐레이션 3건 + 신규 신청 자동 생성 ---------------- */
 /* 평가 대기 목록: 평가중 건만 */
 function evalQueue() {
-  return APPLICATIONS.filter(a => a.status === 'evaluating');
+  return APPLICATIONS.filter(a => a.status === 'evaluating' || (a.workflow && !a.evaluation?.confirmedAt));
 }
 function getEvalReport(app) {
   if (app._report) return app._report;  // 재산정으로 다시 만든 초안이 있으면 우선
@@ -207,6 +209,7 @@ function renderBorrowerProfiles() {
 }
 
 function useSavedBorrowerProfile(profile) {
+  if (!profile) return;
   const index = BORROWER_PROFILES.findIndex(item => item.id === profile.id);
   if (index === -1) BORROWER_PROFILES.push(profile);
   else BORROWER_PROFILES[index] = profile;
@@ -360,7 +363,7 @@ function renderDashboard() {
   apps.forEach(a => counts[a.status] = (counts[a.status] || 0) + 1);
   document.getElementById('statusTotal').textContent = `전체 ${apps.length}건`;
 
-  const order = ['pending','doc_verify','evaluating','review','approved','rejected'];
+  const order = ['pending','doc_verify','evaluating','report_ready','report_failed','review','approved','rejected'];
   document.getElementById('statusRow').innerHTML = order.map(k => `
     <div class="status-pill">
       <div class="status-pill-count">${counts[k]}</div>
@@ -379,7 +382,7 @@ function renderDashboard() {
 
 /* ---------------- List view ---------------- */
 let activeFilter = 'all';
-const FILTERS = [['all','전체'], ['pending','대기'], ['doc_verify','서류검증'], ['evaluating','평가중'], ['review','심사중'], ['approved','승인'], ['rejected','거절']];
+const FILTERS = [['all','전체'], ['pending','대기'], ['doc_verify','서류검증'], ['evaluating','평가중'], ['report_ready','평가사 검토 대기'], ['report_failed','평가 생성 실패'], ['review','심사중'], ['approved','승인'], ['rejected','거절']];
 
 function renderFilterChips() {
   document.getElementById('filterChips').innerHTML = FILTERS.map(([key,label]) => `
@@ -510,6 +513,10 @@ function openDetail(id) {
       ${app.chainStatus === 'None' ? `<button class="btn btn-outline" onclick="retryApplicationChain('${app.id}')">업로드 재사용 · 신청 등록 재시도</button>` : ''}
       <button class="btn btn-outline" onclick="retryApplicationChain('${app.id}', true)">체인 확인·복구</button>`;
   }
+  if (app.workflow && typeof LoanWorkflow !== 'undefined') {
+    document.getElementById('detailDocs').innerHTML += '<div id="workflowDetail"></div>';
+    LoanWorkflow.panel(app, 'workflowDetail');
+  }
 
   VIEW_META.detail.sub = `${app.id} 신청의 진행 상황을 확인합니다`;
   goView('detail');
@@ -556,7 +563,7 @@ fileInput.addEventListener('change', () => {
   const helpEl = document.getElementById('fileHelpText');
   if (files.length === 0) {
     nameEl.textContent = '클릭해서 PDF 선택';
-    helpEl.textContent = '특허등록원부 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
+    helpEl.textContent = '특허 공고전문 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
     return;
   }
   nameEl.textContent = files[0].name;
@@ -570,7 +577,7 @@ applyForm.addEventListener('submit', async (e) => {
   const btn = document.getElementById('applySubmitBtn');
   const files = Array.from(fileInput.files);
   if (!files.length) {
-    document.getElementById('fileHelpText').textContent = '특허등록원부 PDF를 선택해 주세요.';
+    document.getElementById('fileHelpText').textContent = '특허 공고전문 PDF를 선택해 주세요.';
     fileInput.click();
     return;
   }
@@ -597,7 +604,7 @@ applyForm.addEventListener('submit', async (e) => {
   const ipTitle = (document.getElementById('fIpTitle').value || '').trim() || '미입력 IP 자산';
   const ipRegNo = (document.getElementById('fIpNo').value || '').trim();
   const amountRaw = document.getElementById('fAmount').value || '';
-  const amount = parseInt(amountRaw.replace(/[^0-9]/g, ''), 10) || 50000000;
+  const amount = parseInt(amountRaw.replace(/[^0-9]/g, ''), 10) || 0;
   const payload = new FormData();
   payload.append('company', company);
   payload.append('bizNo', bizNo);
@@ -608,10 +615,12 @@ applyForm.addEventListener('submit', async (e) => {
   payload.append('ipTitle', ipTitle);
   payload.append('ipRegNo', ipRegNo);
   payload.append('amount', String(amount));
+  if (typeof LoanWorkflow !== 'undefined') payload.append('termMonths', document.getElementById('fTerm').value);
   payload.append('registryDocument', files[0]);
   if (borrowerWallet) payload.append('borrowerWallet', borrowerWallet);
 
   try {
+    if (typeof LoanWorkflow !== 'undefined') await LoanWorkflow.attach(payload, files[0]);
     const created = await apiCreateApplication(payload, (percent) => {
       if (percent === 100) {
         btn.textContent = '원부 대조·암호화·IPFS 업로드 중…';
@@ -625,7 +634,9 @@ applyForm.addEventListener('submit', async (e) => {
     steps[3].classList.add('current');
 
     const { borrowerProfile: savedProfile, ...application } = created;
-    APPLICATIONS.push(application);
+    const previous = findApp(application.id);
+    if (previous) Object.assign(previous, application);
+    else APPLICATIONS.push(application);
     lastChainApplication = application;
     useSavedBorrowerProfile(savedProfile);
     document.getElementById('borrowerProfileHelp').textContent = '신청 접수와 기업정보 갱신을 완료했습니다. 다음 신청부터 자동 입력됩니다.';
@@ -675,6 +686,7 @@ applyForm.addEventListener('reset', (event) => {
     event.preventDefault();
     return;
   }
+  if (typeof LoanWorkflow !== 'undefined') LoanWorkflow.clearDraft();
   setTimeout(resetApplyUI, 0);
 });
 
@@ -691,7 +703,7 @@ function resetApplyUI() {
   btn.disabled = false;
   btn.textContent = '제출하기';
   document.getElementById('fileNameDisplay').textContent = '클릭해서 PDF 선택';
-  document.getElementById('fileHelpText').textContent = '특허등록원부 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
+  document.getElementById('fileHelpText').textContent = '특허 공고전문 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
   fillBorrowerInfo();
   document.getElementById('borrowerProfileSelect').value = currentBorrowerProfileId;
 }
@@ -721,6 +733,7 @@ function renderEvalList() {
 function selectEvalItem(id) {
   const app = findApp(id);
   if (!app) return;
+  if (app.workflow && typeof LoanWorkflow !== 'undefined') { LoanWorkflow.panel(app); return; }
   const r = getEvalReport(app);
 
   document.querySelectorAll('#evalListItems .eval-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
@@ -758,7 +771,7 @@ function selectEvalItem(id) {
           <div class="report-meta">${escapeHtml(app.company)} · ${escapeHtml(app.ipType)} · 신청번호 ${app.id}</div>
           <div class="report-meta">출원·등록번호 ${fieldHTML(app, 'ipRegNo')} · 신청금액 ${fieldHTML(app, 'amount', won)}</div>
         </div>
-        <span class="llm-tag"><span class="pulse"></span> LLM 자동 생성</span>
+        <span class="llm-tag">기존 시연용 예시</span>
       </div>
 
       <div class="report-grid">
@@ -800,8 +813,8 @@ function selectEvalItem(id) {
         <input id="chainAppraisalValue" type="number" min="1" step="1" value="${r.appraisedValue}">
         <p>자동 생성 초안은 시연용입니다. 평가사가 금액을 확인·수정하고 확정합니다. 신청금액이 평가액의 70% 이하일 때 통과합니다.</p></div>` : ''}
       <div style="display:flex; gap:10px;">
-        <button class="btn btn-primary" id="confirmEvalBtn" onclick="confirmEval('${id}')">가치평가 확정</button>
-        <button class="btn btn-outline" onclick="openReevalDialog('${id}')">재산정 요청</button>
+        <button class="btn btn-primary" id="confirmEvalBtn" onclick="confirmEval('${id}')" ${app.appKey ? '' : 'disabled title="기존 미온체인 신청은 조회 전용입니다"'}>가치평가 확정</button>
+        <button class="btn btn-outline" onclick="openReevalDialog('${id}')" ${app.appKey ? '' : 'disabled'}>재산정 요청</button>
         ${app.appKey ? `<button class="btn btn-outline" onclick="viewChainDocument('${id}')">평가 SBT로 원본 열람</button>` : ''}
       </div>
       <div id="evalConfirmMsg" style="display:none; margin-top:12px; font-size:12.5px; color:var(--teal); font-weight:600;">✓ 평가가 확정되어 대출 심사 단계로 전달되었습니다.</div>
@@ -863,6 +876,7 @@ function scheduleReevalFinish(id) {
 async function confirmEval(id) {
   const app = findApp(id);
   if (!app) return;
+  if (app.workflow && typeof LoanWorkflow !== 'undefined') return LoanWorkflow.confirm(id);
   const r = getEvalReport(app);
   if (app.appKey) {
     if (chainOperationBusy) return;
@@ -927,7 +941,7 @@ async function confirmEval(id) {
 let currentReviewId = null;
 
 function reviewQueue() {
-  return APPLICATIONS.filter(a => a.status === 'review' || (a.appKey && ['Approved', 'Repaid', 'RuleRejected', 'Rejected'].includes(a.chainStatus)));
+  return APPLICATIONS.filter(a => (!a.workflow || a.creditCaseId) && (a.status === 'review' || (a.appKey && ['Approved', 'Repaid', 'RuleRejected', 'Rejected'].includes(a.chainStatus))));
 }
 
 function renderReviewList() {
@@ -1147,6 +1161,10 @@ function loadChainReviewCase(app) {
       <p class="review-chain-note">실제 대출금·상환금 이동 없음. 트랜잭션 가스는 필요합니다. 완납 후 NFT는 시연 기록으로 은행에 유지됩니다.</p>
       ${['Approved','Repaid'].includes(app.chainStatus) ? `<button class="btn btn-outline" onclick="viewChainDocument('${app.id}')">은행 원본 열람</button>` : ''}
     </div></div>`;
+  if (app.workflow && typeof LoanWorkflow !== 'undefined') {
+    document.getElementById('reviewBody').innerHTML += '<div class="panel" id="workflowReview"></div>';
+    LoanWorkflow.panel(app, 'workflowReview');
+  }
 }
 async function syncChainReview(id) {
   if (chainOperationBusy) return;
@@ -1320,6 +1338,7 @@ async function initApp() {
   renderListTable();
   renderEvalList();
   renderReviewList();
+  if (typeof location.hash === 'string' && ['#apply', '#evaluate', '#list'].includes(location.hash)) goView(location.hash.slice(1));
 }
 
 document.getElementById('connNoticeRetry').addEventListener('click', async () => {

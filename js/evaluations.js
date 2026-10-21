@@ -182,11 +182,11 @@ function statusContent(application) {
   if (job.error) html += `<div class="inline-message error-message">${escapeHtml(job.error)}</div>`;
   if (job.detail) html += `<details class="error-detail"><summary>오류 상세 보기</summary><pre>${escapeHtml(typeof job.detail === 'string' ? job.detail : JSON.stringify(job.detail, null, 2))}</pre></details>`;
   if (job.read_error) html += `<div class="inline-message">${escapeHtml(job.read_error)} 다음 조회에서 다시 확인합니다.</div>`;
-  if (job.status === 'awaiting_identity') html += `<form class="identity-form" data-app-id="${escapeHtml(application.id)}">
+  if (job.status === 'awaiting_identity' && !globalThis.IPLOAN_LEGACY_HISTORY_ONLY) html += `<form class="identity-form" data-app-id="${escapeHtml(application.id)}">
     <div class="field"><label>기업 사업자등록번호<input name="business_number" value="${escapeHtml(application.bizNo || '')}" placeholder="000-00-00000" inputmode="numeric" pattern="[0-9]{10}|[0-9]{3}-[0-9]{2}-[0-9]{5}" required></label></div>
     <button class="btn btn-primary btn-sm" type="submit">번호 확인하고 이어서 생성</button><div class="identity-error error-message" role="alert" hidden></div></form>`;
   if (job.identity_message && job.status === 'awaiting_identity') html += `<p class="help">${escapeHtml(job.identity_message)}</p>`;
-  if (job.status === 'submission_rejected') html += `<div class="button-row"><button class="btn btn-outline btn-sm" type="button" data-retry-app="${escapeHtml(application.id)}">보관된 PDF로 다시 접수</button>${job.retry_after ? `<span class="help">${job.retry_after}초 대기 후 재접수할 수 있습니다.</span>` : ''}</div>`;
+  if (job.status === 'submission_rejected' && !globalThis.IPLOAN_LEGACY_HISTORY_ONLY) html += `<div class="button-row"><button class="btn btn-outline btn-sm" type="button" data-retry-app="${escapeHtml(application.id)}">보관된 PDF로 다시 접수</button>${job.retry_after ? `<span class="help">${job.retry_after}초 대기 후 재접수할 수 있습니다.</span>` : ''}</div>`;
   return html;
 }
 function renderReceipt() {
@@ -257,7 +257,7 @@ function selectEvalItem(id) {
     : [company, bizNo].filter(Boolean).join(' · ');
   const heading = `<div class="report-head"><div><h3 class="report-title">${escapeHtml(application.ipTitle)}</h3><div class="report-meta">${escapeHtml(companyMeta)}</div><div class="report-meta">신청번호 ${escapeHtml(application.id)}</div></div>${reportBadge(application)}</div>`;
   if (!job) { renderLegacyReport(application, heading); return; }
-  let body = `${heading}<div class="report-request-meta"><span>작업번호 <b>${escapeHtml(job.job_id || '발급 전')}</b></span><span>최근 확인 ${escapeHtml(formatDate(job.updated_at))}</span></div>`;
+  let body = `${heading}${globalThis.IPLOAN_LEGACY_HISTORY_ONLY ? '<p class="inline-message">기존 이력 조회 전용입니다. 새 신청과 확정은 대출·평가 통합 화면에서 진행하세요.</p>' : ''}<div class="report-request-meta"><span>작업번호 <b>${escapeHtml(job.job_id || '발급 전')}</b></span><span>최근 확인 ${escapeHtml(formatDate(job.updated_at))}</span></div>`;
   if (job.status !== 'completed') {
     body += statusContent(application);
   } else {
@@ -266,8 +266,8 @@ function selectEvalItem(id) {
     if (kind) {
       body += `<div class="report-preview-heading"><b>특허평가 보고서</b><a class="text-button" href="${escapeHtml(artifactUrl(application, kind))}" target="_blank" rel="noopener noreferrer">새 창에서 열기 ↗</a></div><iframe class="report-preview" src="${escapeHtml(artifactUrl(application, kind))}" title="${escapeHtml(application.ipTitle)} 평가보고서" ${kind === 'html' ? 'sandbox=""' : ''}></iframe>`;
       if (job.confirmed_at) {
-        body += `<div class="evaluation-confirmed"><b>✓ 가치평가가 확정되었습니다</b><div>확정 담보가치 ${won(application.appraisedValue)} · 신용평가 ${application.creditScore}점</div><div class="help">${escapeHtml(formatDate(job.confirmed_at))}</div>${job.reviewer_note ? `<p>${escapeHtml(job.reviewer_note)}</p>` : ''}${application.amount ? `<button type="button" class="btn btn-outline btn-sm" data-review-app="${escapeHtml(id)}">대출 심사로 이동 →</button>` : '<p class="help">대출 희망 금액을 입력하지 않은 평가 신청입니다.</p>'}</div>`;
-      } else {
+        body += `<div class="evaluation-confirmed"><b>✓ 가치평가가 확정되었습니다</b><div>확정 담보가치 ${won(application.appraisedValue)} · 신용평가 ${application.creditScore}점</div><div class="help">${escapeHtml(formatDate(job.confirmed_at))}</div>${job.reviewer_note ? `<p>${escapeHtml(job.reviewer_note)}</p>` : ''}${application.amount && !globalThis.IPLOAN_LEGACY_HISTORY_ONLY ? `<button type="button" class="btn btn-outline btn-sm" data-review-app="${escapeHtml(id)}">대출 심사로 이동 →</button>` : '<p class="help">대출 희망 금액을 입력하지 않은 평가 신청입니다.</p>'}</div>`;
+      } else if (!globalThis.IPLOAN_LEGACY_HISTORY_ONLY) {
         body += `<form id="evaluationConfirmForm" data-app-id="${escapeHtml(id)}" class="evaluation-confirm-form"><div class="form-section-heading"><span>✓</span><h4>평가 검토 및 확정</h4></div><p>보고서의 산정 근거와 가정을 확인한 후 최종 담보가치와 신용평가 점수를 입력하세요.</p><div class="form-grid"><div class="field"><label for="confirmedValue">확정 담보가치 (원)<span class="req">*</span></label><input id="confirmedValue" name="appraisedValue" type="text" inputmode="numeric" placeholder="예: 120,000,000" required></div><div class="field"><label for="confirmedCredit">신용평가 점수<span class="req">*</span></label><input id="confirmedCredit" name="creditScore" type="number" min="0" max="100" step="1" placeholder="0~100" required></div><div class="field full"><label for="reviewerNote">평가 검토 의견 <span class="optional">선택</span></label><textarea id="reviewerNote" name="reviewerNote" rows="3" maxlength="2000" placeholder="확인한 근거와 보완할 내용을 기록하세요."></textarea></div></div><div class="confirm-error inline-message error-message" role="alert" hidden></div><button class="btn btn-primary" type="submit">${application.amount ? '가치평가 확정 및 대출 심사 전달' : '가치평가 확정'}</button></form>`;
       }
     } else body += '<div class="inline-message error-message">작업은 완료되었지만 PDF·HTML 보고서가 제공되지 않았습니다. 작업번호로 운영 담당자에게 확인해 주세요.</div>';
@@ -278,6 +278,7 @@ function selectEvalItem(id) {
 function renderLegacyReport(application, heading) {
   const report = STATIC_EVAL_REPORTS[application.id];
   document.getElementById('evalReportPanel').innerHTML = `<div class="panel-body">${heading}<div class="inline-message">기존 시연용 신청입니다. 실제 API 보고서는 새 특허평가 신청에서 생성합니다.</div>${report ? `<div class="report-grid"><div class="report-stat"><div class="report-stat-label">예시 담보가치</div><div class="report-stat-value">${won(report.appraisedValue)}</div></div></div>${[['IP 정보 요약',report.summary],['유사 IP 비교',report.similar],['시장성 분석',report.market],['가치 산정 근거',report.basis]].map(([title,text]) => `<div class="report-section"><h4>${title}</h4><p>${escapeHtml(text)}</p></div>`).join('')}<button class="btn btn-outline" type="button" data-confirm-demo="${escapeHtml(application.id)}">예시 가치평가 확정</button>` : '<div class="empty-hint">이 신청에 연결된 평가보고서가 없습니다.</div>'}</div>`;
+  if (globalThis.IPLOAN_LEGACY_HISTORY_ONLY) document.querySelectorAll('[data-confirm-demo]').forEach(button => button.remove());
 }
 
 async function refreshReports(manual = false) {

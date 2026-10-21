@@ -1,5 +1,5 @@
-const API_BASE = (window.IPLOAN_API_BASE ||
-  (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) ? '/api' : 'https://iploan-api.mustree.kr/api/patent')).replace(/\/$/, '');
+const API_BASE = (window.IPLOAN_PATENT_API_BASE || window.IPLOAN_API_BASE ||
+  (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) ? 'http://127.0.0.1:5001/api/patent' : 'https://iploan-api.mustree.kr/api/patent')).replace(/\/$/, '');
 
 /* ---------------- Status labels ---------------- */
 const STATUS_META = {
@@ -121,6 +121,8 @@ let evalInitDone = false;
 let reviewInitDone = false;
 
 function goView(name) {
+  if (name === 'apply') { location.replace('index.html#apply'); return; }
+  if (name === 'review' && globalThis.IPLOAN_LEGACY_HISTORY_ONLY) { location.replace('index.html#list'); return; }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));

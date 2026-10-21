@@ -34,6 +34,25 @@ def mock_gateway(url, **kwargs):
 
 app_module.upload_ipfs_payload = mock_upload
 app_module.requests.get = mock_gateway
+# Explicitly test-only: old contract regression tests exercise historical inputs;
+# new workflow tests use wallet-authenticated submissions and a provider fixture.
+app_module.app.config['ALLOW_LEGACY_TEST_SUBMISSIONS'] = not (os.environ.get('IPLOAN_TEST_WORKFLOW_FIXTURE') == '1' or os.environ.get('IPLOAN_TEST_REAL_PROVIDER') == '1')
+if os.environ.get('IPLOAN_TEST_WORKFLOW_FIXTURE') == '1':
+    from server.loan_workflow import patent_api
+    attempts = {}
+
+    def fixture_submit(path, filename, number):
+        body = path.read_bytes()
+        key = hashlib.sha256(body).hexdigest()
+        attempts[key] = attempts.get(key, 0) + 1
+        state = 'failed' if b'FAIL_EVALUATION' in body and attempts[key] == 1 else 'completed'
+        return {'job_id': 'fixture-' + key[:16], 'status': state,
+                'valuation': {'amount': 100, 'currency': 'KRW', 'unit': 'won'},
+                'artifacts': {'pdf': '/pdf'} if state == 'completed' else {},
+                'error': 'test fixture failure' if state == 'failed' else ''}
+
+    patent_api.submit = fixture_submit
+    patent_api.artifact = lambda *_: io.BytesIO(b'%PDF-1.4\nTEST DOUBLE report\n%%EOF')
 httpd = make_server("127.0.0.1", 0, app_module.app)
 print(json.dumps({"url": f"http://127.0.0.1:{httpd.server_port}/api"}), flush=True)
 try:
