@@ -102,9 +102,11 @@ function formatDate(value) {
 }
 function shortAddress(address) { return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'; }
 function rateText(bps) { return bps == null ? NA_HTML : `${(bps / 100).toFixed(2)}%`; }
-/* 계약과 같은 기준: 신청금액이 평가액의 70% 이하이면 자동심사 통과 */
+/* 계약과 같은 기준: 신청금액 × 100 ≤ 평가액 × 70 이면 자동심사 통과. 경계값이 계약과 같도록 정수로 계산한다. */
+function passesLtv(amount, value) { return BigInt(amount) * 100n <= BigInt(value) * 70n; }
+function minimumPassingValue(amount) { return Number((BigInt(amount) * 100n + 69n) / 70n); }
 function ltvPreview(amount, value) {
-  return `담보인정비율 ${Math.round(amount / value * 1000) / 10}% · ${amount * 100 <= value * 70 ? '자동심사 통과 예상' : '자동심사 거절 예상 (70% 초과)'}`;
+  return `담보인정비율 ${Math.round(amount / value * 1000) / 10}% · ${passesLtv(amount, value) ? '자동심사 통과 예상' : '자동심사 거절 예상 (70% 초과)'}`;
 }
 function months(v) { return `${escapeHtml(v)}개월`; }
 function upsertApplication(application) {
@@ -190,25 +192,51 @@ function setRole(role) {
   try { localStorage.setItem(ROLE_STORAGE_KEY, role); } catch { /* 무시 */ }
   applyRole();
   renderAll();
-  goView('dashboard');
+  goHome();
   showToast(`${ROLE_META[role].label} 업무로 전환했습니다`);
 }
+/* Each role starts on its own work: the borrower's latest application, the case to evaluate or to review. */
+function goHome() {
+  if (currentRole === 'borrower') {
+    const latest = APPLICATIONS.find(a => hasAccess(a, 'borrower'));
+    return latest ? openDetail(latest.id) : goView('apply');
+  }
+  goView({ evaluator: 'evaluate', bank: 'review' }[currentRole] || 'dashboard');
+}
 
-async function doLogin() {
-  const buttons = [document.getElementById('loginBtn'), document.getElementById('loginBtnTop')];
+let loginBusy = false;
+async function doLogin({ pick = true } = {}) {
+  if (loginBusy) return;
+  loginBusy = true;
+  const buttons = ['loginBtn', 'loginBtnTop', 'connectAccountsBtn'].map(id => document.getElementById(id));
   buttons.forEach(b => { b.disabled = true; });
   document.getElementById('loginBtn').textContent = 'MetaMask에서 서명해 주세요…';
   try {
-    await IPLoanChain.login();
+    await IPLoanChain.login({ pick });
     await onLoggedIn();
     showToast(currentRole ? `${ROLE_META[currentRole].label}(으)로 로그인했습니다` : '로그인했지만 등록된 역할이 없습니다');
   } catch (error) {
     document.getElementById('loginHelp').textContent = error.message;
     showToast(error.message);
   } finally {
+    loginBusy = false;
     buttons.forEach(b => { b.disabled = false; });
     document.getElementById('loginBtn').textContent = 'MetaMask 지갑으로 로그인';
   }
+}
+/* Switching accounts in MetaMask: a wallet that signed in before resumes at once; a new one is asked to sign in. */
+async function onSessionChange(reason) {
+  if (reason === 'ended') return onLoggedOut('로그인이 만료되어 다시 로그인해 주세요');
+  onLoggedOut();
+  if (reason === 'switched') {
+    try {
+      if (await IPLoanChain.restore()) {
+        await onLoggedIn();
+        return showToast(currentRole ? `${ROLE_META[currentRole].label}(으)로 전환했습니다` : '이 지갑에 등록된 역할이 없습니다');
+      }
+    } catch { return showConnNotice(); }
+  }
+  await doLogin({ pick: false });
 }
 
 async function onLoggedIn() {
@@ -227,7 +255,7 @@ async function onLoggedIn() {
     showConnNotice();
   }
   renderAll();
-  goView('dashboard');
+  goHome();
 }
 
 function onLoggedOut(message = '') {
@@ -238,8 +266,10 @@ function onLoggedOut(message = '') {
   if (message) showToast(message);
 }
 
-document.getElementById('loginBtn').addEventListener('click', doLogin);
-document.getElementById('loginBtnTop').addEventListener('click', doLogin);
+// Sign in with the account selected in MetaMask; the account picker is only for connecting more accounts to this site.
+document.getElementById('loginBtn').addEventListener('click', () => doLogin({ pick: false }));
+document.getElementById('loginBtnTop').addEventListener('click', () => doLogin({ pick: false }));
+document.getElementById('connectAccountsBtn').addEventListener('click', () => doLogin({ pick: true }));
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   toggleRoleMenu(false);
   if (applicationSubmitting || chainOperationBusy) return showToast('현재 지갑 작업 완료 후 로그아웃해 주세요');
@@ -249,11 +279,28 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 
 const userChip = document.getElementById('userChip');
 const roleMenu = document.getElementById('roleMenu');
+/* NFTs this wallet holds: the bank's RWA tokens and the evaluator's access SBTs still in evaluation. */
+function myNfts() {
+  const me = session()?.address?.toLowerCase(), cfg = IPLoanChain.config() || {};
+  return APPLICATIONS.flatMap(a => [
+    a.rwaTokenId && a.bankWallet?.toLowerCase() === me ? [cfg.rwaTokenAddress, a.rwaTokenId] : null,
+    a.sbtTokenId && a.chainStatus === 'Evaluating' && a.evaluatorWallet?.toLowerCase() === me ? [cfg.accessSBTAddress, a.sbtTokenId] : null,
+  ]).filter(Boolean);
+}
+async function addNftsToWallet(tokens = myNfts()) {
+  toggleRoleMenu(false);
+  if (!tokens.length) return showToast('이 지갑에 있는 NFT가 없습니다');
+  try {
+    for (const [address, tokenId] of tokens) await IPLoanChain.watchNft(address, tokenId);
+    showToast(`MetaMask에서 NFT ${tokens.length}개를 확인할 수 있습니다`);
+  } catch (error) { showToast(error.message); }
+}
 function toggleRoleMenu(open) {
   roleMenu.hidden = !open;
   userChip.setAttribute('aria-expanded', String(open));
 }
 userChip.addEventListener('click', () => toggleRoleMenu(roleMenu.hidden));
+document.getElementById('addNftBtn').addEventListener('click', () => addNftsToWallet());
 document.getElementById('roleOptions').addEventListener('click', (e) => {
   const option = e.target.closest('[data-role]');
   if (option) { toggleRoleMenu(false); setRole(option.dataset.role); }
@@ -304,7 +351,8 @@ async function loadServerData() {
 function visibleApps() {
   if (!currentRole) return [];
   if (currentRole === 'admin') return APPLICATIONS.filter(a => a.status !== 'archived');
-  return APPLICATIONS.filter(a => hasAccess(a, currentRole));
+  // Bank reviewers also see applications the contract rejected automatically (read-only, no bank assigned).
+  return APPLICATIONS.filter(a => hasAccess(a, currentRole) || (currentRole === 'bank' && hasAccess(a, 'bank_notice')));
 }
 function renderAll() {
   renderChainStatus();
@@ -448,8 +496,9 @@ const PROGRESS_STEPS = [
   { label: '신청 접수', owner: '차주기업', done: a => true },
   { label: '신청 서명', owner: '차주 지갑', done: a => a.chainStatus && a.chainStatus !== 'None' },
   { label: 'LLM 가치평가', owner: 'LLM 보고서 생성', done: a => a.evaluation?.status === 'completed' || EVALUATED_STAGES.includes(a.chainStatus) },
-  { label: '평가 확정·심사', owner: '담당 평가사', done: a => EVALUATED_STAGES.includes(a.chainStatus) },
-  { label: '대출약정', owner: '은행 여신심사역', done: a => ['Approved', 'Repaid', 'Rejected', 'RuleRejected'].includes(a.chainStatus) },
+  { label: '평가 확정·심사', owner: '담당 평가사', done: a => EVALUATED_STAGES.includes(a.chainStatus) && a.chainStatus !== 'RuleRejected',
+    rejected: a => a.chainStatus === 'RuleRejected' },
+  { label: '대출약정', owner: '은행 여신심사역', done: a => ['Approved', 'Repaid'].includes(a.chainStatus), rejected: a => a.chainStatus === 'Rejected' },
 ];
 function openDetail(id) {
   const app = findApp(id);
@@ -463,12 +512,13 @@ function openDetail(id) {
     evaluating: 'IP 가치평가가 진행 중입니다.', review: '자동심사를 통과해 은행 약정 심사가 진행 중입니다.',
     approved: '대출약정이 체결되었습니다.', repaid: '상환이 완료되었습니다.', rejected: '대출이 승인되지 않았습니다.',
   }[app.status] || '')}</span>`;
+  const stopped = PROGRESS_STEPS.findIndex(s => s.rejected?.(app));
   document.getElementById('detailSteps').innerHTML = PROGRESS_STEPS.map((s, i) => {
-    const state = i < doneCount ? 'done' : (i === doneCount ? 'current' : '');
+    const state = i === stopped ? 'rejected' : i < doneCount ? 'done' : (i === doneCount && stopped === -1 ? 'current' : '');
     return (i ? '<div class="step-line"></div>' : '') + `
       <div class="step ${state}">
         <div class="step-circle">${i + 1}</div>
-        <div class="step-label">${s.label}<div class="step-owner">${s.owner}</div><div class="step-time">${state === 'done' ? '완료' : state === 'current' ? '진행 중' : ''}</div></div>
+        <div class="step-label">${s.label}<div class="step-owner">${s.owner}</div><div class="step-time">${{ done: '완료', current: '진행 중', rejected: '거절' }[state] || ''}</div></div>
       </div>`;
   }).join('');
   const info = [
@@ -552,16 +602,53 @@ const UPLOADS = {
 function chosenFile(kind) { return document.getElementById(UPLOADS[kind].input).files[0] || null; }
 function renderUpload(kind) {
   const u = UPLOADS[kind], file = chosenFile(kind);
-  document.getElementById(u.name).textContent = file ? file.name : '클릭해서 PDF 선택';
+  document.getElementById(u.name).textContent = file ? file.name : '클릭하거나 PDF를 끌어다 놓기';
   document.getElementById(u.help).textContent = file ? `${(file.size / 1024 / 1024).toFixed(2)}MB · 선택됨` : u.hint;
   document.getElementById(u.box).classList.toggle('has-file', Boolean(file));
+}
+/* The server reads the IP type, title and application number from the chosen PDF. Only empty fields, or fields
+   filled from an earlier PDF, are filled, so anything the borrower typed stays. */
+const PDF_FIELDS = { ipType: 'fIpType', ipTitle: 'fIpTitle', ipRegNo: 'fIpNo' };
+async function fillFromPdf(file) {
+  if (!file || !session()) return;
+  const form = new FormData();
+  form.append('document', file);
+  let fields;
+  try { fields = await api('/documents/fields', { method: 'POST', body: form }); } catch { return; }
+  let filled = 0;
+  for (const [key, id] of Object.entries(PDF_FIELDS)) {
+    const el = document.getElementById(id), value = fields[key];
+    if (!value || (el.value && el.value !== el.dataset.autofill)) continue;
+    el.value = value;
+    el.dataset.autofill = value;
+    filled++;
+  }
+  if (filled) showToast('PDF에서 IP 정보를 채웠습니다. 확인해 주세요.');
 }
 for (const kind of Object.keys(UPLOADS)) {
   const u = UPLOADS[kind], box = document.getElementById(u.box), input = document.getElementById(u.input);
   box.addEventListener('click', () => { if (!applicationSubmitting) input.click(); });
   box.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!applicationSubmitting) input.click(); } });
-  input.addEventListener('change', () => renderUpload(kind));
+  input.addEventListener('change', () => { renderUpload(kind); fillFromPdf(chosenFile(kind)); });
+  // Dropping a PDF on the box is the same as choosing it.
+  box.addEventListener('dragover', (e) => { e.preventDefault(); if (!applicationSubmitting) box.classList.add('dragging'); });
+  box.addEventListener('dragleave', () => box.classList.remove('dragging'));
+  box.addEventListener('drop', (e) => {
+    e.preventDefault();
+    box.classList.remove('dragging');
+    if (applicationSubmitting) return;
+    const file = [...(e.dataTransfer?.files || [])].find(f => /\.pdf$/i.test(f.name));
+    if (!file) return showToast('PDF 파일을 놓아 주세요');
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    renderUpload(kind);
+    fillFromPdf(file);
+  });
 }
+// A file dropped beside the boxes must not open in the tab and discard the form.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
 function showApplyError(message) {
   const node = document.getElementById('applyError');
   node.textContent = message;
@@ -729,7 +816,7 @@ function selectEvalItem(id) {
   let body = reportHeading(app, evalBadge(app)) + readOnlyNote(app);
   body += `<div class="report-grid">
     <div class="report-stat"><div class="report-stat-label">신청금액</div><div class="report-stat-value">${won(app.amount)}</div></div>
-    <div class="report-stat"><div class="report-stat-label">통과 최소 평가액 (70%)</div><div class="report-stat-value">${app.amount ? won(Math.ceil(app.amount / 0.7)) : NA_HTML}</div></div>
+    <div class="report-stat"><div class="report-stat-label">통과 최소 평가액 (70%)</div><div class="report-stat-value">${app.amount ? won(minimumPassingValue(app.amount)) : NA_HTML}</div></div>
     <div class="report-stat"><div class="report-stat-label">상환 희망 기간</div><div class="report-stat-value">${fieldHTML(app, 'termMonths', months)}</div></div></div>`;
   if (app.chainStatus === 'None') body += '<div class="notice-box warn"><span>차주의 신청 서명이 끝나면 평가액을 확정할 수 있습니다.</span></div>';
   if (!job) body += '<div class="empty-hint">이 신청에 연결된 LLM 보고서 작업이 없습니다.</div>';
@@ -795,7 +882,7 @@ async function confirmEval(id) {
   if (!Number.isSafeInteger(appraisedValue) || appraisedValue <= 0) return showToast('확정 평가액을 원 단위 양의 정수로 입력하세요.');
   const draft = app.evaluation?.valuation?.ip_value_krw;
   if (draft != null && appraisedValue !== draft && !note) return showToast('LLM 산정액과 다른 금액으로 확정하려면 평가 의견에 사유를 적어 주세요.');
-  if (!confirm(`평가액 ${appraisedValue.toLocaleString('ko-KR')}원으로 확정합니다. 확정 후에는 수정할 수 없습니다. 진행할까요?`)) return;
+  if (!confirm(`평가액 ${appraisedValue.toLocaleString('ko-KR')}원으로 확정합니다.\n${ltvPreview(app.amount, appraisedValue)}\n확정 후에는 수정할 수 없습니다. 진행할까요?`)) return;
   chainOperationBusy = true;
   const btn = document.getElementById('confirmEvalBtn');
   btn.disabled = true;
@@ -818,7 +905,7 @@ async function confirmEval(id) {
 
 /* ---------------- 여신 심사·약정 (은행) ---------------- */
 function reviewQueue() {
-  return APPLICATIONS.filter(a => hasAccess(a, 'bank'))
+  return APPLICATIONS.filter(a => hasAccess(a, 'bank', 'bank_notice'))
     .sort((a, b) => Number(b.chainStatus === 'Eligible') - Number(a.chainStatus === 'Eligible') || (b.appliedDate || '').localeCompare(a.appliedDate || ''));
 }
 function renderReviewList() {
@@ -950,7 +1037,8 @@ function loadReviewCase(id) {
       <div class="button-row" style="margin-top:16px;">
         ${evaluated ? `<button class="btn btn-outline btn-sm" type="button" data-registered-report="${escapeHtml(app.id)}">등록된 평가보고서 열람</button>` : ''}
         ${agreed ? `<button class="btn btn-outline btn-sm" type="button" onclick="viewChainDocument('${escapeHtml(app.id)}')">등록원부 원본 열람</button>` : ''}
-        <button class="btn btn-outline btn-sm" type="button" onclick="syncChainReview('${escapeHtml(app.id)}')">체인 확인·복구</button>
+        ${app.rwaTokenId && app.bankWallet?.toLowerCase() === session()?.address?.toLowerCase() ? `<button class="btn btn-outline btn-sm" type="button" onclick="addNftsToWallet([[IPLoanChain.config().rwaTokenAddress, '${escapeHtml(app.rwaTokenId)}']])">MetaMask에서 RWA 토큰 확인</button>` : ''}
+        ${hasAccess(app, 'bank') ? `<button class="btn btn-outline btn-sm" type="button" onclick="syncChainReview('${escapeHtml(app.id)}')">체인 확인·복구</button>` : ''}
       </div>
       ${chainDecisionHTML(app)}
     </div></div>
@@ -1154,7 +1242,7 @@ async function initApp() {
   document.getElementById('todayDate').textContent = today.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' });
   applyRole();
   goView('login');
-  await IPLoanChain.init(API_BASE, () => onLoggedOut('지갑 계정이 바뀌었거나 로그인이 만료되어 로그아웃했습니다'));
+  await IPLoanChain.init(API_BASE, onSessionChange);
   renderChainStatus();
   try {
     if (await IPLoanChain.restore()) await onLoggedIn();

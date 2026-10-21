@@ -37,11 +37,12 @@ from web3 import Web3
 from werkzeug.utils import secure_filename
 
 if __package__:
-    from . import auth, chain, report_summary
+    from . import auth, chain, patent_pdf, report_summary
     from .patent_api import PatentAPIError, patent_api
 else:
     import auth
     import chain
+    import patent_pdf
     import report_summary
     from patent_api import PatentAPIError, patent_api
 
@@ -485,7 +486,8 @@ def login_required(view):
 
 
 def access(application):
-    """Capacities of the signed-in wallet for one application: its assigned participants, admin, or staff for archives."""
+    """Capacities of the signed-in wallet for one application: its assigned participants, admin, or staff for archives.
+    An application rejected by the contract's 70% rule never gets a bank, so bank reviewers see it read-only (bank_notice)."""
     roles, wallet = g.user["roles"], g.user["address"].lower()
     if application.get("status") == "archived":
         return {"archive"} if roles & STAFF_ROLES else set()
@@ -493,6 +495,8 @@ def access(application):
     for role, field in (("borrower", "borrowerWallet"), ("evaluator", "evaluatorWallet"), ("bank", "bankWallet")):
         if role in roles and (application.get(field) or "").lower() == wallet:
             capacities.add(role)
+    if "bank" in roles and application.get("chainStatus") == "RuleRejected":
+        capacities.add("bank_notice")
     return capacities
 
 
@@ -659,6 +663,21 @@ def save_borrower_profile(profile_id=None):
         db.rollback()
         return error_response("이미 등록된 기업명입니다. 해당 기업 프로필을 선택해 주세요.", 409, "duplicate_company")
     return jsonify(profile), 200 if profile_id else 201
+
+
+@app.route("/api/documents/fields", methods=["POST"])
+@login_required
+def document_fields():
+    """Reads the IP type, title and application number from a chosen PDF to fill the form. Nothing is stored."""
+    if denied := borrower_required():
+        return denied
+    upload = request.files.get("document")
+    if upload is None or not upload.filename.lower().endswith(".pdf"):
+        return error_response("PDF 파일을 선택해 주세요.", 400, "pdf_required")
+    pdf = upload.read(MAX_PATENT_BYTES + 1)
+    if len(pdf) > MAX_PATENT_BYTES or not pdf.lstrip().startswith(b"%PDF-"):
+        return error_response("올바른 PDF 파일인지 확인해 주세요.", 400, "invalid_pdf")
+    return jsonify(patent_pdf.read_fields(pdf))
 
 
 @app.route("/api/applications", methods=["POST"])
@@ -1112,7 +1131,7 @@ def prepare_evaluation_report(app_id):
 @login_required
 def read_evaluation_report(app_id):
     """The registered report, decrypted from IPFS only after its salted hash matches the chain record."""
-    found, denied = load_application(app_id, "borrower", "evaluator", "bank", "admin")
+    found, denied = load_application(app_id, "borrower", "evaluator", "bank", "bank_notice", "admin")
     if denied:
         return denied
     application = found[0]

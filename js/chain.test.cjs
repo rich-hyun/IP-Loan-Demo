@@ -26,11 +26,20 @@ async function harness(options = {}) {
     console, setTimeout, alert() {},
     document: { getElementById: () => null },
     localStorage: { getItem: k => storage.get(k), removeItem: k => storage.delete(k), setItem: (k, v) => storage.set(k, v) },
-    ethereum: { on(name, fn) { state.handlers[name] = fn; }, request: async ({ method }) => {
+    ethereum: { on(name, fn) { state.handlers[name] = fn; }, request: async ({ method, params }) => {
       state.methods.push(method);
+      if (method === 'wallet_requestPermissions') {
+        if (state.permission) throw Object.assign(new Error('permission'), { code: state.permission });
+        state.handlers.accountsChanged?.([state.account || wallet]);  // MetaMask reports the newly connected account
+        return [{ parentCapability: 'eth_accounts' }];
+      }
+      if (method === 'wallet_watchAsset') {
+        if (state.watchError) throw Object.assign(new Error('watch'), { code: state.watchError });
+        state.watched = params; return true;
+      }
       if (method === 'eth_chainId') return state.wrongNetwork ? '0x1' : `0x${(state.chainId || 31337).toString(16)}`;
       if (method === 'wallet_switchEthereumChain') { state.wrongNetwork = false; return null; }
-      return [state.wrongWallet ? manager : wallet];
+      return [state.account || (state.wrongWallet ? manager : wallet)];
     } },
     ethers: {
       ZeroAddress: '0x0000000000000000000000000000000000000000', getAddress: a => a, toBeHex: n => `0x${n.toString(16)}`, id: s => s,
@@ -43,7 +52,10 @@ async function harness(options = {}) {
       const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
       if (url.endsWith('/chain/config')) return reply({ enabled: true, chainId: state.chainId || 31337, zeroGasPrice: state.zeroGasPrice, managerAddress: manager, abi: [] });
       if (url.endsWith('/auth/challenge')) return reply({ nonce: 'n-1', message: 'sign in ' + JSON.parse(options.body).address });
-      if (url.endsWith('/auth/login')) return reply({ token: 'session-token', address: wallet, roles: ['borrower'], expiresAt: 'later' });
+      if (url.endsWith('/auth/login')) {
+        const address = JSON.parse(options.body).address;
+        return reply({ token: address === wallet ? 'session-token' : 'session-' + address, address, roles: ['borrower'], expiresAt: 'later' });
+      }
       if (url.endsWith('/auth/me')) return state.expired ? reply({ message: 'login' }, 401) : reply({ address: wallet, roles: ['bank'] });
       if (url.endsWith('/auth/logout')) return reply({ status: 'ok' });
       state.syncs++;
@@ -52,7 +64,8 @@ async function harness(options = {}) {
     },
   });
   vm.runInContext(source, context);
-  await context.IPLoanChain.init('/api', () => { state.ended++; });
+  state.reasons = [];
+  await context.IPLoanChain.init('/api', reason => { state.ended++; state.reasons.push(reason); });
   return { api: context.IPLoanChain, state, storage };
 }
 
@@ -136,26 +149,67 @@ test('login signs the server challenge once and later API calls carry the sessio
   const session = await h.api.login();
   assert.equal(session.token, 'session-token');
   assert.equal(h.state.signed, 'sign in ' + wallet);
-  assert.equal(JSON.parse(h.storage.get('iploan-session')).address, wallet);
+  assert.equal(JSON.parse(h.storage.get('iploan-sessions'))[wallet.toLowerCase()].address, wallet);
+  assert.deepEqual(h.state.reasons, []);  // the account MetaMask reports while signing in does not start another sign-in
   const login = h.state.requests.find(r => r.url.endsWith('/auth/login'));
   assert.deepEqual(JSON.parse(login.options.body), { address: wallet, nonce: 'n-1', signature: '0xsigned' });
   await h.api.sync(application);
   assert.equal(h.state.requests.at(-1).options.headers.Authorization, 'Bearer session-token');
   assert.deepEqual((await h.api.restore()).roles, ['bank']);
   await h.api.logout();
-  assert.equal(h.api.session(), null); assert.equal(h.storage.has('iploan-session'), false);
+  assert.equal(h.api.session(), null); assert.ok(!(wallet.toLowerCase() in JSON.parse(h.storage.get('iploan-sessions'))));
 });
-test('switching the MetaMask account or an expired session signs out', async () => {
+test('login opens the MetaMask account picker first; a wallet without it still signs in', async () => {
+  let h = await harness();
+  await h.api.login();
+  assert.deepEqual(h.state.methods.slice(0, 2), ['wallet_requestPermissions', 'eth_chainId']);
+  h = await harness({ permission: -32601 });
+  assert.equal((await h.api.login()).token, 'session-token');
+  h = await harness({ permission: 4001 });
+  await assert.rejects(h.api.login(), /취소/);
+  assert.equal(h.api.session(), null);
+  assert.ok(!h.state.requests.some(r => r.url.endsWith('/auth/challenge')));
+});
+test('each wallet keeps its own session: switching back resumes it, a new account is asked to sign in', async () => {
   const h = await harness();
   await h.api.login();
   h.state.handlers.accountsChanged([manager]);
-  assert.equal(h.api.session(), null); assert.equal(h.state.ended, 1);
+  assert.equal(h.api.session(), null); assert.deepEqual(h.state.reasons, ['signin']);
+  h.state.account = manager;
+  const before = h.state.methods.length;
+  await h.api.login({ pick: false });
+  assert.equal(h.api.session().address, manager);
+  assert.ok(!h.state.methods.slice(before).includes('wallet_requestPermissions'));
+  h.state.handlers.accountsChanged([wallet]);
+  assert.equal(h.api.session().address, wallet); assert.equal(h.state.reasons.at(-1), 'switched');
+  h.state.handlers.accountsChanged([wallet]);
+  assert.equal(h.state.reasons.length, 2);  // the same account again changes nothing
+  h.state.handlers.accountsChanged([]);
+  assert.equal(h.api.session(), null); assert.equal(h.state.reasons.at(-1), 'ended');
+});
+test('restore follows the account MetaMask gives the site; an expired session ends', async () => {
+  const h = await harness();
   await h.api.login();
+  h.state.account = manager;
+  assert.equal(await h.api.restore(), null);
+  h.state.account = null;
+  assert.deepEqual((await h.api.restore()).roles, ['bank']);
   h.state.unauthorized = true;
   await assert.rejects(h.api.sync(application), /로그인/);
-  assert.equal(h.api.session(), null); assert.equal(h.state.ended, 2);
+  assert.equal(h.api.session(), null); assert.equal(h.state.reasons.at(-1), 'ended');
+  h.state.unauthorized = false;
   await h.api.login(); h.state.expired = true;
   assert.equal(await h.api.restore(), null);
+});
+test('NFTs are added to MetaMask as ERC721 tokens', async () => {
+  const h = await harness();
+  await h.api.login();
+  await h.api.watchNft('0xrwa', 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.state.watched)), { type: 'ERC721', options: { address: '0xrwa', tokenId: '1' } });
+  h.state.watchError = -32602;
+  await assert.rejects(h.api.watchNft('0xrwa', 1), /NFT 가져오기에서 주소 0xrwa, 번호 1/);
+  h.state.watchError = 4001;
+  await assert.rejects(h.api.watchNft('0xrwa', 1), /취소/);
 });
 test('transactions must come from the signed-in wallet', async () => {
   const h = await harness();

@@ -49,6 +49,7 @@ async function boot({ session = null, loginSession = null, applications = [], pr
       if (path === '/applications') return applications;
       if (path === '/borrower-profiles') return profiles;
       if (path.endsWith('/evaluation-report')) return { cid: 'bafyreport', hash: '0xreport', appraisedValue: JSON.parse(options.body).appraisedValue, bankWallet: BANK };
+      if (path === '/documents/fields') return { ipType: '실용신안권', ipTitle: '접이식 거치대', ipRegNo: '20-2023-0001234' };
       if (path.endsWith('/credit-score')) return { grade: 'CC', source: '예시 등급', asOf: '2026-10-20' };
       if (path.endsWith('/evaluation')) return applications.find(a => path.includes(a.id));
       throw new Error('unexpected ' + path);
@@ -57,13 +58,15 @@ async function boot({ session = null, loginSession = null, applications = [], pr
   let currentSession = session;
   const chain = {
     ended: null,
-    async init(base, onEnd) { chain.ended = onEnd; },
+    async init(base, onChange) { chain.ended = onChange; },
+    setSession(value) { currentSession = value; },
     session: () => currentSession,
     async restore() { return currentSession; },
-    async login() { currentSession = loginSession; return currentSession; },
+    async login(options) { calls.push(['login', options]); currentSession = loginSession; return currentSession; },
+    async watchNft(address, tokenId) { calls.push(['watchNft', address, String(tokenId)]); },
     async logout() { currentSession = null; calls.push(['logout']); },
     authHeaders: () => currentSession ? { Authorization: 'Bearer session-token' } : {},
-    config: () => ({ enabled: true, networkName: 'Mustsem', blockNumber: 4200, contractVersion: 3 }),
+    config: () => ({ enabled: true, networkName: 'Mustsem', blockNumber: 4200, contractVersion: 3, rwaTokenAddress: '0xrwa', accessSBTAddress: '0xsbt' }),
     async loadConfig() { return chain.config(); },
     async api(path, options = {}) { calls.push(['api', path, options]); return JSON.parse(JSON.stringify(server.reply(path, options))); },
     async blob() { return {}; },
@@ -76,6 +79,7 @@ async function boot({ session = null, loginSession = null, applications = [], pr
     async document() {},
   };
   class FakeFormData { constructor() { this.entries = []; } append(key, value) { this.entries.push([key, value]); } }
+  class FakeDataTransfer { constructor() { this.files = []; this.items = { add: file => this.files.push(file) }; } }
   class FakeXHR {
     open(method, url) { this.request = { method, url, headers: {} }; }
     setRequestHeader(name, value) { this.request.headers[name] = value; }
@@ -91,11 +95,12 @@ async function boot({ session = null, loginSession = null, applications = [], pr
   }
   FakeXHR.prototype.upload = {};
   const context = vm.createContext({
-    console, IPLoanChain: chain, FormData: FakeFormData, XMLHttpRequest: FakeXHR,
+    console, IPLoanChain: chain, FormData: FakeFormData, XMLHttpRequest: FakeXHR, DataTransfer: FakeDataTransfer,
+    window: { addEventListener: () => {} },
     URL: { createObjectURL: () => 'blob:preview', revokeObjectURL: () => {} },
     location: { hostname: '127.0.0.1' },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    confirm: () => true,
+    confirm: message => { calls.push(['confirm', message]); return true; },
     document: {
       body, hidden: false,
       getElementById: element,
@@ -124,9 +129,9 @@ test('logged out: only the login screen is available and no applications are req
   assert.equal(h.activeView(), 'login');
 });
 
-test('a restored session opens the dashboard with the menus of the chosen on-chain role', async () => {
+test('a restored session opens the work screen and menus of the chosen on-chain role', async () => {
   const h = await boot({ session: { address: WALLET, roles: ['borrower'] }, profiles: [{ id: 'p1', company: '저장 기업', bizNo: '123-45-67890', ceo: '대표', contact: '010' }] });
-  assert.equal(h.activeView(), 'dashboard');
+  assert.equal(h.activeView(), 'apply');  // a borrower without applications starts on the application form
   assert.equal(h.body.classList.contains('logged-out'), false);
   assert.deepEqual(h.visibleNav(), ['dashboard', 'list', 'apply']);
   assert.equal(h.element('userRole').textContent, '차주기업');
@@ -154,7 +159,7 @@ test('a wallet without roles stays on the login screen with guidance', async () 
 
 test('ending the session (account switch or expiry) returns to the login screen', async () => {
   const h = await boot({ session: { address: WALLET, roles: ['evaluator'] }, applications: [baseApplication()] });
-  h.chain.ended();
+  h.chain.ended('ended');
   assert.equal(h.activeView(), 'login');
   assert.equal(h.run('APPLICATIONS.length'), 0);
 });
@@ -329,4 +334,103 @@ test('bank sees the LLM financial reference checks, and missing data is shown as
   assert.match(financial, /재무자료가 없습니다/);
   assert.match(financial, /LLM 산정액 미제공/);
   assert.doesNotMatch(financial, /check-item (verified|failed)/);
+});
+
+test('switching MetaMask accounts resumes a signed-in wallet on its work screen and asks a new wallet to sign in', async () => {
+  const mine = baseApplication({ id: 'LN-2026-100001', access: ['borrower'] });
+  const assigned = baseApplication({ id: 'LN-2026-100002', access: ['evaluator'] });
+  const h = await boot({ session: { address: WALLET, roles: ['borrower'] }, applications: [mine, assigned],
+    loginSession: { address: BANK, roles: ['bank'] } });
+  assert.equal(h.activeView(), 'detail');
+  h.chain.setSession({ address: EVALUATOR, roles: ['evaluator'] });
+  await h.chain.ended('switched');
+  assert.equal(h.activeView(), 'evaluate');
+  assert.match(h.element('toast').textContent, /IP 가치평가사\(으\)로 전환/);
+  assert.ok(!h.calls.some(call => call[0] === 'login'));
+  h.chain.setSession(null);
+  await h.chain.ended('signin');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(call => call[0] === 'login')[1])), { pick: false });
+  assert.equal(h.activeView(), 'review');
+});
+
+test('the NFT buttons add the tokens this wallet holds to MetaMask', async () => {
+  const approved = baseApplication({ chainStatus: 'Approved', status: 'approved', bankWallet: BANK, rwaTokenId: '1', access: ['bank'] });
+  const other = baseApplication({ id: 'LN-2026-100002', chainStatus: 'Evaluating', sbtTokenId: '2', access: ['bank'] });
+  const h = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [approved, other] });
+  assert.match(h.element('reviewBody').innerHTML, /MetaMask에서 RWA 토큰 확인/);
+  await h.run('addNftsToWallet()');
+  assert.deepEqual(h.calls.filter(call => call[0] === 'watchNft'), [['watchNft', '0xrwa', '1']]);
+  assert.match(h.element('toast').textContent, /MetaMask에서 NFT 1개를 확인/);
+  const e = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [baseApplication({ sbtTokenId: '7' })] });
+  await e.run('addNftsToWallet()');
+  assert.deepEqual(e.calls.filter(call => call[0] === 'watchNft'), [['watchNft', '0xsbt', '7']]);
+});
+
+test('the minimum passing value matches the contract rule exactly (amount × 100 ≤ value × 70)', async () => {
+  const h = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [baseApplication({ amount: 30000000 })] });
+  assert.match(h.element('evalReportPanel').innerHTML, /42,857,143원/);
+  for (const [amount, minimum] of [[21, 30], [7, 10], [70000000, 100000000]]) {
+    assert.equal(h.run(`minimumPassingValue(${amount})`), minimum);
+    assert.equal(h.run(`passesLtv(${amount}, ${minimum})`), true);
+    assert.equal(h.run(`passesLtv(${amount}, ${minimum - 1})`), false);
+  }
+});
+
+test('the confirmation shows whether the value passes the automatic review', async () => {
+  const h = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [baseApplication({ amount: 30000000 })] });
+  h.run("goView('evaluate')");
+  h.element('appraisalValue').value = '10,000';
+  h.element('appraisalNote').value = '가치가 낮음';
+  await h.run("confirmEval('LN-2026-100001')");
+  assert.match(h.calls.find(call => call[0] === 'confirm')[1], /자동심사 거절 예상 \(70% 초과\)/);
+});
+
+test('bank reviewers see automatic rejections read-only, and the progress stops at the rejected step', async () => {
+  const ruled = baseApplication({ chainStatus: 'RuleRejected', status: 'rejected', access: ['bank_notice'], appraisedValue: 10000, ltv: 300000,
+    rejectReason: '컨트랙트 자동심사: 신청금액이 평가액의 70%를 초과했습니다.' });
+  const h = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [ruled] });
+  assert.equal(h.activeView(), 'review');
+  const body = h.element('reviewBody').innerHTML;
+  assert.match(body, /자동심사 결과 — 거절/);
+  assert.doesNotMatch(body, /loanTermsForm|체인 확인·복구|신용평가 불러오기/);
+  assert.match(body, /등록된 평가보고서 열람/);
+  assert.match(h.element('reviewListItems').innerHTML, /거절/);
+  const b = await boot({ session: { address: WALLET, roles: ['borrower'] }, applications: [{ ...ruled, access: ['borrower'] }] });
+  const steps = b.element('detailSteps').innerHTML;
+  assert.match(steps, /step rejected[\s\S]*평가 확정·심사[\s\S]*거절/);
+  assert.doesNotMatch(steps.split('평가 확정·심사')[1], /완료/);
+});
+
+test('the login button signs in with the selected account; only "다른 계정 연결" opens the account picker', async () => {
+  const h = await boot({ loginSession: { address: WALLET, roles: ['borrower'] } });
+  await h.element('loginBtn').listeners.click();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.filter(c => c[0] === 'login').map(c => c[1]))), [{ pick: false }]);
+  await h.element('connectAccountsBtn').listeners.click();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.filter(c => c[0] === 'login').map(c => c[1]))), [{ pick: false }, { pick: true }]);
+});
+
+test('choosing a PDF fills the empty IP fields and keeps what the borrower typed', async () => {
+  const h = await boot({ session: { address: WALLET, roles: ['borrower'] }, profiles: [] });
+  h.element('fIpTitle').value = '직접 입력한 명칭';
+  h.element('patentInput').files = [{ name: 'gazette.pdf', size: 100 }];
+  await h.element('patentInput').listeners.change();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.calls.some(call => call[1] === '/documents/fields'));
+  assert.equal(h.element('fIpType').value, '실용신안권');
+  assert.equal(h.element('fIpNo').value, '20-2023-0001234');
+  assert.equal(h.element('fIpTitle').value, '직접 입력한 명칭');
+  assert.match(h.element('toast').textContent, /PDF에서 IP 정보를 채웠습니다/);
+});
+
+test('dropping a PDF on an upload box chooses it and fills the IP fields; other files are refused', async () => {
+  const h = await boot({ session: { address: WALLET, roles: ['borrower'] }, profiles: [] });
+  const drop = files => h.element('patentBox').listeners.drop({ preventDefault() {}, dataTransfer: { files } });
+  drop([{ name: 'notes.txt', size: 10 }]);
+  assert.match(h.element('toast').textContent, /PDF 파일을 놓아 주세요/);
+  assert.equal(h.element('patentInput').files.length, 0);
+  drop([{ name: 'Gazette.PDF', size: 100 }]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.element('patentInput').files[0].name, 'Gazette.PDF');
+  assert.equal(h.element('patentNameDisplay').textContent, 'Gazette.PDF');
+  assert.equal(h.element('fIpTitle').value, '접이식 거치대');
 });

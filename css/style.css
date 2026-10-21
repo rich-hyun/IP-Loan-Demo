@@ -316,6 +316,10 @@ button.user-chip:hover, button.user-chip[aria-expanded="true"] { border-color: v
 .login-steps li::before { content: counter(step); width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; background: var(--green-soft); color: var(--green-deep); font: 800 12px/24px var(--font-sans); text-align: center; }
 .login-steps small { display: block; color: var(--ink-faint); font-size: 12px; }
 .login-card .help { margin-top: 12px; text-align: center; }
+.link-button { align-self: center; margin-top: 10px; padding: 4px 8px; border: 0; background: none; color: var(--ink-soft);
+  font: 500 12.5px var(--font-sans); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.link-button:hover { color: var(--green-deep); }
+.link-button:disabled { opacity: .5; cursor: default; }
 .login-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 1120px; margin: 18px auto 0; }
 .login-role { padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
 .login-role b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 4px; }
@@ -395,6 +399,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   cursor: pointer; transition: border-color .12s ease, background .12s ease;
 }
 .upload-box:hover, .upload-box:focus-visible, .upload-box.has-file { border-color: var(--green); background: var(--green-tint); }
+.upload-box.dragging { border-color: var(--green); border-style: solid; background: var(--green-soft); box-shadow: 0 0 0 4px var(--green-tint); }
 .upload-box svg { width: 22px; height: 22px; color: var(--green); flex-shrink: 0; }
 .upload-box .file-name { font-weight: 700; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
 
@@ -414,6 +419,8 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .step.done + .step-line { background: var(--green); }
 .step.current .step-circle { border-color: var(--green); color: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
 .step.current .step-label { color: var(--green-deep); }
+.step.rejected .step-circle { background: var(--danger); border-color: var(--danger); color: #fff; }
+.step.rejected .step-label { color: var(--danger); }
 .steps-detail { align-items: center; flex-wrap: wrap; row-gap: 14px; padding: 0; border: 0; background: none; }
 .steps-detail .step-line { min-width: 20px; }
 .steps-detail .step { flex: 0 0 auto; }

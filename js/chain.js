@@ -1,7 +1,9 @@
 /* Wallet sign-in and wallet-signed transactions. No private keys, platform issuer or server signing. */
 globalThis.IPLoanChain = (() => {
-  let base, cfg = null, session = null, onSessionEnd = null;
-  const SESSION_KEY = 'iploan-session';
+  let base, cfg = null, session = null, onSessionChange = null, signingIn = false;
+  // One sign-in per wallet: switching MetaMask accounts moves to that wallet's session without signing again.
+  const SESSIONS_KEY = 'iploan-sessions';
+  let sessions = {};
   const pendingMemory = new Map();
   const messages = { AlreadySubmitted: '이미 등록된 신청입니다. 체인 상태를 동기화하세요.', WrongStage: '현재 신청 단계에서 실행할 수 없습니다.',
     WrongEvaluator: '이 신청에 배정된 평가사 지갑으로 전환하세요.', WrongBank: '이 신청에 배정된 은행 지갑으로 전환하세요.',
@@ -18,14 +20,16 @@ globalThis.IPLoanChain = (() => {
     return error.message || '지갑·체인 요청을 처리하지 못했습니다.';
   }
   function saveSession(value) {
+    if (value) sessions[value.address.toLowerCase()] = value;
+    else if (session) delete sessions[session.address.toLowerCase()];
     session = value;
-    try { value ? localStorage.setItem(SESSION_KEY, JSON.stringify(value)) : localStorage.removeItem(SESSION_KEY); }
-    catch { /* The session then lasts only for this page. */ }
+    try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions)); }
+    catch { /* Sessions then last only for this page. */ }
   }
   function endSession() {
     if (!session) return;
     saveSession(null);
-    onSessionEnd?.();
+    onSessionChange?.('ended');
   }
   function authHeaders(headers = {}) {
     return session ? { ...headers, Authorization: `Bearer ${session.token}` } : headers;
@@ -55,8 +59,12 @@ globalThis.IPLoanChain = (() => {
     } catch { label.textContent = '지갑 상태를 확인하지 못했습니다.'; }
   }
   function accountsChanged(accounts) {
-    // A session belongs to one wallet; switching accounts in MetaMask signs out of the app.
-    if (session && accounts[0]?.toLowerCase() !== session.address.toLowerCase()) endSession();
+    // A session belongs to one wallet. Another account resumes its own session, or has to sign in first.
+    const next = accounts[0]?.toLowerCase() || null;
+    if (!signingIn && next !== (session?.address.toLowerCase() || null)) {
+      session = (next && sessions[next]) || null;
+      onSessionChange?.(session ? 'switched' : next ? 'signin' : 'ended');
+    }
     renderWallet();
   }
   // Network, contract, role holders and latest block; reloaded so status panels do not go stale.
@@ -75,10 +83,10 @@ globalThis.IPLoanChain = (() => {
     }
     return cfg;
   }
-  async function init(apiBase, sessionEnded = null) {
+  async function init(apiBase, sessionChanged = null) {
     base = apiBase;
-    onSessionEnd = sessionEnded;
-    try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { session = null; }
+    onSessionChange = sessionChanged;
+    try { sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '{}') || {}; } catch { sessions = {}; }
     await loadConfig();
     const button = document.getElementById('walletConnect');
     if (button) button.onclick = async () => {
@@ -120,17 +128,30 @@ globalThis.IPLoanChain = (() => {
     return { provider, signer, contract, address };
   }
   // Sign-in proves wallet ownership with a free message signature; roles come from the chain on every request.
-  async function login() {
-    saveSession(null);
+  // pick: open MetaMask's account picker first. Without it MetaMask answers with the account already connected to
+  // this site, even after switching to another one. Several accounts can be connected there at once.
+  async function login({ pick = true } = {}) {
+    session = null;
+    signingIn = true;
     try {
+      if (pick && globalThis.ethereum) {
+        try { await ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }); }
+        catch (error) { if (error.code === 4001 || error.code === -32002) throw error; }
+      }
       const ctx = await connect();
       const challenge = await postJSON('/auth/challenge', { address: ctx.address });
       const signature = await ctx.signer.signMessage(challenge.message);
       saveSession(await postJSON('/auth/login', { address: ctx.address, nonce: challenge.nonce, signature }));
       return session;
     } catch (error) { throw new Error(message(error)); }
+    finally { signingIn = false; }
   }
+  // The active session is the one of the account MetaMask currently gives this site.
   async function restore() {
+    let account = null;
+    try { account = globalThis.ethereum ? (await ethereum.request({ method: 'eth_accounts' }))[0]?.toLowerCase() || null : null; }
+    catch { account = null; }
+    session = (account && sessions[account]) || null;
     if (!session) return null;
     try { saveSession({ ...session, ...(await api('/auth/me')) }); }
     catch (error) { if (error.status === 401) saveSession(null); else throw error; }
@@ -225,6 +246,15 @@ globalThis.IPLoanChain = (() => {
   async function readDocument(app) {
     openBlob(await blob(`/applications/${encodeURIComponent(app.id)}/document`), `${app.id}-registry.pdf`);
   }
-  return { init, loadConfig, connect, login, logout, restore, api, blob, openBlob, register, evaluate, approve, repay, sync, transactionOverrides,
+  // Shows a token the signed-in wallet owns in MetaMask's NFT list (MetaMask checks ownership itself).
+  async function watchNft(address, tokenId) {
+    await connect();
+    try { return await ethereum.request({ method: 'wallet_watchAsset', params: { type: 'ERC721', options: { address, tokenId: String(tokenId) } } }); }
+    catch (error) {
+      if (error.code === 4001) throw new Error('NFT 확인을 취소했습니다.');
+      throw new Error(`MetaMask의 NFT 가져오기에서 주소 ${address}, 번호 ${tokenId}를 입력하세요.`);
+    }
+  }
+  return { init, loadConfig, connect, login, logout, restore, api, blob, openBlob, register, evaluate, approve, repay, sync, transactionOverrides, watchNft,
     document: readDocument, config: () => cfg, session: () => session, authHeaders };
 })();

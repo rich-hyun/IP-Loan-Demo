@@ -231,6 +231,17 @@ class V3ApiTest(unittest.TestCase):
         self.assertEqual("queued", retried["evaluation"]["status"])
         self.assertEqual(409, self.post(f"/applications/{created['id']}/evaluation", "borrower").status_code)
 
+    def test_form_fields_are_read_from_a_chosen_pdf_without_storing_it(self):
+        def send(who, data, name="gazette.pdf"):
+            return self.post("/documents/fields", who, data={"document": (io.BytesIO(data), name)}, content_type="multipart/form-data")
+        with patch.object(app_module.patent_pdf, "read_fields", return_value={"ipType": "특허권", "ipTitle": "예시 특허"}) as read:
+            self.assertEqual({"ipType": "특허권", "ipTitle": "예시 특허"}, send("borrower", PATENT).get_json())
+            self.assertEqual(403, send("evaluator", PATENT).status_code)
+            self.assertEqual(400, send("borrower", b"plain text").status_code)
+            self.assertEqual(400, send("borrower", PATENT, "gazette.txt").status_code)
+        self.assertEqual(1, read.call_count)
+        self.assertFalse(app_module.UPLOAD_DIR.exists() and any(app_module.UPLOAD_DIR.iterdir()))
+
     def test_profiles_belong_to_the_wallet_that_saved_them(self):
         created = self.apply()
         profiles = self.get("/borrower-profiles", "borrower").get_json()
@@ -392,6 +403,20 @@ class V3ApiTest(unittest.TestCase):
         self.assertIn(self.get(f"/applications/{created['id']}/evaluation-report/document", "bank").status_code, {409, 502})
         self.stage = {**self.stage, "reportHash": "0x" + "1" * 64}
         self.assertEqual(409, self.post(f"/applications/{created['id']}/sync", "bank").status_code)
+
+    def test_bank_reviewers_see_automatic_rejections_read_only(self):
+        created = self.apply()
+        with sqlite3.connect(app_module.DB_PATH) as conn:
+            conn.execute("UPDATE applications SET chainStatus='RuleRejected', status='rejected' WHERE id=?", (created["id"],))
+        listed = self.get("/applications", "bank").get_json()
+        self.assertEqual([(created["id"], ["bank_notice"])], [(a["id"], a["access"]) for a in listed])
+        self.assertEqual(403, self.post(f"/applications/{created['id']}/sync", "bank").status_code)
+        self.assertEqual(403, self.get(f"/applications/{created['id']}/credit-score", "bank").status_code)
+        self.assertEqual(200, self.get(f"/applications/{created['id']}/evaluation", "bank").status_code)
+        self.assertEqual([], self.get("/applications", "outsider").get_json())
+        with sqlite3.connect(app_module.DB_PATH) as conn:
+            conn.execute("UPDATE applications SET chainStatus='Eligible', status='review' WHERE id=?", (created["id"],))
+        self.assertEqual([], self.get("/applications", "bank").get_json())  # a passing case is seen only by its assigned bank
 
     def test_repaid_and_rejected_states_map_to_status(self):
         created = self.apply()

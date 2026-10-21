@@ -6,7 +6,7 @@
 <title>IP담보 자동대출 · 주식회사 머스트리</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2300843D'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%23fff' stroke-width='1.6'/%3E%3C/svg%3E">
 <meta name="description" content="LLM 가치평가·스마트컨트랙트 기반 IP담보 자동대출 서비스">
-<link rel="stylesheet" href="css/style.css?v=20261021-v3">
+<link rel="stylesheet" href="css/style.css?v=20261021-5">
 </head>
 <body class="logged-out">
 
@@ -43,6 +43,7 @@
         <div class="role-menu-title">업무 역할 선택</div>
         <div id="roleOptions"></div>
         <hr>
+        <button class="role-option" type="button" id="addNftBtn">MetaMask에서 내 NFT 확인</button>
         <a class="role-option" id="adminLink" href="admin.html" hidden>관리자 · 주소 권한 관리</a>
         <button class="role-option" type="button" id="logoutBtn">로그아웃</button>
       </div>
@@ -139,7 +140,8 @@
               <li><div>역할 확인<small>블록체인에 등록된 역할로 업무 화면이 열립니다</small></div></li>
             </ol>
             <button class="btn btn-primary btn-lg btn-block" id="loginBtn" type="button">MetaMask 지갑으로 로그인</button>
-            <div class="notice-box"><span><b>보안 안내</b> · 개인키나 복구 문구(시드)는 어떤 화면에서도 요구하지 않습니다. 로그인 후 MetaMask 계정을 바꾸면 자동으로 로그아웃됩니다.</span></div>
+            <button class="link-button" id="connectAccountsBtn" type="button">다른 계정 연결</button>
+            <div class="notice-box"><span><b>보안 안내</b> · 개인키나 복구 문구(시드)는 어떤 화면에서도 요구하지 않습니다. MetaMask에서 계정을 바꾸면 그 계정으로 전환됩니다.</span></div>
             <p class="help" id="loginHelp">역할이 등록되지 않은 지갑은 관리자에게 주소 등록을 요청하세요.</p>
           </div>
         </div>
@@ -336,7 +338,7 @@
                   <div class="upload-box" id="uploadBox" role="button" tabindex="0">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path><path d="M7 9l5-5 5 5"></path><path d="M12 4v12"></path></svg>
                     <div>
-                      <div class="file-name" id="fileNameDisplay">클릭해서 PDF 선택</div>
+                      <div class="file-name" id="fileNameDisplay">클릭하거나 PDF를 끌어다 놓기</div>
                       <div id="fileHelpText">PDF · 최대 20MB</div>
                     </div>
                   </div>
@@ -347,7 +349,7 @@
                   <div class="upload-box" id="patentBox" role="button" tabindex="0">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v4h4"></path><path d="M9 13h6M9 17h4"></path></svg>
                     <div>
-                      <div class="file-name" id="patentNameDisplay">클릭해서 PDF 선택</div>
+                      <div class="file-name" id="patentNameDisplay">클릭하거나 PDF를 끌어다 놓기</div>
                       <div id="patentHelpText">PDF · 최대 50MB</div>
                     </div>
                   </div>
@@ -425,7 +427,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="js/vendor/ethers.umd.min.js"></script>
-<script src="js/chain.js?v=20261020-v3"></script>
-<script src="js/app.js?v=20261021-v3"></script>
+<script src="js/chain.js?v=20261021-5"></script>
+<script src="js/app.js?v=20261021-5"></script>
 </body>
 </html>

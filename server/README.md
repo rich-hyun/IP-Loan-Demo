@@ -39,6 +39,7 @@ IPLOAN_MANAGER_ADDRESS=<v3 Manager 주소> bash blockchain/scripts/start-mustsem
 
 - 로그인은 지갑 서명(5분 1회용 챌린지)으로 하고 세션 토큰은 해시로만 저장한다. 역할은 요청마다 체인에서 읽는다.
 - 신청 목록·상태·보고서·원본은 그 신청의 차주·담당 평가사·담당 은행(관리자는 열람)만 볼 수 있다.
+  계약 자동심사(70%)로 거절된 건은 담당 은행이 없으므로 은행 역할 지갑이 열람만 할 수 있다(약정·신용조회·동기화 불가).
 - /sync는 실제 체인 상태만 반영한다. 클라이언트가 보낸 tokenId·status·상환금액·담당자 주소를 쓰지 않는다.
 - 원부와 평가보고서는 AES-256-GCM으로 암호화해 IPFS에 올린다. 키·salt는 SQLite에만 있고 API로 내보내지 않는다.
   SQLite 백업도 비밀 데이터로 취급한다. DB와 암호문을 잃으면 원본 복구가 불가능할 수 있다.
@@ -66,7 +67,8 @@ mock IPFS·LLM으로 로그인부터 약정·상환까지 실행한다. 수동 �
 1. 백업: `server/iploan.db`, `server/patent-iploan.db`, `server/patent-uploads/`, `server/.env`를 복사해 둔다.
 2. 계약: 로컬 화면의 admin.html에서 관리자 지갑으로 v3 Manager를 배포하고, 차주·평가사·은행 주소에 역할을 다시 부여한다.
    배포 기록을 `blockchain/deployments/`에 남긴다.
-3. 코드: 이 브랜치를 반영하고 `blockchain`에서 `npm run compile`로 v3 artifact를 만든다.
+3. 코드: 이 브랜치를 반영하고 `server/venv/bin/pip install -r server/requirements.txt`(PDF 항목 읽기용 pypdf 추가),
+   `blockchain`에서 `npm run compile`로 v3 artifact를 만든다.
 4. 설정: `server/.env`의 `IPLOAN_MANAGER_ADDRESS`를 v3 주소로 바꾼다. Nginx `client_max_body_size`를 75m로 올린다.
 5. 재시작: `sudo systemctl restart iploan-api`. 시작할 때 시드 예시 삭제와 LLM 보고서 보관 이전이 자동으로 실행된다.
 6. 프론트: GitHub Pages(iploan.mustree.kr)에 index.html·admin.html·css·js를 반영한다.
