@@ -11,6 +11,8 @@ import { BrowserProvider, ContractFactory } from 'ethers';
 import { compile } from './compile.mjs';
 
 const realProvider = process.argv.includes('--real-provider');
+const listenPort = Number(process.env.IPLOAN_QA_PORT || 0);
+if (!Number.isInteger(listenPort) || listenPort < 0 || listenPort > 65535) throw new Error('IPLOAN_QA_PORT must be an integer from 0 to 65535');
 const connection = await network.connect('localTest');
 const provider = new BrowserProvider(connection.provider); provider.pollingInterval = 10;
 const signers = await Promise.all([0,1,2,3,4].map(i => provider.getSigner(i)));
@@ -61,7 +63,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', type); res.end(bytes);
   } catch (error) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { code: error.code || -32000, message: error.message } })); }
 });
-server.listen(0, '127.0.0.1'); await once(server, 'listening');
+server.listen(listenPort, '127.0.0.1'); await once(server, 'listening');
 const origin = `http://127.0.0.1:${server.address().port}`;
 const child = spawn(process.env.IPLOAN_TEST_PYTHON || (process.platform === 'win32' ? '../server/venv/Scripts/python.exe' : '../server/.venv/bin/python'), ['../server/integration_runner.py'], { env: { ...process.env,
   IPLOAN_RPC_URL: origin + '/qa-chain-rpc', IPLOAN_CHAIN_ID: '31337', IPLOAN_MANAGER_ADDRESS: await manager.getAddress(),
