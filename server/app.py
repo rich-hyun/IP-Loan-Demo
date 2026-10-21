@@ -37,11 +37,12 @@ from web3 import Web3
 from werkzeug.utils import secure_filename
 
 if __package__:
-    from . import auth, chain
+    from . import auth, chain, report_summary
     from .patent_api import PatentAPIError, patent_api
 else:
     import auth
     import chain
+    import report_summary
     from patent_api import PatentAPIError, patent_api
 
 ROOT = Path(__file__).resolve().parent
@@ -159,6 +160,8 @@ CREATE TABLE IF NOT EXISTS evaluation_jobs (
     reviewerNote TEXT
 );
 """
+# LLM valuation and the last three fiscal years, sent by the report API with a completed job (validated JSON).
+JOB_COLUMNS = {"valuation": "TEXT", "financials": "TEXT"}
 REPORT_COLUMNS = {"reportKey": "TEXT", "reportSalt": "TEXT", "kind": "TEXT", "note": "TEXT", "createdAt": "TEXT"}
 ACTIVE_JOB_STATUSES = {"queued", "running", "awaiting_identity"}
 STAFF_ROLES = {"evaluator", "bank", "admin"}
@@ -300,6 +303,7 @@ def init_db():
             conn.execute(statement)
         add_columns(conn, "applications", MIGRATION_COLUMNS)
         add_columns(conn, "borrower_profiles", {"ownerWallet": "TEXT"})
+        add_columns(conn, "evaluation_jobs", JOB_COLUMNS)
         add_columns(conn, "evaluation_reports", REPORT_COLUMNS)
         duplicates = conn.execute("SELECT 1 FROM borrower_profiles GROUP BY company HAVING COUNT(*)>1 LIMIT 1").fetchone()
         if duplicates is None:
@@ -352,23 +356,23 @@ def upload_ipfs_payload(payload, filename, content_type):
             timeout=(10, 600),
         )
     except requests.Timeout as exc:
-        raise IpfsUploadError("IPFS 업로드 시간이 초과되었습니다. 잠시 후 다시 시도하세요.", 504) from exc
+        raise IpfsUploadError("서류 저장 시간이 초과되었습니다. 잠시 후 다시 시도하세요.", 504) from exc
     except requests.RequestException as exc:
-        raise IpfsUploadError("IPFS 업로드 서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요.") from exc
+        raise IpfsUploadError("서류 저장 서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요.") from exc
 
     if response.status_code == 413:
         raise IpfsUploadError("파일이 너무 큽니다. 더 작은 PDF로 다시 시도하세요.", 413)
     if not response.ok:
-        raise IpfsUploadError("IPFS 업로드에 실패했습니다. 잠시 후 다시 시도하세요.")
+        raise IpfsUploadError("서류 저장에 실패했습니다. 잠시 후 다시 시도하세요.")
 
     try:
         data = response.json()
     except ValueError as exc:
-        raise IpfsUploadError("IPFS 업로드 결과를 확인하지 못했습니다.") from exc
+        raise IpfsUploadError("서류 저장 결과를 확인하지 못했습니다.") from exc
 
     cid = str(data.get("cid") or "").strip()
     if not CID_PATTERN.fullmatch(cid):
-        raise IpfsUploadError("IPFS 업로드 결과의 CID가 올바르지 않습니다.")
+        raise IpfsUploadError("서류 저장 결과를 확인하지 못했습니다.")
     ipfs_uri = f"ipfs://{cid}"
     return {"cid": cid, "ipfs": ipfs_uri}
 
@@ -426,7 +430,7 @@ def stage_pdf(upload, max_bytes):
             while chunk := upload.stream.read(1024 * 1024):
                 size += len(chunk)
                 if size > max_bytes:
-                    raise ValueError(f"특허 공고전문 파일 크기는 {max_bytes // (1024 * 1024)}MiB 이하여야 합니다.")
+                    raise ValueError(f"특허 공고전문 파일 크기는 {max_bytes // (1024 * 1024)}MB 이하여야 합니다.")
                 if len(prefix) < 5:
                     prefix += chunk[:5 - len(prefix)]
                 digest.update(chunk)
@@ -574,7 +578,12 @@ def public_application(application, capacities):
             "submitted_at": job["submittedAt"], "updated_at": job["updatedAt"],
             "confirmed_at": job["confirmedAt"], "reviewer_note": job["reviewerNote"],
             "artifacts": sorted(kind for kind in json.loads(job["artifacts"] or "{}") if kind in patent_api.kinds),
+            "valuation": json.loads(job["valuation"]) if job["valuation"] else None,
         }
+        if job["status"] == "completed":
+            financials = json.loads(job["financials"]) if job["financials"] else []
+            public["evaluation"]["financials"] = report_summary.public_financials(financials)
+            public["evaluation"]["financial_checks"] = report_summary.financial_checks(financials)
     if application.get("reportHash"):
         report = db.execute("SELECT note, kind FROM evaluation_reports WHERE applicationId = ? AND hash = ?",
                             (application["id"], application["reportHash"])).fetchone()
@@ -802,13 +811,18 @@ def save_job(db, app_id, job):
         artifacts = {}
     artifacts = {kind: path for kind, path in artifacts.items()
                  if kind in patent_api.kinds and isinstance(path, str) and path}
+    valuation = report_summary.clean_valuation(job.get("valuation"))
+    financials = report_summary.clean_financials(job.get("financials"))
     now = timestamp()
     # 공급자 자유문에서 인증값을 제거한다.
     safe_text = lambda value: str(value or "").replace(patent_api.token, "[redacted]") if patent_api.token else str(value or "")
     db.execute("""UPDATE evaluation_jobs SET jobId=?, status=?, stage=?, businessNumber=?, identityMessage=?, artifacts=?,
-        error=?, detail=NULL, readError=NULL, retryAfter=NULL, updatedAt=?, lastCheckedAt=? WHERE appId=?""", (
+        error=?, detail=NULL, readError=NULL, retryAfter=NULL, updatedAt=?, lastCheckedAt=?, valuation=?, financials=?
+        WHERE appId=?""", (
         job["job_id"], job["status"], safe_text(job.get("stage")), job.get("business_number"),
-        safe_text(job.get("identity_message")), json.dumps(artifacts), safe_text(job.get("error")), now, now, app_id,
+        safe_text(job.get("identity_message")), json.dumps(artifacts), safe_text(job.get("error")), now, now,
+        json.dumps(valuation, ensure_ascii=False) if valuation else None,
+        json.dumps(financials, ensure_ascii=False) if financials else None, app_id,
     ))
     db.commit()
 
@@ -1049,7 +1063,7 @@ def prepare_evaluation_report(app_id):
         return denied
     application = found[0]
     if not application.get("appKey") or application.get("hashMatch") != 1:
-        return error_response("온체인 평가 신청이 아닙니다.", 409, "not_ready")
+        return error_response("평가할 수 있는 신청이 아닙니다.", 409, "not_ready")
     data = request.get_json(silent=True)
     value = data.get("appraisedValue") if isinstance(data, dict) else None
     if type(value) is not int or not 0 < value <= 9_000_000_000_000_000:
@@ -1064,6 +1078,10 @@ def prepare_evaluation_report(app_id):
         kind = "pdf" if "pdf" in kinds else "html" if "html" in kinds else None
         if job is None or job["status"] != "completed" or kind is None:
             return error_response("LLM 가치평가 보고서가 완성된 뒤 확정할 수 있습니다.", 409, "report_not_ready")
+        draft = json.loads(job["valuation"]) if job["valuation"] else None
+        if draft and value != draft["ip_value_krw"] and not note:
+            # The evaluator's reason for departing from the LLM figure is kept with the registered report.
+            return error_response("LLM 산정액과 다른 금액으로 확정하려면 평가 의견에 사유를 적어 주세요.", 400, "note_required")
         bank = assign_bank(application) if chain.eligible(application["amount"], value) else None
         previous = db.execute("SELECT * FROM evaluation_reports WHERE applicationId = ? AND value = ? AND reportKey IS NOT NULL "
                               "ORDER BY createdAt DESC LIMIT 1", (app_id, value)).fetchone()
@@ -1151,7 +1169,7 @@ def credit_score(app_id):
     if denied:
         return denied
     # Stand-in for a credit bureau lookup until one is connected; the reviewer confirms or edits it before approval.
-    return jsonify({"grade": "CC", "source": "모의 신용평가 (외부 연동 전)", "asOf": date.today().isoformat()})
+    return jsonify({"grade": "CC", "source": "예시 등급", "asOf": date.today().isoformat()})
 
 
 @app.errorhandler(413)

@@ -78,6 +78,9 @@ test('temporary Flask + actual local EVM: wallet login, LLM report registration,
   }
   await document(evaluator,200);await document(outsider,404);await document(borrower,403);
   assert.equal((await api(`/applications/${application.id}/evaluation-report`,borrower,{appraisedValue:100})).response.status,403);
+  assert.equal(application.evaluation.valuation.ip_value_krw,100);
+  assert.deepEqual(application.evaluation.financial_checks.map(c=>c.result),['pass','unknown','unknown','pass']);
+  assert.equal((await api(`/applications/${application.id}/evaluation-report`,evaluator,{appraisedValue:101})).data.error,'note_required');
   const prepared=await api(`/applications/${application.id}/evaluation-report`,evaluator,{appraisedValue:100,note:'LLM 보고서 근거 확인'});assert.equal(prepared.response.status,201);
   const report=prepared.data;assert.equal(report.bankWallet,bank.address);
   const duplicate=await api(`/applications/${application.id}/evaluation-report`,evaluator,{appraisedValue:100});assert.equal(duplicate.data.cid,report.cid);assert.equal(duplicate.data.bankWallet,bank.address);

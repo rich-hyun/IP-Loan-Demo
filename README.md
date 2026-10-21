@@ -44,7 +44,7 @@ Python 의존성 설치, IPFS·LLM API 환경변수는 server/README.md를 참�
 ## 테스트
 
 ```bash
-server/.venv/bin/python -m unittest server.test_app server.test_patent_api server.test_participant_assignment
+server/.venv/bin/python -m unittest server.test_app server.test_patent_api server.test_participant_assignment server.test_report_summary
 node --test js/app.test.cjs js/chain.test.cjs js/admin.test.cjs
 cd blockchain && npm test
 ```

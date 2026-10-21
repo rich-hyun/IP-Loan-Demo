@@ -115,7 +115,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   const r2=await prepared(L2,100,{bankWallet:bankA.address}); assert.equal(r2.bankWallet,bankB.address);
   assert.equal((await prepared(L2)).bankWallet,bankB.address); assert.equal((await stored(L2)).bankWallet,bankB.address);
   // A failing draft gets no bank; the bank already prepared for this application is kept for a later passing draft.
-  assert.equal((await prepared(L2,99)).bankWallet,null);
+  assert.equal((await prepared(L2,99,{note:'LLM 산정액보다 낮게 평가'})).bankWallet,null);
 
   // Phase 2: changed settings apply to new assignments only.
   await start(v2, evalA.address, bankA.address);
@@ -177,7 +177,7 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
 
   // A rule-rejected evaluation is confirmed with no bank and clears any bank prepared for an earlier draft.
   const L9=(await apply(borrower2)).data; await submit(L9,borrower2);
-  await prepared(L9); const fail9=await prepared(L9,99); assert.equal(fail9.bankWallet,null);
+  await prepared(L9); const fail9=await prepared(L9,99,{note:'LLM 산정액보다 낮게 평가'}); assert.equal(fail9.bankWallet,null);
   await confirm(L9,signerOf(L9.evaluatorWallet),fail9);
   assert.ok(!('bankWallet' in await synced(L9,'RuleRejected'))); assert.ok(!('bankWallet' in await stored(L9)));
 

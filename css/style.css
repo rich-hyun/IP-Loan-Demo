@@ -97,13 +97,6 @@ a { color: inherit; }
 .brand-name { font-size: 17px; font-weight: 800; color: var(--ink); letter-spacing: -0.03em; line-height: 1.2; }
 .brand-name span { color: var(--green); }
 .brand-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 1px; white-space: nowrap; }
-.partner-badge {
-  display: inline-flex; align-items: center; gap: 6px; margin-left: 8px;
-  padding: 4px 10px; border-radius: 100px;
-  background: var(--green-soft); color: var(--green-deep);
-  font-size: 11.5px; font-weight: 700; white-space: nowrap;
-}
-.partner-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
 .gnb-right { display: flex; align-items: center; gap: 16px; }
 .topbar-date { font-size: 12.5px; color: var(--ink-faint); }
 
@@ -336,21 +329,6 @@ button.user-chip:hover, button.user-chip[aria-expanded="true"] { border-color: v
 }
 .welcome h2 { font-size: 19px; margin-bottom: 4px; }
 .welcome p { font-size: 13px; color: var(--ink-soft); }
-.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-.kpi-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 20px 20px 18px; box-shadow: var(--shadow-sm); }
-.kpi-label { font-size: 12.5px; color: var(--ink-soft); font-weight: 600; margin-bottom: 10px; }
-.kpi-value { font-size: 30px; font-weight: 800; color: var(--green-deep); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.kpi-unit { font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-left: 3px; letter-spacing: 0; }
-.kpi-delta { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
-.kpi-delta b { color: var(--green); font-weight: 700; }
-.grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; align-items: start; }
-.grid-2 > * { min-width: 0; }  /* 표가 열 너비를 밀어내지 않고 .table-wrap 안에서 스크롤 */
-.tech-item { display: flex; gap: 13px; }
-.tech-item:not(:first-child) { border-top: 1px solid var(--line-soft); padding-top: 14px; }
-.tech-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--green-soft); color: var(--green); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.tech-icon svg { width: 18px; height: 18px; }
-.tech-title { font-size: 13.5px; font-weight: 700; margin-bottom: 4px; }
-.tech-desc { font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
 
 /* ---- Process flow ---- */
 .flow { display: flex; align-items: stretch; padding: 24px 22px 22px; }
@@ -541,25 +519,35 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .decision-figures .f-label { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
 .decision-figures .f-value { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
 .review-chain-note { font-size: 12.5px; color: var(--ink-soft); line-height: 1.7; margin: 12px 0; }
+.section-title .hint { font-size: 12px; font-weight: 500; color: var(--ink-faint); margin-left: 6px; }
+.fin-value { margin: -4px 0 12px; }
+.fin-table thead th, .fin-table tbody td { padding: 9px 12px; }
+.fin-table tbody tr { cursor: default; }
+.fin-table tbody tr:hover { background: none; }
+.fin-table th:not(:first-child), .fin-table td.num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.fin-date { display: block; font-weight: 500; color: var(--ink-faint); font-size: 11px; }
+.table-wrap + .help { margin: 8px 0 4px; line-height: 1.7; }
+
+/* ---- LLM 산정액 (평가사 화면) ---- */
+.llm-value { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px 18px; margin-bottom: 16px;
+  border: 1px solid #F2DFA6; border-radius: var(--radius-md); background: var(--gold-soft); }
+.llm-value-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.llm-value-amount { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
+.llm-value .btn { margin-top: 4px; }
 .review-chain-records { margin-top: 16px; }
 
 .empty-hint { padding: 40px 20px; text-align: center; color: var(--ink-faint); font-size: 13.5px; line-height: 1.8; }
 
-/* ---- Compliance strip ---- */
-.compliance { margin-top: 20px; padding: 14px 18px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); display: flex; gap: 22px; flex-wrap: wrap; font-size: 12px; color: var(--ink-soft); }
-.compliance b { color: var(--green-deep); font-weight: 700; }
-
 /* ---- Responsive ---- */
 @media (max-width: 1100px) {
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .grid-2, .eval-layout, .login-layout { grid-template-columns: 1fr; }
+  .eval-layout, .login-layout { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .review-summary, #view-review .review-summary, #view-archive .review-summary { grid-template-columns: repeat(2, 1fr); }
   .login-roles { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   .gnb { padding: 0 16px; }
-  .brand-sub, .partner-badge, .topbar-date, .user-meta { display: none; }
+  .brand-sub, .topbar-date, .user-meta { display: none; }
   .app { flex-direction: column; }
   .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 10px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   .nav { flex-direction: row; }
@@ -568,14 +556,15 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .page-head { padding: 20px 16px 0; }
   .content { padding: 16px 16px 40px; }
   .site-footer { padding: 16px; }
-  .kpi-grid { grid-template-columns: 1fr; }
-  .flow { flex-direction: column; gap: 18px; }
+    .flow { flex-direction: column; gap: 18px; }
   .flow-step { padding-right: 0; }
   .flow-step:not(:last-child)::after { display: none; }
   .report-grid { grid-template-columns: 1fr; }
   .steps { flex-direction: column; align-items: flex-start; gap: 10px; }
   .steps .step-line { display: none; }
   .steps-detail .step-line { display: none; }
+  .check-item { flex-wrap: wrap; }
+  .check-status { flex-basis: 100%; text-align: left; padding-left: 34px; }
   .login-hero { padding: 30px 24px; }
   .login-hero h2 { font-size: 24px; }
   .search-input { width: 100%; }

@@ -283,6 +283,42 @@ class V3ApiTest(unittest.TestCase):
             done = self.get(f"/applications/{created['id']}/evaluation", "evaluator").get_json()
         self.assertEqual(["pdf"], done["evaluation"]["artifacts"])
 
+    def test_completed_job_stores_llm_valuation_and_financials_for_review(self):
+        created = self.apply()
+        self.assertNotIn("financial_checks", created["evaluation"])
+        self.set_last_check(30)
+        summary = {
+            "valuation": {"ip_value_krw": 120_500_000, "value_status": "preliminary", "valuation_date": "2026-10-20",
+                          "report_number": "MT-1", "discount_rate": 0.2},
+            "financials": [{"year": 2025, "fiscal_date": "2025-12-31", "fiscal_date_assumed": True, "source": "company_report",
+                            "total_equity_krw": -505_540_000, "debt_ratio_pct": -190.2, "current_ratio_pct": 8.84,
+                            "total_borrowings_krw": None, "operating_income_krw": "-1"}],
+        }
+        with patch.object(app_module.patent_api, "status", return_value=job("completed", {"pdf": "/x"}, **summary)):
+            done = self.get(f"/applications/{created['id']}/evaluation", "evaluator").get_json()["evaluation"]
+        self.assertEqual({"ip_value_krw": 120_500_000, "value_status": "preliminary", "valuation_date": "2026-10-20",
+                          "report_number": "MT-1"}, done["valuation"])
+        row = done["financials"][0]
+        self.assertEqual((True, True, None, None, "회사 제출 자료"),
+                         (row["fiscal_date_assumed"], row["capital_impaired"], row["debt_ratio_pct"],
+                          row["operating_income_krw"], row["source_label"]))
+        results = {check["key"]: check["result"] for check in done["financial_checks"]}
+        self.assertEqual({"capital": "fail", "operating_income": "unknown", "interest_coverage": "unknown",
+                          "current_ratio": "fail"}, results)
+        borrower_view = self.get("/applications", "borrower").get_json()[0]["evaluation"]
+        self.assertEqual(done["financials"], borrower_view["financials"])
+
+    def test_evaluator_explains_a_value_other_than_the_llm_figure(self):
+        created = self.apply()
+        self.stage = {"chainStatus": "Evaluating"}
+        self.complete_job(created["id"])
+        with sqlite3.connect(app_module.DB_PATH) as conn:
+            conn.execute("UPDATE evaluation_jobs SET valuation=?", (json.dumps({"ip_value_krw": 100}),))
+        self.assertEqual(201, self.prepare(created["id"], value=100, note="")[0].status_code)
+        refused = self.prepare(created["id"], value=150, note=" ")[0]
+        self.assertEqual((400, "note_required"), (refused.status_code, refused.get_json()["error"]))
+        self.assertEqual(201, self.prepare(created["id"], value=150, note="비교 거래 반영")[0].status_code)
+
     def test_identity_correction_continues_the_same_job(self):
         created = self.apply()
         with sqlite3.connect(app_module.DB_PATH) as conn:

@@ -2,13 +2,11 @@
 pragma solidity ^0.8.24;
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IPLoanAccessSBT} from "./IPLoanAccessSBT.sol";
+import {IPLoanArt} from "./IPLoanArt.sol";
 import {IPLoanRWAToken} from "./IPLoanRWAToken.sol";
 
 contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
-    using Strings for uint256;
     bytes32 public constant BORROWER_ROLE = keccak256("BORROWER_ROLE");
     bytes32 public constant EVALUATOR_ROLE = keccak256("EVALUATOR_ROLE");
     bytes32 public constant BANK_ROLE = keccak256("BANK_ROLE");
@@ -35,6 +33,8 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     uint256 public constant contractVersion = 3;
     IPLoanAccessSBT public immutable accessSBT;
     IPLoanRWAToken public immutable rwaToken;
+    /// Draws the token metadata and SVG card; created with the Manager so one deploy transaction still sets up everything.
+    IPLoanArt public immutable art;
     uint256 public nextTokenId = 1;
     mapping(bytes32 => Application) private _applications;
     mapping(uint256 => bytes32) public applicationKey;
@@ -58,6 +58,7 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         _grantRole(BANK_ROLE, bank_);
         accessSBT = new IPLoanAccessSBT(address(this));
         rwaToken = new IPLoanRWAToken(address(this));
+        art = new IPLoanArt();
     }
     function getApplication(bytes32 appKey) external view returns (Application memory) { return _applications[appKey]; }
     // The borrower submits with the server-selected evaluator; it is fixed for this application.
@@ -131,16 +132,10 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     function metadata(uint256 tokenId, bool rwa) external view returns (string memory) {
         Application storage a = _applications[applicationKey[tokenId]];
         if (a.status == Status.None) revert InvalidInput();
-        bytes memory data = abi.encodePacked('{"name":"', rwa ? "IP Loan RWA #" : "IP Loan Appraisal Access #", tokenId.toString(),
-            '","cid":"', a.docCid, '","fileHash":"', Strings.toHexString(uint256(a.fileHash), 32),
-            '","enc":"AES-256-GCM","status":', uint256(a.status).toString(), ',"repaidAmount":"', a.repaidAmount.toString(), '"');
-        if (rwa) {
-            data = abi.encodePacked(data, ',"amount":"', a.amount.toString(), '","appraisedValue":"', a.appraisedValue.toString(),
-                '","reportCid":"', a.reportCid, '","reportHash":"', Strings.toHexString(uint256(a.reportHash), 32),
-                '","creditGrade":"', a.creditGrade, '","rateBps":', a.rateBps.toString(), ',"termMonths":', a.termMonths.toString(),
-                ',"approvedAt":', a.approvedAt.toString());
-        }
-        return string.concat("data:application/json;base64,", Base64.encode(abi.encodePacked(data, "}")));
+        return art.tokenURI(IPLoanArt.Card({tokenId: tokenId, rwa: rwa, status: uint8(a.status), amount: a.amount,
+            appraisedValue: a.appraisedValue, repaidAmount: a.repaidAmount, creditGrade: a.creditGrade, rateBps: a.rateBps,
+            termMonths: a.termMonths, approvedAt: a.approvedAt, docCid: a.docCid, fileHash: a.fileHash,
+            reportCid: a.reportCid, reportHash: a.reportHash}));
     }
     // Letter grades such as AAA, BB+ or CC: 1-8 characters of A-Z, '+' or '-'.
     function _validGrade(string calldata grade) private pure returns (bool) {

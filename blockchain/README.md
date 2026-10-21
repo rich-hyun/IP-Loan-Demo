@@ -8,6 +8,8 @@
 Solidity 0.8.24, EVM Paris, optimizer 200, viaIR 설정을 사용한다.
 서버는 v3 계약(`contractVersion() == 3`)에만 연결한다. v3는 최종 승인 때 신용등급·금리·기간을 대출약정으로 기록하고
 담당 은행 지갑에 RWA 토큰(IPLoanRWAToken, IPRWA)을 발급한다.
+평가 SBT와 RWA 토큰의 메타데이터에는 계약(IPLoanArt)이 그린 카드 그림(SVG)이 들어 있어 지갑의 NFT 화면에 보인다.
+금액·평가액·담보인정비율·신용등급·금리·기간·상환 진행률과 상태가 표시되고, 외부 이미지 서버는 쓰지 않는다.
 
 v3 배포는 관리자 지갑으로 로컬에서 한다. 계약 주소 없이 API를 띄워야 배포 버튼이 동작한다(2장 설치·컴파일 후).
 
@@ -18,9 +20,15 @@ IPLOAN_CHAIN_ID=7601 IPLOAN_DB_PATH="$PWD/server/iploan-deploy.db" server/.venv/
 server/.venv/bin/python -m http.server 8001 --bind 127.0.0.1
 ```
 
-admin.html에서 관리자 지갑으로 "새 v3 계약 배포"를 승인한다. 결과의 Manager·SBT·RWA 토큰 주소와 거래 해시를
+v3 지갑 배정(2026-10-21 결정): 관리자·은행 `0xE63a192911048B74c1149DBb058DEbdC30cC785B`,
+평가사 `0xa3B81443517443D7612040Dc8E02609c5b9Ad174`, 차주 `0xed25983C90c773828a00b0FAF5e92cf5eE2cedb6`.
+admin.html의 첫 평가사·은행 기본값이 이 주소이고, 배포한 지갑(`0xE63a…`)이 관리자가 된다. 차주는 배포 후 추가한다.
+세 지갑 모두 배포 전 수수료용 MST가 조금 있어야 한다.
+
+admin.html에서 관리자 지갑으로 "새 v3 계약 배포"를 승인한다. 결과의 Manager·SBT·RWA 토큰·NFT 그림 주소와 거래 해시를
 deployments/에 새 파일로 기록한다. 이후 API를 v3 주소로 다시 시작하고 차주·평가사·은행 주소에 역할을 다시 부여한다.
 
+2026-10-21 배포한 v3 계약은 deployments/mustsem-v3.json(Manager 0x7428932Dd3542657139ff9d560250b0ef5b6E50E)에 기록했다.
 이전 v2 계약(deployments/mustsem.json, Manager 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38)은 기록으로 남긴다.
 v2에 등록된 신청은 v3 서버에서 열람만 할 수 있다. deployments/sepolia.json은 그 이전 단일 담당자 계약의 기록이다.
 
@@ -72,14 +80,14 @@ MetaMask 계정을 바꾸면 자동으로 로그아웃되므로, 역할마다 �
 ## 4. 자동 검증
 
 ```bash
-server/.venv/bin/python -m unittest server.test_app server.test_patent_api server.test_participant_assignment -v
+server/.venv/bin/python -m unittest server.test_app server.test_patent_api server.test_participant_assignment server.test_report_summary -v
 node --test js/app.test.cjs js/chain.test.cjs js/admin.test.cjs
 cd blockchain
 npm test
 cd ..
 ```
 
-서버 29개, 프론트 38개, 계약·통합 20개로 총 87개 테스트를 검증했다.
+서버 39개, 프론트 41개, 계약·통합 20개로 총 100개 테스트를 검증했다.
 통합 테스트(test/integration.test.mjs, test/multi-role.test.mjs)는 실제 로컬 EVM과 임시 Flask·DB, mock IPFS·LLM으로
 지갑 로그인, 신청, 보고서 등록·평가 확정, 약정·RWA 토큰, 상환과 배정·우회·회수를 검사한다.
 계약 테스트는 Hardhat의 일회성 테스트 EVM을 사용한다. 실제 Mustsem 거래나 회사 IPFS를 호출하지 않는다.
@@ -96,10 +104,13 @@ cd ..
 3. 원부 암호화·IPFS 등록 후 MetaMask로 신청 거래를 승인한다. 신청번호·CID·거래 해시를 기록한다.
    Manager는 Evaluating, SBT 소유자는 담당 평가사, 은행은 미배정이어야 한다. LLM 보고서는 "생성 중"으로 표시된다.
 4. 담당 평가사 지갑으로 로그인한다. IP 가치평가 화면에서 보고서가 도착하면 미리보기와 다운로드를 확인한다.
+   보고서 API가 산정액을 보냈다면 "LLM 산정액"(사전평가 초안)과 그 금액 기준 담보인정비율이 보인다.
    평가 SBT로 등록원부 원본을 열람할 수 있다. 다른 지갑에는 신청이 보이지 않는다.
-5. 평가액 100,000,000원과 평가 의견을 입력하고 "가치평가 확정"을 누른다. 보고서가 암호화 등록된 뒤 MetaMask로 평가 확정을 승인한다.
+5. 평가액 100,000,000원과 평가 의견을 입력하고 "가치평가 확정"을 누른다. LLM 산정액과 다른 금액이면 평가 의견이 필수다.
+   보고서가 암호화 등록된 뒤 MetaMask로 평가 확정을 승인한다.
 6. 보고서 CID·해시 기록, SBT 소각, Eligible 전환, 배정된 은행 주소 기록을 확인한다.
-7. 배정된 은행 지갑으로 로그인한다. 여신 심사·약정 화면에서 "신용평가 불러오기"(모의 `CC`)를 누르고 필요하면 등급을 수정한다.
+7. 배정된 은행 지갑으로 로그인한다. "LLM 보고서 재무 참고 점검"에서 최근 결산 재무와 점검 결과(자료가 없으면 판정 불가)를 확인한다.
+   "신용평가 불러오기"(모의 `CC`)를 누르고 필요하면 등급을 수정한다.
    금리와 약정 기간을 입력하고 "최종 승인·약정 체결"을 승인한다. Approved, 약정 조건, 은행 소유 RWA 토큰을 확인한다.
 8. "등록된 평가보고서 열람"이 체인 해시와 일치하는 보고서를 내려주는지 확인한다. 등록원부 원본 열람도 확인한다.
 9. 상환금액 20,000,000원과 고유 참조번호로 상환 기록 거래를 승인한다. 누적 20,000,000원·잔여 50,000,000원을 확인한다.

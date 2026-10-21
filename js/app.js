@@ -49,7 +49,7 @@ const VIEW_META = {
   apply:     { title: '대출 신청',          sub: '지식재산권을 담보로 등록하고 대출을 신청합니다' },
   evaluate:  { title: 'IP 가치평가',        sub: 'LLM이 생성한 가치평가보고서를 검토하고 평가액을 확정합니다' },
   review:    { title: '여신 심사·약정',     sub: '자동심사 결과를 확인하고 신용등급·금리·기간으로 대출약정을 체결합니다' },
-  archive:   { title: '이전 보고서 보관함', sub: '이전 특허평가 화면에서 생성된 LLM 보고서를 열람합니다' },
+  archive:   { title: '이전 보고서 보관함', sub: '이전에 작성된 가치평가보고서를 열람합니다' },
   detail:    { title: '신청 진행 상황',     sub: '' },
 };
 const ROLE_STORAGE_KEY = 'iploan-role';
@@ -102,6 +102,10 @@ function formatDate(value) {
 }
 function shortAddress(address) { return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'; }
 function rateText(bps) { return bps == null ? NA_HTML : `${(bps / 100).toFixed(2)}%`; }
+/* 계약과 같은 기준: 신청금액이 평가액의 70% 이하이면 자동심사 통과 */
+function ltvPreview(amount, value) {
+  return `담보인정비율 ${Math.round(amount / value * 1000) / 10}% · ${amount * 100 <= value * 70 ? '자동심사 통과 예상' : '자동심사 거절 예상 (70% 초과)'}`;
+}
 function months(v) { return `${escapeHtml(v)}개월`; }
 function upsertApplication(application) {
   const index = APPLICATIONS.findIndex(a => a.id === application.id);
@@ -110,7 +114,7 @@ function upsertApplication(application) {
   return application;
 }
 function readOnlyNote(app) {
-  return app.contractOutdated ? '<div class="notice-box warn"><span>이전 계약(v2)에 등록된 신청입니다. 서버가 새 계약(v3)에 연결되어 있어 <b>열람만</b> 할 수 있습니다. 새로 신청해 주세요.</span></div>' : '';
+  return app.contractOutdated ? '<div class="notice-box warn"><span>이전 시스템에서 접수된 신청이라 <b>열람만</b> 할 수 있습니다. 새로 신청해 주세요.</span></div>' : '';
 }
 
 let toastTimer = null;
@@ -143,7 +147,7 @@ function apiCreateApplication(formData, onProgress) {
       reject(Object.assign(new Error(data?.message || '신청 처리에 실패했습니다. 잠시 후 다시 시도하세요.'), { status: xhr.status, data }));
     };
     xhr.onerror = () => reject(new Error('신청 서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.'));
-    xhr.ontimeout = () => reject(new Error('IPFS 업로드 시간이 초과되었습니다. 잠시 후 다시 시도하세요.'));
+    xhr.ontimeout = () => reject(new Error('서류 업로드 시간이 초과되었습니다. 잠시 후 다시 시도하세요.'));
     xhr.onabort = () => reject(new Error('업로드를 취소했습니다.'));
     xhr.send(formData);
   });
@@ -315,7 +319,7 @@ function renderChainStatus() {
   const cfg = IPLoanChain.config();
   document.getElementById('chainDot').classList.toggle('off', !cfg?.enabled);
   document.getElementById('chainNetwork').textContent = cfg?.enabled ? `${cfg.networkName} 네트워크 연결` : '블록체인 계약 미설정';
-  document.getElementById('blockNo').textContent = cfg?.blockNumber ? `Block #${Number(cfg.blockNumber).toLocaleString('ko-KR')} · v${cfg.contractVersion}` : 'Block —';
+  document.getElementById('blockNo').textContent = cfg?.blockNumber ? `Block #${Number(cfg.blockNumber).toLocaleString('ko-KR')}` : 'Block —';
 }
 
 /* ---------------- Dashboard ---------------- */
@@ -442,9 +446,9 @@ async function loadPreview(frameId) {
 /* ---------------- 신청 진행 상황 (차주·관리자) ---------------- */
 const PROGRESS_STEPS = [
   { label: '신청 접수', owner: '차주기업', done: a => true },
-  { label: '온체인 등록', owner: '차주 지갑 서명', done: a => a.chainStatus && a.chainStatus !== 'None' },
+  { label: '신청 서명', owner: '차주 지갑', done: a => a.chainStatus && a.chainStatus !== 'None' },
   { label: 'LLM 가치평가', owner: 'LLM 보고서 생성', done: a => a.evaluation?.status === 'completed' || EVALUATED_STAGES.includes(a.chainStatus) },
-  { label: '평가 확정·자동심사', owner: '담당 평가사 → 스마트컨트랙트', done: a => EVALUATED_STAGES.includes(a.chainStatus) },
+  { label: '평가 확정·심사', owner: '담당 평가사', done: a => EVALUATED_STAGES.includes(a.chainStatus) },
   { label: '대출약정', owner: '은행 여신심사역', done: a => ['Approved', 'Repaid', 'Rejected', 'RuleRejected'].includes(a.chainStatus) },
 ];
 function openDetail(id) {
@@ -455,7 +459,7 @@ function openDetail(id) {
   document.getElementById('detailTitle').textContent = app.ipTitle || app.id;
   document.getElementById('detailHint').textContent = `${app.id} · ${app.ipType || ''}`;
   document.getElementById('detailStatus').innerHTML = `${statusBadge(app.status)}<span>${escapeHtml(app.rejectReason || {
-    pending: '신청이 접수되었습니다. 지갑으로 온체인 등록을 완료해 주세요.', doc_verify: '발급기관 원본과 서류가 일치하지 않습니다.',
+    pending: '신청이 접수되었습니다. 지갑 서명으로 등록을 완료해 주세요.', doc_verify: '발급기관 원본과 서류가 일치하지 않습니다.',
     evaluating: 'IP 가치평가가 진행 중입니다.', review: '자동심사를 통과해 은행 약정 심사가 진행 중입니다.',
     approved: '대출약정이 체결되었습니다.', repaid: '상환이 완료되었습니다.', rejected: '대출이 승인되지 않았습니다.',
   }[app.status] || '')}</span>`;
@@ -472,29 +476,31 @@ function openDetail(id) {
     ['상환 희망 기간', fieldHTML(app, 'termMonths', months)], ['담보 IP 유형', fieldHTML(app, 'ipType')], ['출원·등록번호', fieldHTML(app, 'ipRegNo')],
     ['대표자', fieldHTML(app, 'ceo')], ['연락처', fieldHTML(app, 'contact')], ['확정 평가액', fieldHTML(app, 'appraisedValue', won)],
     ['담보인정비율', fieldHTML(app, 'ltv', v => `${escapeHtml(v)}%`)], ['신용등급', fieldHTML(app, 'creditGrade')], ['약정 금리', rateText(app.rateBps)],
-    ['약정 기간', fieldHTML(app, 'approvedTermMonths', months)], ['RWA 토큰', fieldHTML(app, 'rwaTokenId', v => `#${escapeHtml(v)}`)], ['상환 기록 합계', won(app.repaidAmount || 0)],
+    ['약정 기간', fieldHTML(app, 'approvedTermMonths', months)], ['상환 기록 합계', won(app.repaidAmount || 0)],
   ];
+  if (currentRole === 'admin') info.push(['RWA 토큰', fieldHTML(app, 'rwaTokenId', v => `#${escapeHtml(v)}`)]);
   document.getElementById('detailInfo').innerHTML = info.map(([k, v]) => `<div class="item"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
   const docs = app.documents || [];
   let extra = readOnlyNote(app) + (docs.length ? `<div class="k">제출 서류 ${docs.length}건</div>` + docs.map(d => `<span>${escapeHtml(d)}</span>`).join('') : '');
   if (app.evaluation) {
     const confirmed = EVALUATED_STAGES.includes(app.chainStatus)
-      ? `<div class="confirmed-box"><b>✓ 담당 평가사가 가치평가를 확정했습니다</b><div>확정 평가액 ${won(app.appraisedValue)} · 보고서 해시 ${fieldHTML(app, 'reportHash')}</div></div>`
+      ? `<div class="confirmed-box"><b>✓ 담당 평가사가 가치평가를 확정했습니다</b><div>확정 평가액 ${won(app.appraisedValue)}</div></div>`
       : statusContent(app);
     extra += `<div class="section-title" style="margin-top:18px;">LLM 가치평가보고서</div>${confirmed}${app.evaluation.status === 'completed' ? reportDownloadsHTML(app) : ''}`;
   }
   if (app.appKey && !app.contractOutdated) {
-    extra += `<div class="section-title" style="margin-top:18px;">블록체인 기록</div>
+    // Hashes and assigned wallets are for the administrator; the borrower only needs the actions.
+    if (currentRole === 'admin') extra += `<div class="section-title" style="margin-top:18px;">블록체인 기록</div>
       <div class="hash-block show"><div class="hash-row"><span class="k">온체인 상태</span><span class="v">${escapeHtml(app.chainStatus || 'None')}</span></div>
       <div class="hash-row"><span class="k">원부 해시</span><span class="v">${fieldHTML(app, 'docFileHash')}</span></div>
       <div class="hash-row"><span class="k">평가보고서 해시</span><span class="v">${fieldHTML(app, 'reportHash')}</span></div>
       <div class="hash-row"><span class="k">담당 평가사</span><span class="v">${fieldHTML(app, 'evaluatorWallet')}</span></div>
-      <div class="hash-row"><span class="k">담당 은행</span><span class="v">${escapeHtml(app.bankWallet || (app.chainStatus === 'RuleRejected' ? '배정 없음(자동심사 거절)' : '평가 통과 시 배정'))}</span></div>
-      <div class="button-row" style="margin-top:12px;">
-        ${app.chainStatus === 'None' && hasAccess(app, 'borrower') ? `<button class="btn btn-primary btn-sm" type="button" onclick="retryApplicationChain('${escapeHtml(app.id)}')">지갑으로 온체인 등록</button>` : ''}
-        <button class="btn btn-outline btn-sm" type="button" onclick="retryApplicationChain('${escapeHtml(app.id)}', true)">체인 확인·복구</button>
+      <div class="hash-row"><span class="k">담당 은행</span><span class="v">${escapeHtml(app.bankWallet || (app.chainStatus === 'RuleRejected' ? '배정 없음(자동심사 거절)' : '평가 통과 시 배정'))}</span></div></div>`;
+    extra += `<div class="button-row" style="margin-top:12px;">
+        ${app.chainStatus === 'None' && hasAccess(app, 'borrower') ? `<button class="btn btn-primary btn-sm" type="button" onclick="retryApplicationChain('${escapeHtml(app.id)}')">지갑 서명으로 등록</button>` : ''}
+        <button class="btn btn-outline btn-sm" type="button" onclick="retryApplicationChain('${escapeHtml(app.id)}', true)">등록 상태 확인</button>
         ${EVALUATED_STAGES.includes(app.chainStatus) ? `<button class="btn btn-outline btn-sm" type="button" data-registered-report="${escapeHtml(app.id)}">등록된 평가보고서 열람</button>` : ''}
-      </div></div>`;
+      </div>`;
   }
   document.getElementById('detailDocs').innerHTML = extra;
   VIEW_META.detail.sub = `${app.id} 신청의 진행 상황을 확인합니다`;
@@ -539,15 +545,15 @@ document.getElementById('fAmount').addEventListener('input', event => {
 
 const UPLOADS = {
   registry: { input: 'fileInput', box: 'uploadBox', name: 'fileNameDisplay', help: 'fileHelpText', max: 20,
-    hint: '원부 대조 후 AES-256-GCM으로 암호화해 IPFS에 등록 · 최대 20MiB' },
+    hint: 'PDF · 최대 20MB' },
   patent: { input: 'patentInput', box: 'patentBox', name: 'patentNameDisplay', help: 'patentHelpText', max: 50,
-    hint: 'LLM 가치평가보고서 생성에 사용 · 최대 50MiB' },
+    hint: 'PDF · 최대 50MB' },
 };
 function chosenFile(kind) { return document.getElementById(UPLOADS[kind].input).files[0] || null; }
 function renderUpload(kind) {
   const u = UPLOADS[kind], file = chosenFile(kind);
   document.getElementById(u.name).textContent = file ? file.name : '클릭해서 PDF 선택';
-  document.getElementById(u.help).textContent = file ? `${(file.size / 1024 / 1024).toFixed(2)}MiB · 선택됨` : u.hint;
+  document.getElementById(u.help).textContent = file ? `${(file.size / 1024 / 1024).toFixed(2)}MB · 선택됨` : u.hint;
   document.getElementById(u.box).classList.toggle('has-file', Boolean(file));
 }
 for (const kind of Object.keys(UPLOADS)) {
@@ -570,8 +576,7 @@ function setApplySteps(current, complete = false) {
 function applyChainResult(updated) {
   upsertApplication(updated);
   lastChainApplication = updated;
-  document.getElementById('genChainState').textContent = updated.chainStatus || 'None';
-  document.getElementById('genSbtId').textContent = updated.sbtTokenId || '—';
+  document.getElementById('genChainState').textContent = !updated.chainStatus || updated.chainStatus === 'None' ? '서명 대기' : '등록 완료';
   document.getElementById('genReportState').textContent = reportMeta(updated).label;
   document.getElementById('retryChainBtn').hidden = updated.chainStatus !== 'None';
   document.getElementById('syncChainBtn').hidden = false;
@@ -585,7 +590,7 @@ async function retryApplicationChain(id, onlySync = false) {
   try {
     applyChainResult(await (onlySync ? IPLoanChain.sync(app) : IPLoanChain.register(app)));
     if (currentView === 'detail') openDetail(app.id);
-    showToast(onlySync ? '체인 상태를 확인했습니다' : '온체인 신청 등록을 완료했습니다');
+    showToast(onlySync ? '등록 상태를 확인했습니다' : '신청 등록을 완료했습니다');
   } catch (error) { showToast(error.message); }
   finally { chainOperationBusy = false; }
 }
@@ -605,7 +610,7 @@ applyForm.addEventListener('submit', async (e) => {
   if (!amountText || !Number.isSafeInteger(Number(amountText)) || Number(amountText) <= 0) return showApplyError('대출 희망 금액을 0보다 큰 원 단위 정수로 입력해 주세요.');
   for (const [kind, file] of [['registry', registry], ['patent', patent]]) {
     if (!file) return showApplyError(kind === 'registry' ? '특허등록원부 PDF를 선택해 주세요.' : '특허 공고전문 PDF를 선택해 주세요.');
-    if (!/\.pdf$/i.test(file.name) || !file.size || file.size > UPLOADS[kind].max * 1024 * 1024) return showApplyError(`비어 있지 않은 ${UPLOADS[kind].max}MiB 이하 PDF를 선택해 주세요.`);
+    if (!/\.pdf$/i.test(file.name) || !file.size || file.size > UPLOADS[kind].max * 1024 * 1024) return showApplyError(`비어 있지 않은 ${UPLOADS[kind].max}MB 이하 PDF를 선택해 주세요.`);
   }
   const btn = document.getElementById('applySubmitBtn');
   btn.disabled = true;
@@ -627,7 +632,7 @@ applyForm.addEventListener('submit', async (e) => {
   payload.append('patentDocument', patent);
   try {
     const created = await apiCreateApplication(payload, (percent) => {
-      btn.textContent = percent === 100 ? '원부 대조·암호화·IPFS 등록 중…' : percent == null ? '서류 전송 중…' : `서류 전송 중… ${percent}%`;
+      btn.textContent = percent === 100 ? '서류 등록 중…' : percent == null ? '서류 전송 중…' : `서류 전송 중… ${percent}%`;
     });
     hideConnNotice();
     const { borrowerProfile: savedProfile, ...application } = created;
@@ -638,8 +643,6 @@ applyForm.addEventListener('submit', async (e) => {
     selectBorrowerProfile(savedProfile.id);
     document.getElementById('genAppId').textContent = created.id;
     document.getElementById('genFiles').textContent = `${registry.name} · ${patent.name}`;
-    document.getElementById('genHash').textContent = created.docFileHash;
-    document.getElementById('genCid').textContent = created.docCid;
     document.getElementById('genReportState').textContent = reportMeta(created).label;
     document.getElementById('applyHashBlock').classList.add('show');
     setApplySteps(3);
@@ -648,14 +651,13 @@ applyForm.addEventListener('submit', async (e) => {
     try {
       applyChainResult(await IPLoanChain.register(application));
       setApplySteps(4);
-      btn.textContent = '온체인 신청·평가 SBT 발급 완료';
+      btn.textContent = '신청 완료';
       showToast('신청이 등록되었습니다. LLM 가치평가가 진행됩니다.');
     } catch (error) {
-      document.getElementById('genChainState').textContent = '등록 대기: ' + error.message;
-      if (error.txHash) document.getElementById('genTxHash').textContent = error.txHash;
+      document.getElementById('genChainState').textContent = '서명 대기: ' + error.message;
       document.getElementById('retryChainBtn').hidden = false;
       document.getElementById('syncChainBtn').hidden = false;
-      btn.textContent = '서류 등록 완료 · 아래에서 온체인 등록 재시도';
+      btn.textContent = '서류 등록 완료 · 아래에서 서명 다시 시도';
     }
   } catch (err) {
     if (err.status === 422 && err.data?.id) upsertApplication(err.data);
@@ -673,7 +675,7 @@ applyForm.addEventListener('reset', (event) => {
   if (applicationSubmitting || chainOperationBusy) { event.preventDefault(); return; }
   setTimeout(() => {
     lastChainApplication = null;
-    for (const id of ['genChainState', 'genTxHash', 'genSbtId', 'genReportState']) document.getElementById(id).textContent = '—';
+    for (const id of ['genChainState', 'genReportState']) document.getElementById(id).textContent = '—';
     document.getElementById('retryChainBtn').hidden = true;
     document.getElementById('syncChainBtn').hidden = true;
     document.getElementById('applyHashBlock').classList.remove('show');
@@ -729,12 +731,12 @@ function selectEvalItem(id) {
     <div class="report-stat"><div class="report-stat-label">신청금액</div><div class="report-stat-value">${won(app.amount)}</div></div>
     <div class="report-stat"><div class="report-stat-label">통과 최소 평가액 (70%)</div><div class="report-stat-value">${app.amount ? won(Math.ceil(app.amount / 0.7)) : NA_HTML}</div></div>
     <div class="report-stat"><div class="report-stat-label">상환 희망 기간</div><div class="report-stat-value">${fieldHTML(app, 'termMonths', months)}</div></div></div>`;
-  if (app.chainStatus === 'None') body += '<div class="notice-box warn"><span>차주가 아직 온체인 등록을 완료하지 않았습니다. 등록되면 평가 SBT가 발급되고 평가액을 확정할 수 있습니다.</span></div>';
+  if (app.chainStatus === 'None') body += '<div class="notice-box warn"><span>차주의 신청 서명이 끝나면 평가액을 확정할 수 있습니다.</span></div>';
   if (!job) body += '<div class="empty-hint">이 신청에 연결된 LLM 보고서 작업이 없습니다.</div>';
   else {
     body += `<div class="report-request-meta"><span>작업번호 <b>${escapeHtml(job.job_id || '발급 전')}</b></span><span>최근 확인 ${escapeHtml(formatDate(job.updated_at))}</span></div>`;
     if (job.status !== 'completed') body += statusContent(app);
-    else body += reportDownloadsHTML(app) + reportPreviewHTML(app, 'evalPreview');
+    else body += llmValuationHTML(app, isEvalActionable(app)) + reportDownloadsHTML(app) + reportPreviewHTML(app, 'evalPreview');
   }
   if (EVALUATED_STAGES.includes(app.chainStatus)) {
     body += `<div class="confirmed-box"><b>✓ 가치평가가 확정되어 블록체인에 기록되었습니다</b>
@@ -745,27 +747,45 @@ function selectEvalItem(id) {
   } else if (isEvalActionable(app)) {
     body += `<form class="decision-form" id="evalConfirmForm" data-app-id="${escapeHtml(app.id)}">
       <div class="form-section-heading"><span>✓</span><h4>평가 검토 및 확정</h4></div>
-      <p>보고서의 산정 근거를 확인한 뒤 담보 평가액을 입력하세요. 확정하면 보고서를 암호화해 IPFS에 등록하고, 해시와 평가액이 지갑 서명으로 블록체인에 기록됩니다. 신청금액이 평가액의 70% 이하이면 계약이 자동심사를 통과시킵니다.</p>
+      <p>보고서의 산정 근거를 확인한 뒤 담보 평가액을 입력하세요. 확정 후에는 수정할 수 없습니다.</p>
       <div class="form-grid">
         <div class="field"><label for="appraisalValue">확정 평가액 (원)<span class="req">*</span></label><input id="appraisalValue" type="text" inputmode="numeric" placeholder="예: 120,000,000" required><span class="help" id="appraisalLtv">평가액을 입력하면 담보인정비율을 계산합니다.</span></div>
-        <div class="field full"><label for="appraisalNote">평가 의견 <span class="optional">선택</span></label><textarea id="appraisalNote" rows="3" maxlength="2000" placeholder="확인한 근거와 보완할 내용을 기록하세요."></textarea></div>
+        <div class="field full"><label for="appraisalNote">평가 의견 <span class="optional">${job?.valuation ? 'LLM 산정액과 다르게 확정하면 필수' : '선택'}</span></label><textarea id="appraisalNote" rows="3" maxlength="2000" placeholder="확인한 근거와 보완할 내용을 기록하세요."></textarea></div>
       </div>
       <div class="button-row">
         <button class="btn btn-primary" type="submit" id="confirmEvalBtn">가치평가 확정 (MetaMask 서명)</button>
-        <button class="btn btn-outline" type="button" onclick="viewChainDocument('${escapeHtml(app.id)}')">평가 SBT로 등록원부 열람</button>
+        <button class="btn btn-outline" type="button" onclick="viewChainDocument('${escapeHtml(app.id)}')">등록원부 열람</button>
       </div></form>`;
   }
   document.getElementById('evalReportPanel').innerHTML = `<div class="panel-body">${body}</div>`;
   loadPreview('evalPreview');
   const valueInput = document.getElementById('appraisalValue');
-  if (valueInput) valueInput.addEventListener('input', () => {
+  if (!valueInput) return;
+  const showValue = () => {
     const digits = valueInput.value.replace(/\D/g, '');
     valueInput.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
     const value = Number(digits);
-    document.getElementById('appraisalLtv').textContent = value
-      ? `담보인정비율 ${Math.round(app.amount / value * 1000) / 10}% · ${app.amount * 100 <= value * 70 ? '자동심사 통과 예상' : '자동심사 거절 예상 (70% 초과)'}`
-      : '평가액을 입력하면 담보인정비율을 계산합니다.';
+    document.getElementById('appraisalLtv').textContent = value ? ltvPreview(app.amount, value) : '평가액을 입력하면 담보인정비율을 계산합니다.';
+  };
+  valueInput.addEventListener('input', showValue);
+  document.getElementById('useLlmValueBtn')?.addEventListener('click', () => {
+    valueInput.value = String(job.valuation.ip_value_krw);
+    showValue();
   });
+}
+/* 보고서 API가 보낸 LLM 산정액. 평가사가 검토해 확정하기 전의 초안이며, 0원 이하이면 담보가치로 쓰지 않는다. */
+function llmValuationHTML(app, actionable) {
+  const valuation = app.evaluation?.valuation;
+  if (!valuation) return '<div class="notice-box"><span>산정액이 없습니다. 보고서를 확인해 입력하세요.</span></div>';
+  const value = valuation.ip_value_krw;
+  return `<div class="llm-value">
+    <div class="llm-value-head"><span class="llm-tag">LLM 산정액</span>
+      <span class="help">${valuation.value_status === 'confirmed' ? '확인자료 반영 기준' : '사전평가 초안 · 확정 평가액 아님'}</span></div>
+    <div class="llm-value-amount">${won(value)}</div>
+    <div class="help">평가기준일 ${escapeHtml(valuation.valuation_date || '—')} · 문서번호 ${escapeHtml(valuation.report_number || '—')}</div>
+    <div class="help">${value > 0 ? ltvPreview(app.amount, value) : '산정액이 0원 이하입니다. 보고서를 검토해 평가액을 정하세요.'}</div>
+    ${actionable && value > 0 ? '<button class="btn btn-outline btn-sm" type="button" id="useLlmValueBtn">이 금액을 확정 평가액에 입력</button>' : ''}
+  </div>`;
 }
 async function confirmEval(id) {
   const app = findApp(id);
@@ -773,14 +793,16 @@ async function confirmEval(id) {
   const appraisedValue = Number(document.getElementById('appraisalValue').value.replace(/\D/g, ''));
   const note = document.getElementById('appraisalNote').value.trim();
   if (!Number.isSafeInteger(appraisedValue) || appraisedValue <= 0) return showToast('확정 평가액을 원 단위 양의 정수로 입력하세요.');
-  if (!confirm(`평가액 ${appraisedValue.toLocaleString('ko-KR')}원으로 확정합니다. 평가 SBT를 소각하고 70% 규칙 자동심사를 실행하며, 이후 수정할 수 없습니다. 진행할까요?`)) return;
+  const draft = app.evaluation?.valuation?.ip_value_krw;
+  if (draft != null && appraisedValue !== draft && !note) return showToast('LLM 산정액과 다른 금액으로 확정하려면 평가 의견에 사유를 적어 주세요.');
+  if (!confirm(`평가액 ${appraisedValue.toLocaleString('ko-KR')}원으로 확정합니다. 확정 후에는 수정할 수 없습니다. 진행할까요?`)) return;
   chainOperationBusy = true;
   const btn = document.getElementById('confirmEvalBtn');
   btn.disabled = true;
   try {
     btn.textContent = '지갑 확인 중…';
     await IPLoanChain.connect('EVALUATOR_ROLE', app.evaluatorWallet);
-    btn.textContent = '보고서 암호화·IPFS 등록 중…';
+    btn.textContent = '보고서 등록 중…';
     const report = await postJSON(`/applications/${encodeURIComponent(id)}/evaluation-report`, { appraisedValue, note });
     btn.textContent = 'MetaMask에서 평가 확정 서명 중…';
     upsertApplication(await IPLoanChain.evaluate(app, report));
@@ -829,6 +851,39 @@ function reviewCheckHTML(title, description, status, result) {
     </div><div class="check-text"><div class="check-title">${escapeHtml(title)}</div><div class="check-desc">${escapeHtml(description)}</div></div>
     <div class="check-status">${escapeHtml(status)}</div></div>`;
 }
+/* 보고서 API의 최근 결산 재무(원 단위)를 백만원 표로 보여준다. 값이 없으면 '-'이고 점검에서는 판정 불가다. */
+const FINANCIAL_ROWS = [
+  ['매출액', 'revenue_krw'], ['영업이익', 'operating_income_krw'], ['당기순이익', 'net_income_krw'], ['자산총계', 'total_assets_krw'],
+  ['부채총계', 'total_liabilities_krw'], ['자본총계', 'total_equity_krw'], ['총차입금', 'total_borrowings_krw'], ['금융비용', 'finance_costs_krw'],
+  ['부채비율 (%)', 'debt_ratio_pct', true], ['유동비율 (%)', 'current_ratio_pct', true], ['차입금의존도 (%)', 'debt_dependency_pct', true],
+  ['이자보상배율 (배)', 'interest_coverage_times', true],
+];
+const CHECK_RESULT = { pass: true, fail: false, unknown: null };
+function millionCell(amount) {
+  if (amount == null) return NA_HTML;
+  const value = Math.round(amount / 1e6);
+  return (value === 0 ? 0 : value).toLocaleString('ko-KR');
+}
+function ratioCell(value) { return value == null ? NA_HTML : Number(value).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function financialSectionHTML(app) {
+  const job = app.evaluation;
+  if (job?.status !== 'completed') return '';
+  const rows = job.financials || [];
+  const valuation = job.valuation;
+  const checks = (job.financial_checks || []).map(check => reviewCheckHTML(
+    check.label, `${check.criterion}${check.year ? ` · ${check.year}년 결산` : ''}`,
+    check.result === 'unknown' ? '판정 불가 (자료 없음)' : check.observed, CHECK_RESULT[check.result])).join('');
+  const table = rows.length ? `<div class="table-wrap"><table class="data-table fin-table">
+      <thead><tr><th>항목 (백만원)</th>${rows.map(row => `<th>${escapeHtml(row.year)}년<span class="fin-date">${escapeHtml(row.fiscal_date || '결산일 미상')}${row.fiscal_date_assumed ? ' (추정)' : ''}</span></th>`).join('')}</tr></thead>
+      <tbody>${FINANCIAL_ROWS.map(([label, key, ratio]) => `<tr><td>${label}</td>${rows.map(row =>
+        `<td class="num">${key === 'debt_ratio_pct' && row.capital_impaired ? '자본잠식' : ratio ? ratioCell(row[key]) : millionCell(row[key])}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>
+    <p class="help">출처: ${rows.map(row => `${escapeHtml(row.year)}년 ${escapeHtml(row.source_label)}`).join(' · ')}. (추정): 결산일 미확인</p>`
+    : '<div class="empty-hint">보고서에 재무자료가 없습니다. 직접 확인해 주세요.</div>';
+  return `<div class="section-title">재무 참고 점검 <span class="hint">참고용</span></div>
+    <p class="help fin-value">LLM 산정액 ${valuation ? `${won(valuation.ip_value_krw)} (${valuation.value_status === 'confirmed' ? '확인자료 반영' : '사전평가 초안'})` : '미제공'} · 확정 평가액 ${won(app.appraisedValue)}</p>
+    <div class="check-list">${checks}</div>${table}`;
+}
 function chainDecisionHTML(app) {
   const decisions = {
     Eligible: ['자동심사 결과 — 통과', '70% 담보인정비율 기준을 통과했습니다. 신용등급·금리·기간을 정해 약정을 체결하세요.', 'approved'],
@@ -871,10 +926,11 @@ function loadReviewCase(id) {
       <div class="section-title">스마트컨트랙트 심사 조건</div>
       <div class="check-list">
         ${reviewCheckHTML('담보인정비율(LTV) 조건 충족', '신청금액이 확정 평가액의 70% 이하인지 계약에서 판정', evaluated ? `LTV ${app.ltv == null ? '—' : app.ltv}% · ${app.chainStatus === 'RuleRejected' ? '거절' : '통과'}` : '평가 확정 대기', evaluated ? app.chainStatus !== 'RuleRejected' : null)}
-        ${reviewCheckHTML('평가보고서 등록', 'LLM 보고서를 암호화해 IPFS에 등록하고 해시를 체인에 기록', app.reportHash ? '등록 · 해시 검증 가능' : '평가 확정 대기', app.reportHash ? true : null)}
-        ${reviewCheckHTML('서류 해시 무결성 검증', '원부 대조는 모의 연동이며 등록 CID·파일 해시는 서버가 체인 기록과 대조', hashPass === true ? '일치' : hashPass === false ? '불일치' : '확인 대기', hashPass)}
+        ${reviewCheckHTML('평가보고서 등록', '확정된 평가보고서의 블록체인 등록 여부', app.reportHash ? '등록됨' : '평가 확정 대기', app.reportHash ? true : null)}
+        ${reviewCheckHTML('서류 무결성 검증', '등록 서류와 블록체인 기록 일치 여부', hashPass === true ? '일치' : hashPass === false ? '불일치' : '확인 대기', hashPass)}
         ${reviewCheckHTML('신용평가', '심사역이 신용등급을 확인해 약정에 기록', agreed ? `${app.creditGrade} 등급` : '약정 시 입력', agreed ? true : null)}
       </div>
+      ${financialSectionHTML(app)}
       ${eligible ? `<form class="decision-form" id="loanTermsForm" data-app-id="${escapeHtml(app.id)}">
         <div class="form-section-heading"><span>✓</span><h4>대출약정 조건</h4></div>
         <p>입력한 조건은 최종 승인 거래로 블록체인에 기록되며 수정할 수 없습니다. 승인과 함께 이 은행 지갑에 RWA 토큰이 발급됩니다.</p>
@@ -899,7 +955,7 @@ function loadReviewCase(id) {
       ${chainDecisionHTML(app)}
     </div></div>
     <div class="panel review-chain-records">
-      <div class="panel-header"><h3>블록체인 약정·상환 기록</h3><span class="hint">계약 v3 · RWA 토큰</span></div>
+      <div class="panel-header"><h3>블록체인 약정·상환 기록</h3><span class="hint">RWA 토큰</span></div>
       <div class="panel-body">
         <div class="review-summary">
           <div class="item"><div class="k">온체인 상태</div><div class="v">${escapeHtml(app.chainStatus || 'None')}</div></div>
@@ -913,7 +969,7 @@ function loadReviewCase(id) {
         <div class="field"><label for="repaymentAmount">상환금액 (원)</label><input id="repaymentAmount" type="number" min="1" max="${app.amount - repaid}" placeholder="남은 금액: ${app.amount - repaid}"></div>
         <div class="field"><label for="repaymentReference">상환 참조번호 (중복 방지)</label><input id="repaymentReference" maxlength="100" placeholder="예: REP-2026-001"></div>
         <div class="button-row"><button class="btn btn-primary" type="button" onclick="recordChainRepayment('${escapeHtml(app.id)}')">MetaMask로 상환 기록 추가</button></div></div>` : ''}
-      <p class="review-chain-note">시범 서비스로 실제 대출금·상환금은 이동하지 않으며, 거래 수수료(가스)는 필요합니다. 완납 후에도 RWA 토큰은 은행에 유지됩니다.</p>
+      <p class="review-chain-note">상환은 송금 없이 기록만 남습니다.</p>
     </div></div>`;
   const creditButton = document.getElementById('loadCreditBtn');
   if (creditButton) creditButton.addEventListener('click', () => loadCreditGrade(app.id));

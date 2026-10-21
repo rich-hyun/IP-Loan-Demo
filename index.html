@@ -6,7 +6,7 @@
 <title>IP담보 자동대출 · 주식회사 머스트리</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2300843D'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%23fff' stroke-width='1.6'/%3E%3C/svg%3E">
 <meta name="description" content="LLM 가치평가·스마트컨트랙트 기반 IP담보 자동대출 서비스">
-<link rel="stylesheet" href="css/style.css?v=20261020-v3">
+<link rel="stylesheet" href="css/style.css?v=20261021-v3">
 </head>
 <body class="logged-out">
 
@@ -26,7 +26,6 @@
       <div class="brand-name">IP담보 <span>자동대출</span></div>
       <div class="brand-sub">주식회사 머스트리 · 기업 IP금융</div>
     </div>
-    <span class="partner-badge">NH농협은행 실증</span>
   </div>
   <div class="gnb-right">
     <span class="topbar-date" id="todayDate"></span>
@@ -127,8 +126,8 @@
             <p>LLM이 특허 가치평가보고서를 작성하고, 블록체인 스마트컨트랙트가 심사와 대출약정을 기록합니다. 은행 심사역은 검증된 결과로 빠르게 결정합니다.</p>
             <ul class="login-points">
               <li><span class="num">1</span><div><b>LLM 가치평가</b>특허 공고전문으로 평가보고서를 자동 생성하고 평가사가 확정합니다</div></li>
-              <li><span class="num">2</span><div><b>스마트컨트랙트 심사</b>담보인정비율 70% 기준을 계약이 판정하고 결과를 기록합니다</div></li>
-              <li><span class="num">3</span><div><b>대출약정·RWA 토큰</b>승인 시 금리·기간·신용등급을 약정으로 남기고 은행 지갑에 RWA 토큰을 발급합니다</div></li>
+              <li><span class="num">2</span><div><b>스마트컨트랙트 심사</b>담보인정 기준을 계약이 자동으로 판정합니다</div></li>
+              <li><span class="num">3</span><div><b>대출약정 기록</b>승인된 약정과 상환 이력을 블록체인에 기록합니다</div></li>
             </ul>
           </div>
           <div class="panel login-card">
@@ -158,29 +157,6 @@
           <button class="btn btn-primary" id="welcomeAction" type="button" hidden></button>
         </div>
 
-        <div class="kpi-grid">
-          <div class="kpi-card">
-            <div class="kpi-label">IP 가치평가 소요시간</div>
-            <div class="kpi-value">10<span class="kpi-unit">분 이내</span></div>
-            <div class="kpi-delta">기존 평가기관 의뢰 <b>3~5일</b> → LLM 자동 생성</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">대출심사 처리시간</div>
-            <div class="kpi-value">500<span class="kpi-unit">ms 이내</span></div>
-            <div class="kpi-delta">스마트컨트랙트 기반 <b>실시간</b> 자동심사</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">서류 위변조 검증율</div>
-            <div class="kpi-value">99<span class="kpi-unit">% 이상</span></div>
-            <div class="kpi-delta">발급기관 원본 해시 <b>대조 검증</b></div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">심사 운영비용 절감</div>
-            <div class="kpi-value">90<span class="kpi-unit">% 이상</span></div>
-            <div class="kpi-delta">건당 인건비 기준 <b>자동 처리</b></div>
-          </div>
-        </div>
-
         <div class="panel" style="margin-bottom:16px;">
           <div class="panel-header">
             <h3>서비스 처리 흐름</h3>
@@ -190,108 +166,66 @@
             <div class="flow-step">
               <div class="flow-num">01</div>
               <div class="flow-step-title">담보 IP 등록</div>
-              <div class="flow-step-desc">등록원부를 암호화해 IPFS에 올리고 해시를 블록체인에 기록</div>
+              <div class="flow-step-desc">특허등록원부를 제출해 담보 IP 등록</div>
             </div>
             <div class="flow-step">
               <div class="flow-num">02</div>
               <div class="flow-step-title">LLM 가치평가</div>
-              <div class="flow-step-desc">특허 공고전문으로 평가보고서를 자동 생성해 담당 평가사에게 전달</div>
+              <div class="flow-step-desc">특허 공고전문으로 가치평가보고서 작성</div>
             </div>
             <div class="flow-step">
               <div class="flow-num">03</div>
-              <div class="flow-step-title">평가 확정·서류 등록</div>
-              <div class="flow-step-desc">평가사가 확정한 보고서를 암호화 등록하고 해시를 체인에 기록</div>
+              <div class="flow-step-title">평가 확정</div>
+              <div class="flow-step-desc">담당 평가사가 보고서를 검토해 평가액 확정</div>
             </div>
             <div class="flow-step">
               <div class="flow-num">04</div>
               <div class="flow-step-title">스마트컨트랙트 심사</div>
-              <div class="flow-step-desc">담보인정비율 70% 기준을 계약이 자동 판정</div>
+              <div class="flow-step-desc">담보인정 기준을 자동으로 판정</div>
             </div>
             <div class="flow-step">
               <div class="flow-num">05</div>
-              <div class="flow-step-title">대출약정·RWA 토큰</div>
-              <div class="flow-step-desc">신용등급·금리·기간을 약정으로 기록하고 은행 계정에 RWA 토큰 발급</div>
+              <div class="flow-step-title">대출약정</div>
+              <div class="flow-step-desc">은행 심사 후 약정 체결·기록</div>
             </div>
           </div>
         </div>
 
-        <div class="grid-2">
-          <div class="panel">
-            <div class="panel-header">
-              <h3 id="statusPanelTitle">담당 업무 현황</h3>
-              <span class="hint" id="statusTotal">전체 0건</span>
-            </div>
-            <div class="panel-body">
-              <div class="status-row" id="statusRow"></div>
-              <div class="section-title" style="margin-top:20px;">최근 신청 건</div>
-              <div class="table-wrap">
-                <table class="data-table" id="miniTable">
-                  <thead><tr><th>차주기업</th><th>담보 IP</th><th>신청금액</th><th>상태</th></tr></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header"><h3>핵심 기술</h3></div>
-            <div class="panel-body" style="display:flex; flex-direction:column; gap:14px;">
-              <div class="tech-item">
-                <div class="tech-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.6"></circle><circle cx="18" cy="6" r="2.6"></circle><circle cx="12" cy="18" r="2.6"></circle><path d="M8.1 7.4 10.6 15.2M15.9 7.4 13.4 15.2M8.6 6H15.4"></path></svg>
-                </div>
-                <div>
-                  <div class="tech-title">자체 블록체인 네트워크</div>
-                  <p class="tech-desc">원부·평가보고서 해시로 위변조를 막고, 신청·평가·약정·상환 이력을 누구나 검증할 수 있게 기록</p>
-                </div>
-              </div>
-              <div class="tech-item">
-                <div class="tech-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v4h4"></path><path d="m9 14.5 2 2 4-4.5"></path></svg>
-                </div>
-                <div>
-                  <div class="tech-title">스마트컨트랙트 대출약정</div>
-                  <p class="tech-desc">계약이 70% 담보인정비율을 판정하고, 은행 승인 시 신용등급·금리·기간을 약정으로 고정</p>
-                </div>
-              </div>
-              <div class="tech-item">
-                <div class="tech-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2.5 20.5,7.5 20.5,16.5 12,21.5 3.5,16.5 3.5,7.5"></polygon><circle cx="12" cy="12" r="3"></circle></svg>
-                </div>
-                <div>
-                  <div class="tech-title">평가 SBT · RWA 토큰</div>
-                  <p class="tech-desc">신청 시 담당 평가사에게 열람용 SBT, 평가 확정 시 소각, 최종 승인 시 은행 지갑에 RWA 토큰 발급. 시범 서비스로 실제 자금 이동은 없음</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="compliance">
-          <span><b>실증 파트너</b> — NH농협은행과 실증 협의 진행 중</span>
-          <span><b>금융 규제</b> — 은행법·전자금융거래법 기준 망분리·접근통제·전송 암호화 준수</span>
-          <span><b>정보보호</b> — 신용정보 최소수집·가명처리, 온체인에는 해시만 기록(평문 미기록)</span>
-          <span><b>실증 방식</b> — 금융규제 샌드박스 기반 모의환경·시범운영</span>
-        </div>
-      </section>
-
-      <!-- ============ VIEW: LIST ============ -->
-      <section id="view-list" class="view">
         <div class="panel">
-          <div class="toolbar">
-            <input class="search-input" type="text" placeholder="차주기업명, 신청번호 검색" id="listSearch">
-            <div class="filter-chips" id="filterChips"></div>
+          <div class="panel-header">
+            <h3 id="statusPanelTitle">담당 업무 현황</h3>
+            <span class="hint" id="statusTotal">전체 0건</span>
           </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>신청번호</th><th>차주기업</th><th>담보 IP</th><th>신청금액</th><th>상태</th><th>LLM 보고서</th><th>신청일</th><th></th>
-                </tr>
-              </thead>
-              <tbody id="listTableBody"></tbody>
-            </table>
+          <div class="panel-body">
+            <div class="status-row" id="statusRow"></div>
+            <div class="section-title" style="margin-top:20px;">최근 신청 건</div>
+            <div class="table-wrap">
+              <table class="data-table" id="miniTable">
+                <thead><tr><th>차주기업</th><th>담보 IP</th><th>신청금액</th><th>상태</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
+        </div>
+
+    </section>
+
+    <!-- ============ VIEW: LIST ============ -->
+    <section id="view-list" class="view">
+      <div class="panel">
+        <div class="toolbar">
+          <input class="search-input" type="text" placeholder="차주기업명, 신청번호 검색" id="listSearch">
+          <div class="filter-chips" id="filterChips"></div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>신청번호</th><th>차주기업</th><th>담보 IP</th><th>신청금액</th><th>상태</th><th>LLM 보고서</th><th>신청일</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="listTableBody"></tbody>
+          </table>
         </div>
       </section>
 
@@ -320,9 +254,9 @@
         <div class="steps" id="applySteps">
           <div class="step current" data-step="1"><div class="step-circle">1</div><div class="step-label">신청 정보 입력</div></div>
           <div class="step-line"></div>
-          <div class="step" data-step="2"><div class="step-circle">2</div><div class="step-label">원부 대조·암호화 등록</div></div>
+          <div class="step" data-step="2"><div class="step-circle">2</div><div class="step-label">서류 등록</div></div>
           <div class="step-line"></div>
-          <div class="step" data-step="3"><div class="step-circle">3</div><div class="step-label">온체인 신청·평가 SBT</div></div>
+          <div class="step" data-step="3"><div class="step-circle">3</div><div class="step-label">지갑 서명</div></div>
           <div class="step-line"></div>
           <div class="step" data-step="4"><div class="step-circle">4</div><div class="step-label">LLM 가치평가 진행</div></div>
         </div>
@@ -403,7 +337,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path><path d="M7 9l5-5 5 5"></path><path d="M12 4v12"></path></svg>
                     <div>
                       <div class="file-name" id="fileNameDisplay">클릭해서 PDF 선택</div>
-                      <div id="fileHelpText">원부 대조 후 AES-256-GCM으로 암호화해 IPFS에 등록 · 최대 20MiB</div>
+                      <div id="fileHelpText">PDF · 최대 20MB</div>
                     </div>
                   </div>
                 </div>
@@ -414,7 +348,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v4h4"></path><path d="M9 13h6M9 17h4"></path></svg>
                     <div>
                       <div class="file-name" id="patentNameDisplay">클릭해서 PDF 선택</div>
-                      <div id="patentHelpText">LLM 가치평가보고서 생성에 사용 · 최대 50MiB</div>
+                      <div id="patentHelpText">PDF · 최대 50MB</div>
                     </div>
                   </div>
                 </div>
@@ -434,16 +368,11 @@
               </div>
               <div class="hash-row"><span class="k">신청번호</span><span class="v" id="genAppId">—</span></div>
               <div class="hash-row"><span class="k">제출 서류</span><span class="v" id="genFiles">—</span></div>
-              <div class="hash-row"><span class="k">원부 해시값</span><span class="v" id="genHash">—</span></div>
-              <div class="hash-row"><span class="k">IPFS CID</span><span class="v" id="genCid">—</span></div>
-              <div class="hash-row"><span class="k">암호화 방식</span><span class="v">AES-256-GCM</span></div>
-              <div class="hash-row"><span class="k">온체인 상태</span><span class="v" id="genChainState">신청 온체인 등록 대기</span></div>
-              <div class="hash-row"><span class="k">거래 해시</span><span class="v" id="genTxHash">—</span></div>
-              <div class="hash-row"><span class="k">평가 SBT 번호</span><span class="v" id="genSbtId">—</span></div>
-              <div class="hash-row"><span class="k">LLM 보고서</span><span class="v" id="genReportState">—</span></div>
+              <div class="hash-row"><span class="k">등록 상태</span><span class="v" id="genChainState">서명 대기</span></div>
+              <div class="hash-row"><span class="k">가치평가보고서</span><span class="v" id="genReportState">—</span></div>
               <div class="button-row" style="margin-top:12px;">
                 <button id="retryChainBtn" type="button" class="btn btn-outline btn-sm" hidden>신청 등록 다시 시도</button>
-                <button id="syncChainBtn" type="button" class="btn btn-outline btn-sm" hidden>체인 확인·복구</button>
+                <button id="syncChainBtn" type="button" class="btn btn-outline btn-sm" hidden>등록 상태 확인</button>
               </div>
             </div>
           </div>
@@ -474,7 +403,7 @@
 
       <!-- ============ VIEW: ARCHIVE ============ -->
       <section id="view-archive" class="view">
-        <div class="notice-box"><span>이전 특허평가 화면에서 생성된 LLM 보고서입니다. 블록체인 신청과 연결되지 않은 기록이라 <b>열람만</b> 할 수 있습니다.</span></div>
+        <div class="notice-box"><span>이전에 작성된 보고서입니다. <b>열람만</b> 할 수 있습니다.</span></div>
         <div class="eval-layout">
           <div class="panel eval-list">
             <div class="panel-header"><h3>보관 보고서</h3><span class="hint" id="archiveListCount"></span></div>
@@ -488,7 +417,7 @@
 
     <footer class="site-footer">
       <span><b>주식회사 머스트리</b> · LLM 기반 기술평가 자동대출 시스템</span>
-      <span>NH농협은행 실증 협의 중인 시범 서비스입니다. 실제 대출금·상환금은 이동하지 않습니다.</span>
+      <span>실제 대출금·상환금은 이동하지 않습니다.</span>
     </footer>
   </div>
 </div>
@@ -497,6 +426,6 @@
 
 <script src="js/vendor/ethers.umd.min.js"></script>
 <script src="js/chain.js?v=20261020-v3"></script>
-<script src="js/app.js?v=20261020-v3"></script>
+<script src="js/app.js?v=20261021-v3"></script>
 </body>
 </html>

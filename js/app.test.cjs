@@ -49,7 +49,7 @@ async function boot({ session = null, loginSession = null, applications = [], pr
       if (path === '/applications') return applications;
       if (path === '/borrower-profiles') return profiles;
       if (path.endsWith('/evaluation-report')) return { cid: 'bafyreport', hash: '0xreport', appraisedValue: JSON.parse(options.body).appraisedValue, bankWallet: BANK };
-      if (path.endsWith('/credit-score')) return { grade: 'CC', source: '모의 신용평가 (외부 연동 전)', asOf: '2026-10-20' };
+      if (path.endsWith('/credit-score')) return { grade: 'CC', source: '예시 등급', asOf: '2026-10-20' };
       if (path.endsWith('/evaluation')) return applications.find(a => path.includes(a.id));
       throw new Error('unexpected ' + path);
     },
@@ -179,7 +179,7 @@ test('borrower application uploads both documents with the session and then regi
   assert.ok(!('borrowerWallet' in fields));
   assert.deepEqual(h.calls.find(call => call[0] === 'connect').slice(1), ['BORROWER_ROLE', undefined]);
   assert.deepEqual(h.calls.find(call => call[0] === 'register'), ['register', 'LN-2026-200002']);
-  assert.equal(h.element('genChainState').textContent, 'Evaluating');
+  assert.equal(h.element('genChainState').textContent, '등록 완료');
 });
 
 test('evaluator confirms the completed LLM report: wallet first, then report registration, then the chain transaction', async () => {
@@ -207,7 +207,7 @@ test('report not finished or not yet registered on chain cannot be confirmed', a
   assert.match(h.element('evalReportPanel').innerHTML, /현재 단계: analysis/);
   h.run("selectEvalItem('LN-2026-100002')");
   assert.doesNotMatch(h.element('evalReportPanel').innerHTML, /evalConfirmForm/);
-  assert.match(h.element('evalReportPanel').innerHTML, /온체인 등록을 완료하지 않았습니다/);
+  assert.match(h.element('evalReportPanel').innerHTML, /신청 서명이 끝나면/);
 });
 
 test('bank loads the demo credit grade and approves with the loan agreement terms', async () => {
@@ -218,7 +218,7 @@ test('bank loads the demo credit grade and approves with the loan agreement term
   assert.equal(h.element('loanTerm').value, '');  // the template sets value="24"; the harness does not parse HTML
   await h.element('loadCreditBtn').listeners.click();
   assert.equal(h.element('creditGrade').value, 'CC');
-  assert.match(h.element('creditHelp').textContent, /모의 신용평가/);
+  assert.match(h.element('creditHelp').textContent, /예시 등급/);
   h.element('creditGrade').value = 'bb+';
   h.element('loanRate').value = '4.35';
   h.element('loanTerm').value = '24';
@@ -243,7 +243,7 @@ test('applications on the previous contract are read-only', async () => {
   const old = baseApplication({ contractOutdated: true, access: ['evaluator'] });
   const h = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [old] });
   h.run("selectEvalItem('LN-2026-100001')");
-  assert.match(h.element('evalReportPanel').innerHTML, /이전 계약\(v2\)/);
+  assert.match(h.element('evalReportPanel').innerHTML, /이전 시스템에서 접수된 신청/);
   assert.doesNotMatch(h.element('evalReportPanel').innerHTML, /evalConfirmForm/);
 });
 
@@ -256,4 +256,77 @@ test('archive lists only the imported LLM reports and shows the earlier confirma
   assert.doesNotMatch(h.element('archiveListItems').innerHTML, /테스트 기업/);
   assert.match(h.element('archivePanel').innerHTML, /검토 완료/);
   assert.doesNotMatch(h.element('evalListItems').innerHTML, /보관 기업/);
+});
+
+const SUMMARY = {
+  valuation: { ip_value_krw: 120000000, value_status: 'preliminary', valuation_date: '2026-10-20', report_number: 'MT-1' },
+  financials: [
+    { year: 2024, fiscal_date: '2024-12-31', fiscal_date_assumed: false, source_label: 'NICE BizAPI', revenue_krw: 5875000000,
+      operating_income_krw: -365170000, total_equity_krw: -505540000, capital_impaired: true, debt_ratio_pct: null, current_ratio_pct: 8.84 },
+    { year: 2025, fiscal_date: '2025-12-31', fiscal_date_assumed: true, source_label: '회사 제출 자료', revenue_krw: 400000,
+      total_equity_krw: 10000000, capital_impaired: false, debt_ratio_pct: 85.81 },
+  ],
+  financial_checks: [
+    { key: 'capital', label: '자본잠식 없음', criterion: '자본총계 0원 초과', year: 2025, result: 'fail', observed: '자본잠식 (자본총계 -506백만원)' },
+    { key: 'interest_coverage', label: '이자보상배율', criterion: '영업이익이 금융비용의 1배 이상', year: 2025, result: 'unknown', observed: '자료 없음' },
+  ],
+};
+
+test('evaluator sees the LLM figure with its LTV and must explain confirming a different value', async () => {
+  const app = baseApplication({ evaluation: { status: 'completed', job_id: 'job-1', artifacts: ['pdf'], ...SUMMARY } });
+  const h = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [app] });
+  h.run("goView('evaluate')");
+  const panel = h.element('evalReportPanel').innerHTML;
+  assert.match(panel, /120,000,000원/);
+  assert.match(panel, /사전평가 초안 · 확정 평가액 아님/);
+  assert.match(panel, /담보인정비율 58\.3% · 자동심사 통과 예상/);
+  assert.match(panel, /LLM 산정액과 다르게 확정하면 필수/);
+  h.element('useLlmValueBtn').listeners.click();
+  assert.equal(h.element('appraisalValue').value, '120,000,000');
+  assert.match(h.element('appraisalLtv').textContent, /58\.3%/);
+  h.element('appraisalValue').value = '150,000,000';
+  h.element('appraisalNote').value = '';
+  await h.run("confirmEval('LN-2026-100001')");
+  assert.match(h.element('toast').textContent, /평가 의견에 사유/);
+  assert.ok(!h.calls.some(call => call[0] === 'connect'));
+  h.element('appraisalValue').value = '120,000,000';
+  await h.run("confirmEval('LN-2026-100001')");
+  const request = h.calls.find(call => call[1] === '/applications/LN-2026-100001/evaluation-report')[2];
+  assert.deepEqual(JSON.parse(request.body), { appraisedValue: 120000000, note: '' });
+});
+
+test('a non-positive or missing LLM figure is never offered as the collateral value', async () => {
+  const negative = baseApplication({ evaluation: { status: 'completed', artifacts: ['pdf'], valuation: { ip_value_krw: -235061, value_status: 'preliminary' } } });
+  const missing = baseApplication({ id: 'LN-2026-100002' });
+  const h = await boot({ session: { address: EVALUATOR, roles: ['evaluator'] }, applications: [negative, missing] });
+  h.run("selectEvalItem('LN-2026-100001')");
+  assert.match(h.element('evalReportPanel').innerHTML, /-235,061원/);
+  assert.match(h.element('evalReportPanel').innerHTML, /산정액이 0원 이하입니다/);
+  assert.doesNotMatch(h.element('evalReportPanel').innerHTML, /useLlmValueBtn/);
+  h.run("selectEvalItem('LN-2026-100002')");
+  assert.match(h.element('evalReportPanel').innerHTML, /산정액이 없습니다/);
+  assert.match(h.element('evalReportPanel').innerHTML, /<span class="optional">선택<\/span>/);
+});
+
+test('bank sees the LLM financial reference checks, and missing data is shown as undecidable', async () => {
+  const eligible = baseApplication({ chainStatus: 'Eligible', status: 'review', bankWallet: BANK, access: ['bank'], appraisedValue: 100000000,
+    ltv: 70, evaluation: { status: 'completed', artifacts: ['pdf'], ...SUMMARY } });
+  const bare = baseApplication({ id: 'LN-2026-100002', chainStatus: 'Eligible', status: 'review', bankWallet: BANK, access: ['bank'],
+    evaluation: { status: 'completed', artifacts: ['pdf'], financials: [], financial_checks: SUMMARY.financial_checks.map(c => ({ ...c, result: 'unknown' })) } });
+  const h = await boot({ session: { address: BANK, roles: ['bank'] }, applications: [eligible, bare] });
+  h.run("loadReviewCase('LN-2026-100001')");
+  const body = h.element('reviewBody').innerHTML;
+  assert.match(body, /재무 참고 점검 <span class="hint">참고용/);
+  assert.match(body, /LLM 산정액 120,000,000원 \(사전평가 초안\) · 확정 평가액 100,000,000원/);
+  assert.match(body, /check-item failed[\s\S]*자본잠식 \(자본총계 -506백만원\)/);
+  assert.match(body, /check-item not-applied[\s\S]*판정 불가 \(자료 없음\)/);
+  assert.match(body, /2025-12-31 \(추정\)/);
+  assert.match(body, /<td class="num">-365<\/td>/);
+  assert.match(body, /<td class="num">자본잠식<\/td>/);
+  assert.match(body, /2024년 NICE BizAPI · 2025년 회사 제출 자료/);
+  h.run("loadReviewCase('LN-2026-100002')");
+  const financial = h.element('reviewBody').innerHTML.split('재무 참고 점검')[1];
+  assert.match(financial, /재무자료가 없습니다/);
+  assert.match(financial, /LLM 산정액 미제공/);
+  assert.doesNotMatch(financial, /check-item (verified|failed)/);
 });

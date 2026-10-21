@@ -35,9 +35,13 @@ def mock_gateway(url, **kwargs):
     return response
 
 # The report is ready as soon as it is submitted; its bytes identify the job so tests can verify decryption.
+# It carries the LLM figure and fiscal summary that the report API sends with a completed job.
 def mock_submit(path, filename, business_number):
     return {"job_id": "job-" + uuid.uuid4().hex, "status": "completed",
-            "business_number": business_number, "artifacts": {"pdf": "/report.pdf"}}
+            "business_number": business_number, "artifacts": {"pdf": "/report.pdf"},
+            "valuation": {"ip_value_krw": 100, "value_status": "preliminary", "valuation_date": "2026-10-20"},
+            "financials": [{"year": 2025, "fiscal_date": "2025-12-31", "fiscal_date_assumed": True, "source": "company_report",
+                            "total_equity_krw": 1_812_000_000, "operating_income_krw": None, "current_ratio_pct": 592.63}]}
 
 app_module.upload_ipfs_payload = mock_upload
 app_module.requests.get = mock_gateway

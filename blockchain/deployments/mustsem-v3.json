@@ -1,0 +1,33 @@
+{
+  "network": "Mustsem",
+  "chainId": 7601,
+  "rpcUrl": "https://block.mustree.kr",
+  "contractVersion": 3,
+  "managerAddress": "0x7428932Dd3542657139ff9d560250b0ef5b6E50E",
+  "accessSBTAddress": "0xc52cDe1f315Ab3D39F2513a05F46577048AF0FfB",
+  "rwaTokenAddress": "0x668067D1C54fC11d5F56C7A2e27b494ca6639d29",
+  "artAddress": "0xD3f5974c83ADCAe9f88F8fBe78fFE6Ae90AE54e9",
+  "admin": "0xE63a192911048B74c1149DBb058DEbdC30cC785B",
+  "initialEvaluator": "0xa3B81443517443D7612040Dc8E02609c5b9Ad174",
+  "initialBank": "0xE63a192911048B74c1149DBb058DEbdC30cC785B",
+  "plannedBorrower": "0xed25983C90c773828a00b0FAF5e92cf5eE2cedb6",
+  "assignment": "Evaluator per application at submission; bank/reviewer at a passing evaluation. Loan terms (credit grade, rate, term) are fixed at final approval, which mints the RWA token to the bank. Token metadata carries an on-chain SVG card drawn by IPLoanArt. Roles are managed by the admin in admin.html.",
+  "compiler": {
+    "version": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+    "evmVersion": "paris",
+    "viaIR": true,
+    "optimizerRuns": 200
+  },
+  "deploymentTransactionHash": "0x271fad84f24a26a9d3a73edc10daa150749af3e5371090973e9d501d66dd0470",
+  "deploymentBlock": 13260279,
+  "deploymentNonce": 0,
+  "gasUsed": "7023559",
+  "effectiveGasPriceWei": "107",
+  "verification": {
+    "creationCodeAndConstructorArgs": true,
+    "tokenManagers": true,
+    "initialRoles": true,
+    "contractVersion": true
+  },
+  "verifiedDate": "2026-10-21"
+}

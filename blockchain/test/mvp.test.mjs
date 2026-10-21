@@ -19,6 +19,9 @@ async function fixture(t) {
   const nft = new Contract(await manager.rwaToken(), artifacts.IPLoanRWAToken.abi, provider);
   return { provider, admin, borrower, evaluator, bank, outsider, manager, sbt, nft };
 }
+// tokenURI is base64 JSON whose image is a base64 SVG card drawn on chain.
+const decode = uri => JSON.parse(Buffer.from(uri.split(',')[1], 'base64').toString());
+const card = metadata => { assert.match(metadata.image, /^data:image\/svg\+xml;base64,/); return Buffer.from(metadata.image.split(',')[1], 'base64').toString(); };
 async function submit(f, key=appKey, amount=70n) {
   return (await f.manager.connect(f.borrower).submitApplication(key, cid, hash, amount, f.evaluator.address)).wait();
 }
@@ -44,6 +47,11 @@ test('submission creates record and evaluator SBT but no RWA token', async t => 
   assert.equal(await f.sbt.locked(a.tokenId), true); assert.equal(await f.sbt.supportsInterface('0xb45a3c0e'), true);
   assert.equal(await f.nft.balanceOf(f.bank.address), 0n);
   assert.equal(receipt.logs.filter(l=>l.topics[0]===id('Transfer(address,address,uint256)')).length, 1);
+  const access = decode(await f.sbt.tokenURI(a.tokenId));
+  assert.equal(access.name, 'IP Loan Appraisal Access #1'); assert.equal(access.cid, cid); assert.ok(!('amount' in access));
+  assert.deepEqual(access.attributes.map(x => x.value), ['평가 중', '70']);
+  const svg = card(access);
+  for (const text of ['Appraisal #1', '평가 중', '70원', '0x' + hash.slice(2, 8) + '…' + hash.slice(-4), '평가 확정 시 소각']) assert.ok(svg.includes(text), text);
 });
 test('wrong role and malformed submission cannot create application', async t => {
   const f = await fixture(t);
@@ -99,13 +107,19 @@ test('final approval records the loan agreement terms with the RWA token', async
   assert.equal(a.approvedAt,BigInt((await f.provider.getBlock(receipt.blockNumber)).timestamp));
   const event=receipt.logs.map(l=>{try{return f.manager.interface.parseLog(l);}catch{return null;}}).find(e=>e?.name==='FinalApproved');
   assert.deepEqual([event.args.creditGrade,event.args.rateBps,event.args.termMonths,event.args.rwaTokenId],['BB+',415n,24n,1n]);
-  const metadata=JSON.parse(Buffer.from((await f.nft.tokenURI(1)).split(',')[1],'base64').toString());
+  const metadata=decode(await f.nft.tokenURI(1));
   assert.equal(metadata.name,'IP Loan RWA #1'); assert.equal(metadata.creditGrade,'BB+'); assert.equal(metadata.rateBps,415);
+  const svg=card(metadata);
+  for (const text of ['IP Loan #1','약정 체결','70원','100원','70.0%','BB+','4.15% · 24개월','상환 0원','width="0"']) assert.ok(svg.includes(text), text);
+  assert.deepEqual(metadata.attributes.map(x=>x.value),['약정 체결','70','100','70.0%','BB+','4.15% · 24개월','0']);
   assert.equal(metadata.termMonths,24); assert.equal(metadata.reportCid,reportCid); assert.equal(metadata.reportHash,reportHash);
   assert.equal(metadata.appraisedValue,'100'); assert.equal(metadata.amount,'70');
   assert.equal(await f.nft.name(),'IP Loan RWA Token'); assert.equal(await f.nft.symbol(),'IPRWA');
-  // The runtime must stay deployable under the EIP-170 code size limit.
-  assert.ok((await f.provider.getCode(await f.manager.getAddress())).length/2-1 <= 24576);
+  // Runtime code stays under EIP-170, the one deploy transaction under EIP-3860 and Mustsem's 30M block gas limit.
+  for (const address of [await f.manager.getAddress(), await f.manager.art()]) assert.ok((await f.provider.getCode(address)).length/2-1 <= 24576);
+  assert.ok((artifacts.IPLoanManager.bytecode.length-2)/2 <= 49152);
+  const deployment=await f.provider.getTransactionReceipt(f.manager.deploymentTransaction().hash);
+  assert.ok(deployment.gasUsed < 15_000_000n, String(deployment.gasUsed));
 });
 test('bank final rejection creates no RWA token and cannot be reversed to approval', async t => {
   const f=await fixture(t); await submit(f); await evaluate(f);
@@ -127,8 +141,10 @@ test('partial and full repayment update record and metadata while keeping bank N
   await (await f.manager.connect(f.bank).recordRepayment(appKey,50,id('REP-2'))).wait();
   a=await f.manager.getApplication(appKey); assert.equal(a.repaidAmount,70n); assert.equal(a.status,6n);
   assert.equal(await f.nft.ownerOf(1),f.bank.address); assert.equal(await f.provider.getBalance(await f.manager.getAddress()),0n);
-  const metadata=JSON.parse(Buffer.from((await f.nft.tokenURI(1)).split(',')[1],'base64').toString());
+  const metadata=decode(await f.nft.tokenURI(1));
   assert.equal(metadata.repaidAmount,'70'); assert.equal(metadata.cid,cid);
+  const svg=card(metadata);
+  for (const text of ['상환 완료','상환 70원','100%','width="428"','#12324A']) assert.ok(svg.includes(text), text);
   assert.equal(metadata.status,6); assert.ok(!('docKey' in metadata));
   assert.equal((await f.manager.queryFilter(f.manager.filters.RepaymentRecorded())).length,2);
 });
