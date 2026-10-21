@@ -1,5 +1,5 @@
 const LOCAL_ADMIN = ['127.0.0.1', 'localhost'].includes(location.hostname);
-const ADMIN_API = LOCAL_ADMIN ? 'http://127.0.0.1:5001/api' : 'https://iploan-api.mustree.kr/api';
+const ADMIN_API = globalThis.IPLOAN_API_BASE || (LOCAL_ADMIN ? 'http://127.0.0.1:5001/api' : 'https://iploan-api.mustree.kr/api');
 let deploying = false, deployedAddress = null;
 const result = document.getElementById('adminResult');
 const el = id => document.getElementById(id);

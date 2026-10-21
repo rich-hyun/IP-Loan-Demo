@@ -61,6 +61,8 @@ server/venv/Scripts/python.exe -m http.server 8001 --bind 127.0.0.1
 
 ### 격리된 브라우저 QA
 
+실제 MetaMask·IPFS·평가 API를 함께 사용할 로컬 실행은 저장소 루트의 `start-local.ps1`과 `LOCAL_RUN.md`를 사용한다. 기본 주소는 8003이고 이 모드는 지갑·IPFS·평가 클라이언트를 교체하지 않는다. 아래 QA 도구는 자동화 테스트 전용이다.
+
 ```powershell
 cd blockchain
 node scripts/workflow-qa.mjs
