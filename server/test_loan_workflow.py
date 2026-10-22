@@ -427,6 +427,36 @@ class LoanWorkflowTests(unittest.TestCase):
         self.assertEqual(23_456_789, evaluation['autoValue'])
         self.assertEqual('BB-', evaluation['creditRating'])
 
+    def stored_payload(self, report_hash):
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            return json.loads(db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (report_hash,)).fetchone()[0])
+
+    def test_reviewed_report_hash_covers_credit_grade_and_financial_checks(self):
+        self.result = self.summary_job()
+        app_id = self.create().json['id']
+        report = self.prepare(app_id, value=23_456_789)
+        self.assertEqual(200, report.status_code, report.get_data(as_text=True))
+        payload = self.stored_payload(report.json['hash'])
+        self.assertEqual('BB-', payload['creditRating'])
+        self.assertEqual({'key': 'capital', 'year': 2025, 'result': 'fail', 'observed': '자본잠식 (자본총계 -506백만원)'},
+                         payload['financialChecks'][0])
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute("UPDATE loan_evaluations SET creditRating='AAA', financials='[]' WHERE appId=?", (app_id,))
+        self.assertEqual(report.json['hash'], self.prepare(app_id, value=23_456_789).json['hash'])
+
+    def test_review_prepared_before_the_summary_keeps_its_hash_on_retry(self):
+        app_id = self.completed()
+        report = self.prepare(app_id)
+        legacy = {k: v for k, v in self.stored_payload(report.json['hash']).items() if k not in ('creditRating', 'financialChecks')}
+        legacy_payload = workflow.canonical(legacy)
+        legacy_hash = '0x' + hashlib.sha256(legacy_payload.encode()).hexdigest()
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute('UPDATE evaluation_reports SET hash=?, payload=? WHERE hash=?', (legacy_hash, legacy_payload, report.json['hash']))
+            db.execute("UPDATE loan_evaluations SET preparedHash=?, creditRating='BB' WHERE appId=?", (legacy_hash, app_id))
+        retry = self.prepare(app_id)
+        self.assertEqual(200, retry.status_code, retry.get_data(as_text=True))
+        self.assertEqual(legacy_hash, retry.json['hash'])
+
     def test_actual_template_html_value_is_cached_bound_and_provided_to_reviewer(self):
         self.result = {'job_id': 'html-money', 'status': 'completed', 'artifacts': {'html': '/html'}}
         html = '<table><tr><th>IP 가치금액</th><td>1.25억 원<span>기준 시나리오</span></td></tr></table>'.encode()

@@ -381,6 +381,15 @@ def prepare(native, application, data):
               'sourceReportKind': kind, 'autoValue': row['autoValue'], 'appraisedValue': value,
               'autoValueSource': row['valueSource'], 'autoValueReportHash': row['valueReportHash'],
               'reviewer': reviewer, 'reviewerNote': note.strip(), 'policy': 'v2-contract-demo-ltv-70-percent'}
+    # The report's credit grade and financial check results as reviewed. A retry repeats what was first prepared
+    # (nothing, for a review prepared before these were kept) so the same review keeps the same hash.
+    prior = db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (row['preparedHash'],)).fetchone() if row['preparedHash'] else None
+    if prior:
+        report.update({k: v for k, v in json.loads(prior['payload']).items() if k in ('creditRating', 'financialChecks')})
+    else:
+        checks = financial_checks(json.loads(row['financials'] or '[]'))
+        report.update(creditRating=row['creditRating'], financialChecks=[
+            {k: check[k] for k in ('key', 'year', 'result', 'observed')} for check in checks])
     payload = canonical(report)
     report_hash = '0x' + hashlib.sha256(payload.encode()).hexdigest()
     bank = native.assign_bank(application) if native.chain.eligible(application['amount'], value) else None
