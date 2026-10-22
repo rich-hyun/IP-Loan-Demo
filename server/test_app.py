@@ -385,17 +385,39 @@ class V3ApiTest(unittest.TestCase):
         self.stage = {"chainStatus": "Eligible"}
         self.assertEqual(409, self.prepare(created["id"])[0].status_code)
 
-    def test_sync_records_chain_terms_and_registered_report_is_hash_verified(self):
+    def test_sync_resolves_the_agreed_terms_by_hash_and_registered_report_is_hash_verified(self):
         created = self.apply()
         self.stage = {"chainStatus": "Evaluating"}
         self.complete_job(created["id"])
         report = self.prepare(created["id"])[0].get_json()
-        self.stage = {"chainStatus": "Approved", "chainBlock": 9, "sbtTokenId": "1", "rwaTokenId": "1",
-                      "reportCid": report["cid"], "reportHash": report["hash"], "appraisedValue": 100, "repaidAmount": 0,
-                      "creditGrade": "CC", "rateBps": 430, "approvedTermMonths": 24, "approvedAt": 1760000000}
+        path, terms = f"/applications/{created['id']}/loan-terms", {"creditGrade": "cc", "rateBps": 430, "termMonths": 24}
+        self.assertEqual(409, self.post(path, "bank", json=terms).status_code)  # not yet past the 70% rule
+        self.stage = {"chainStatus": "Eligible"}
+        for bad in ({**terms, "creditGrade": "C C"}, {**terms, "rateBps": 0}, {**terms, "termMonths": "24"}, {**terms, "rateBps": 4.3}):
+            self.assertEqual(400, self.post(path, "bank", json=bad).status_code, bad)
+        self.assertEqual(403, self.post(path, "evaluator", json=terms).status_code)
+        prepared = self.post(path, "bank", json=terms)
+        self.assertEqual(201, prepared.status_code, prepared.get_json())
+        terms_hash = prepared.get_json()["termsHash"]
+        self.assertEqual(terms_hash, self.post(path, "bank", json=terms).get_json()["termsHash"])  # a retry signs the same hash
+        self.assertNotEqual(terms_hash, self.post(path, "bank", json={**terms, "rateBps": 431}).get_json()["termsHash"])
+        plain = json.dumps({"appKey": created["appKey"], "creditGrade": "CC", "rateBps": 430, "termMonths": 24},
+                           sort_keys=True, separators=(",", ":")).encode()
+        self.assertNotEqual("0x" + hashlib.sha256(plain).hexdigest(), terms_hash)  # salted, so not guessable from the terms
+        approved = {"chainStatus": "Approved", "chainBlock": 9, "sbtTokenId": "1", "rwaTokenId": "1",
+                    "reportCid": report["cid"], "reportHash": report["hash"], "appraisedValue": 100, "repaidAmount": 0,
+                    "termsHash": "0x" + "2" * 64, "approvedAt": 1760000000}
+        self.stage = approved
+        self.assertEqual(409, self.post(f"/applications/{created['id']}/sync", "bank").status_code)  # terms never prepared here
+        self.stage = {**approved, "termsHash": terms_hash}
         synced = self.post(f"/applications/{created['id']}/sync", "bank", json={"status": "repaid"}).get_json()
-        self.assertEqual(("approved", "CC", 430, 24, "1", 70), (synced["status"], synced["creditGrade"], synced["rateBps"],
-                                                                 synced["approvedTermMonths"], synced["rwaTokenId"], synced["ltv"]))
+        self.assertEqual(("approved", "CC", 430, 24, "1", 70, terms_hash),
+                         (synced["status"], synced["creditGrade"], synced["rateBps"], synced["approvedTermMonths"],
+                          synced["rwaTokenId"], synced["ltv"], synced["termsHash"]))
+        seen = {who: next(a for a in self.get("/applications", who).get_json() if a["id"] == created["id"])
+                for who in ("borrower", "evaluator", "admin")}
+        self.assertEqual(("CC", None, "CC"), tuple(seen[who].get("creditGrade") for who in ("borrower", "evaluator", "admin")))
+        self.assertNotIn("rateBps", seen["evaluator"])
         self.assertEqual({"kind": "pdf", "note": "근거 확인"}, synced["evaluationReport"])
         document = self.get(f"/applications/{created['id']}/evaluation-report/document", "borrower")
         self.assertEqual((200, REPORT), (document.status_code, document.data))
@@ -449,6 +471,9 @@ class V3ApiTest(unittest.TestCase):
         self.stage = {"chainStatus": "Evaluating"}
         self.complete_job(app_id)
         self.assertEqual(201, self.prepare(app_id)[0].status_code)
+        self.stage = {"chainStatus": "Eligible"}
+        terms = {"creditGrade": "BB", "rateBps": 430, "termMonths": 12}
+        self.assertEqual(201, self.post(f"/applications/{app_id}/loan-terms", "bank", json=terms).status_code)
         stored = app_module.UPLOAD_DIR / self.row(app_id)["patentStoredName"]
         self.assertTrue(stored.exists())
         self.assertEqual(403, self.client.delete(f"/api/applications/{app_id}", headers=self.login("borrower")).status_code)
@@ -458,7 +483,8 @@ class V3ApiTest(unittest.TestCase):
         self.assertEqual([], self.get("/applications", "admin").get_json())
         self.assertFalse(stored.exists())
         with sqlite3.connect(app_module.DB_PATH) as conn:
-            for table, column in (("applications", "id"), ("evaluation_jobs", "appId"), ("evaluation_reports", "applicationId")):
+            for table, column in (("applications", "id"), ("evaluation_jobs", "appId"), ("evaluation_reports", "applicationId"),
+                                  ("loan_terms", "applicationId")):
                 self.assertEqual(0, conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (app_id,)).fetchone()[0], table)
             log = conn.execute("SELECT id, appKey, deletedBy FROM deleted_applications").fetchall()
         self.assertEqual([(app_id, created["appKey"], ADDRESS["admin"])], log)

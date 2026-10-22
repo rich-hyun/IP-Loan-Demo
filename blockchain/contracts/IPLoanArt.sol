@@ -4,7 +4,8 @@ import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /// Token metadata with an on-chain SVG card, so wallets show each loan without any off-chain image host.
-/// Every string drawn here is validated by the Manager (CIDs alphanumeric, grades A-Z/+/-), so nothing needs escaping.
+/// Every string drawn here is validated by the Manager (CIDs alphanumeric), so nothing needs escaping.
+/// Loan terms appear only as their hash: the credit grade, rate and term are confidential.
 contract IPLoanArt {
     using Strings for uint256;
     struct Card {
@@ -14,9 +15,7 @@ contract IPLoanArt {
         uint256 amount;
         uint256 appraisedValue;
         uint256 repaidAmount;
-        string creditGrade;
-        uint256 rateBps;
-        uint256 termMonths;
+        bytes32 termsHash;
         uint256 approvedAt;
         string docCid;
         bytes32 fileHash;
@@ -31,8 +30,7 @@ contract IPLoanArt {
         if (c.rwa) {
             json = string.concat(json, ',"amount":"', c.amount.toString(), '","appraisedValue":"', c.appraisedValue.toString(),
                 '","reportCid":"', c.reportCid, '","reportHash":"', Strings.toHexString(uint256(c.reportHash), 32),
-                '","creditGrade":"', c.creditGrade, '","rateBps":', c.rateBps.toString(), ',"termMonths":', c.termMonths.toString(),
-                ',"approvedAt":', c.approvedAt.toString());
+                '","termsHash":"', Strings.toHexString(uint256(c.termsHash), 32), '","approvedAt":', c.approvedAt.toString());
         }
         json = string.concat(json, ',"description":"', c.rwa
                 ? unicode"IP 담보대출 시범 서비스의 대출약정 RWA 토큰입니다. 실제 자금 이동과 법적 채권 효력은 없으며, 서류·보고서 원본은 암호화되어 IPFS에 있습니다."
@@ -46,9 +44,8 @@ contract IPLoanArt {
             '"},{"trait_type":"', c.rwa ? unicode"약정 금액(원)" : unicode"신청 금액(원)", '","value":"', c.amount.toString(), '"}');
         if (c.rwa) {
             list = string.concat(list, ',{"trait_type":"', unicode"평가액(원)", '","value":"', c.appraisedValue.toString(),
-                '"},{"trait_type":"', unicode"담보인정비율", '","value":"', _ltv(c), '"},{"trait_type":"', unicode"신용등급",
-                '","value":"', _grade(c), '"},{"trait_type":"', unicode"금리·기간",
-                '","value":"', _terms(c), '"},{"trait_type":"', unicode"상환액(원)", '","value":"', c.repaidAmount.toString(), '"}');
+                '"},{"trait_type":"', unicode"담보인정비율", '","value":"', _ltv(c), '"},{"trait_type":"', unicode"약정 조건 해시",
+                '","value":"', _hashOrDash(c.termsHash), '"},{"trait_type":"', unicode"상환액(원)", '","value":"', c.repaidAmount.toString(), '"}');
         }
         return string.concat(list, "]");
     }
@@ -85,7 +82,8 @@ contract IPLoanArt {
         uint256 percent = c.amount == 0 ? 0 : c.repaidAmount * 100 / c.amount;
         return string.concat(svg,
             _box(36, 268, unicode"확정 평가액", string.concat(_commas(c.appraisedValue), unicode"원")), _box(258, 268, unicode"담보인정비율", _ltv(c)),
-            _box(36, 346, unicode"신용등급", _grade(c)), _box(258, 346, unicode"금리 · 기간", _terms(c)),
+            _box(36, 346, unicode"약정 조건 해시", _hashOrDash(c.termsHash)),
+            _box(258, 346, unicode"남은 원금", string.concat(_commas(c.amount - c.repaidAmount), unicode"원")),
             '<rect x="36" y="430" width="428" height="10" rx="5" fill="#fff" fill-opacity=".2"/><rect x="36" y="430" width="',
             (c.amount == 0 ? 0 : 428 * c.repaidAmount / c.amount).toString(), '" height="10" rx="5" fill="#E0A100"/>',
             '<text x="36" y="466" fill="#fff" fill-opacity=".8" font-size="13">', unicode"상환 ", _commas(c.repaidAmount), unicode"원",
@@ -124,16 +122,8 @@ contract IPLoanArt {
         return string.concat((tenths / 10).toString(), ".", (tenths % 10).toString(), "%");
     }
 
-    function _terms(Card calldata c) private pure returns (string memory) {
-        if (c.rateBps == 0) return "-";
-        uint256 cents = c.rateBps % 100;
-        return string.concat((c.rateBps / 100).toString(), cents < 10 ? ".0" : ".", cents.toString(), unicode"% · ",
-            c.termMonths.toString(), unicode"개월");
-    }
-
-    function _grade(Card calldata c) private pure returns (string memory) {
-        if (bytes(c.creditGrade).length == 0) return "-";
-        return c.creditGrade;
+    function _hashOrDash(bytes32 hash) private pure returns (string memory) {
+        return hash == bytes32(0) ? "-" : _short(hash);
     }
 
     function _commas(uint256 value) private pure returns (string memory) {

@@ -1,4 +1,5 @@
 {
+  "retired": "2026-10-22: this build wrote the credit grade, rate and term in plaintext at final approval. Replaced by a redeploy that records only their salted hash; do not point the API here.",
   "network": "Mustsem",
   "chainId": 7601,
   "rpcUrl": "https://block.mustree.kr",

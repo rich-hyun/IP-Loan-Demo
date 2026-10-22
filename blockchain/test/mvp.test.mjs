@@ -28,7 +28,7 @@ async function submit(f, key=appKey, amount=70n) {
 async function evaluate(f, value=100n, key=appKey, bank=f.bank.address) {
   return (await f.manager.connect(f.evaluator).confirmEvaluation(key, reportCid, reportHash, value, bank)).wait();
 }
-const terms = ['CC', 430, 12];
+const terms = [id('salted loan terms')];
 async function approve(f, key=appKey) {
   return (await f.manager.connect(f.bank).finalApprove(key, ...terms)).wait();
 }
@@ -97,22 +97,24 @@ test('only assigned bank/reviewer may approve; RWA token is minted to that same 
   assert.equal(await f.nft.ownerOf(1),f.bank.address); assert.equal((await f.manager.getApplication(appKey)).status,4n);
   await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey,...terms),'WrongStage');
 });
-test('final approval records the loan agreement terms with the RWA token', async t => {
+test('final approval fixes only the hash of the confidential loan terms, with the RWA token', async t => {
   const f=await fixture(t); await submit(f); await evaluate(f);
-  for (const bad of [['',430,12],['cc',430,12],['CCC+AA-B9',430,12],['ABCDEFGHI',430,12],['C C',430,12],['CC',0,12],['CC',10001,12],['CC',430,0],['CC',430,601]])
-    await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey,...bad),'InvalidInput');
-  const receipt=await (await f.manager.connect(f.bank).finalApprove(appKey,'BB+',415,24)).wait();
+  await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey,ZeroHash),'InvalidInput');
+  const termsHash=id('salt + BB+ 4.15% 24 months'), short=termsHash.slice(0,8)+'…'+termsHash.slice(-4);
+  const receipt=await (await f.manager.connect(f.bank).finalApprove(appKey,termsHash)).wait();
   const a=await f.manager.getApplication(appKey);
-  assert.equal(a.creditGrade,'BB+'); assert.equal(a.rateBps,415n); assert.equal(a.termMonths,24n);
+  assert.equal(a.termsHash,termsHash);
   assert.equal(a.approvedAt,BigInt((await f.provider.getBlock(receipt.blockNumber)).timestamp));
   const event=receipt.logs.map(l=>{try{return f.manager.interface.parseLog(l);}catch{return null;}}).find(e=>e?.name==='FinalApproved');
-  assert.deepEqual([event.args.creditGrade,event.args.rateBps,event.args.termMonths,event.args.rwaTokenId],['BB+',415n,24n,1n]);
+  assert.deepEqual([event.args.termsHash,event.args.rwaTokenId],[termsHash,1n]);
   const metadata=decode(await f.nft.tokenURI(1));
-  assert.equal(metadata.name,'IP Loan RWA #1'); assert.equal(metadata.creditGrade,'BB+'); assert.equal(metadata.rateBps,415);
+  assert.equal(metadata.name,'IP Loan RWA #1'); assert.equal(metadata.termsHash,termsHash);
+  for (const key of ['creditGrade','rateBps','termMonths']) assert.ok(!(key in metadata), key);
   const svg=card(metadata);
-  for (const text of ['IP Loan #1','약정 체결','70원','100원','70.0%','BB+','4.15% · 24개월','상환 0원','width="0"']) assert.ok(svg.includes(text), text);
-  assert.deepEqual(metadata.attributes.map(x=>x.value),['약정 체결','70','100','70.0%','BB+','4.15% · 24개월','0']);
-  assert.equal(metadata.termMonths,24); assert.equal(metadata.reportCid,reportCid); assert.equal(metadata.reportHash,reportHash);
+  for (const text of ['IP Loan #1','약정 체결','70원','100원','70.0%','약정 조건 해시',short,'남은 원금','상환 0원','width="0"']) assert.ok(svg.includes(text), text);
+  assert.ok(!/신용등급|금리|개월/.test(svg));
+  assert.deepEqual(metadata.attributes.map(x=>x.value),['약정 체결','70','100','70.0%',short,'0']);
+  assert.equal(metadata.reportCid,reportCid); assert.equal(metadata.reportHash,reportHash);
   assert.equal(metadata.appraisedValue,'100'); assert.equal(metadata.amount,'70');
   assert.equal(await f.nft.name(),'IP Loan RWA Token'); assert.equal(await f.nft.symbol(),'IPRWA');
   // Runtime code stays under EIP-170, the one deploy transaction under EIP-3860 and Mustsem's 30M block gas limit.

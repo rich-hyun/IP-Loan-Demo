@@ -11,7 +11,7 @@ MANAGER_ADDRESS = os.environ.get("IPLOAN_MANAGER_ADDRESS", "").strip()
 ARTIFACT = Path(__file__).resolve().parents[1] / "blockchain/artifacts/IPLoanManager.json"
 TOKEN_ABI = [{"type": "function", "name": "ownerOf", "stateMutability": "view", "inputs": [{"name": "tokenId", "type": "uint256"}], "outputs": [{"name": "owner", "type": "address"}]}]
 FIELDS = ["borrower", "docCid", "fileHash", "amount", "reportCid", "reportHash", "appraisedValue", "tokenId", "repaidAmount", "status",
-          "evaluator", "bank", "creditGrade", "rateBps", "termMonths", "approvedAt"]
+          "evaluator", "bank", "termsHash", "approvedAt"]
 CONTRACT_VERSION = 3
 ROLE_NAMES = {"BORROWER_ROLE": "borrower", "EVALUATOR_ROLE": "evaluator", "BANK_ROLE": "bank"}
 ADMIN_ROLE_ID = b"\x00" * 32
@@ -175,14 +175,12 @@ def snapshot(application):
                 raise ChainError("RWA 토큰 소유자가 은행 주소와 다릅니다.")
         result = {} if status != 3 else {"bankWallet": None}  # a rule rejection clears a bank prepared for an earlier draft
         approved = status in (4, 6)
-        # Loan agreement terms exist only once the bank has approved on chain.
+        # The agreement exists only once the bank has approved on chain; the chain holds just the hash of its terms.
         return {**result, "chainStatus": STAGES[status], "chainBlock": block, "sbtTokenId": str(token_id),
                 "rwaTokenId": str(token_id) if approved else None,
                 "reportCid": record["reportCid"], "reportHash": Web3.to_hex(record["reportHash"]),
                 "appraisedValue": record["appraisedValue"], "repaidAmount": record["repaidAmount"],
-                "creditGrade": record["creditGrade"] if approved else None,
-                "rateBps": record["rateBps"] if approved else None,
-                "approvedTermMonths": record["termMonths"] if approved else None,
+                "termsHash": Web3.to_hex(record["termsHash"]) if approved else None,
                 "approvedAt": record["approvedAt"] if approved else None}
     except ChainError:
         raise

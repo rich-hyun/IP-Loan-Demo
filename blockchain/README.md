@@ -6,10 +6,11 @@
 ## 1. 계약과 지갑
 
 Solidity 0.8.24, EVM Paris, optimizer 200, viaIR 설정을 사용한다.
-서버는 v3 계약(`contractVersion() == 3`)에만 연결한다. v3는 최종 승인 때 신용등급·금리·기간을 대출약정으로 기록하고
-담당 은행 지갑에 RWA 토큰(IPLoanRWAToken, IPRWA)을 발급한다.
+서버는 v3 계약(`contractVersion() == 3`)에만 연결한다. v3는 최종 승인 때 대출약정을 기록하고
+담당 은행 지갑에 RWA 토큰(IPLoanRWAToken, IPRWA)을 발급한다. 신용등급·금리·기간은 비공개 정보라
+서버가 무작위 salt와 함께 보관하고, 체인에는 그 해시(`termsHash`)만 기록한다.
 평가 SBT와 RWA 토큰의 메타데이터에는 계약(IPLoanArt)이 그린 카드 그림(SVG)이 들어 있어 지갑의 NFT 화면에 보인다.
-금액·평가액·담보인정비율·신용등급·금리·기간·상환 진행률과 상태가 표시되고, 외부 이미지 서버는 쓰지 않는다.
+금액·평가액·담보인정비율·약정 조건 해시·남은 원금·상환 진행률과 상태가 표시되고, 외부 이미지 서버는 쓰지 않는다.
 
 v3 배포는 관리자 지갑으로 로컬에서 한다. 계약 주소 없이 API를 띄워야 배포 버튼이 동작한다(2장 설치·컴파일 후).
 
@@ -28,7 +29,8 @@ admin.html의 첫 평가사·은행 기본값이 이 주소이고, 배포한 지
 admin.html에서 관리자 지갑으로 "새 v3 계약 배포"를 승인한다. 결과의 Manager·SBT·RWA 토큰·NFT 그림 주소와 거래 해시를
 deployments/에 새 파일로 기록한다. 이후 API를 v3 주소로 다시 시작하고 차주·평가사·은행 주소에 역할을 다시 부여한다.
 
-2026-10-21 배포한 v3 계약은 deployments/mustsem-v3.json(Manager 0x7428932Dd3542657139ff9d560250b0ef5b6E50E)에 기록했다.
+2026-10-21 배포분(Manager 0x7428932Dd3542657139ff9d560250b0ef5b6E50E)은 약정 조건을 평문으로 기록하는 빌드라 폐기했다
+(deployments/mustsem-v3-retired-20261021.json). 재배포한 계약은 deployments/mustsem-v3.json에 기록한다.
 이전 v2 계약(deployments/mustsem.json, Manager 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38)은 기록으로 남긴다.
 v2에 등록된 신청은 v3 서버에서 열람만 할 수 있다. deployments/sepolia.json은 그 이전 단일 담당자 계약의 기록이다.
 

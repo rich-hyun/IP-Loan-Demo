@@ -1008,7 +1008,7 @@ function loadReviewCase(id) {
       ${financialSectionHTML(app)}
       ${eligible ? `<form class="decision-form" id="loanTermsForm" data-app-id="${escapeHtml(app.id)}">
         <div class="form-section-heading"><span>✓</span><h4>대출약정 조건</h4></div>
-        <p>입력한 조건은 최종 승인 거래로 블록체인에 기록되며 수정할 수 없습니다. 승인과 함께 이 은행 지갑에 RWA 토큰이 발급됩니다.</p>
+        <p>약정 조건은 내용 대신 해시로 블록체인에 기록되며 수정할 수 없습니다. 승인과 함께 이 은행 지갑에 RWA 토큰이 발급됩니다.</p>
         <div class="form-grid">
           <div class="field"><label for="creditGrade">신용등급<span class="req">*</span></label>
             <input id="creditGrade" maxlength="8" placeholder="예: BBB+" autocomplete="off" value="${escapeHtml(app.evaluation?.credit_rating || '')}" required>
@@ -1089,6 +1089,8 @@ async function finalChainDecision(id, yes) {
   } else if (!confirm('이 신청을 최종 거절할까요? 되돌릴 수 없습니다.')) return;
   chainOperationBusy = true;
   try {
+    // The server keeps the terms and returns the hash that the approval records on chain.
+    if (yes) terms = await api(`/applications/${encodeURIComponent(id)}/loan-terms`, { method: 'POST', body: JSON.stringify(terms) });
     upsertApplication(await IPLoanChain.approve(app, yes, terms));
     renderAll(); loadReviewCase(id);
     showToast(yes ? '대출약정 체결 · RWA 토큰 발급 완료' : '최종 거절을 기록했습니다');

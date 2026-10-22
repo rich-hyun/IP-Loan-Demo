@@ -229,9 +229,10 @@ globalThis.IPLoanChain = (() => {
     const bank = report.bankWallet || ethers.ZeroAddress;
     return execute(app, 'evaluate', 'confirmEvaluation', [app.appKey, report.cid, report.hash, BigInt(report.appraisedValue), bank], 'EVALUATOR_ROLE', app.evaluatorWallet);
   }
-  // Approval creates the loan agreement on chain: credit grade, rate in basis points and term, plus the bank's RWA token.
+  // Approval creates the loan agreement on chain and the bank's RWA token. The credit grade, rate and term are
+  // confidential, so the chain gets only the salted hash the server prepared for them.
   async function approve(app, yes, terms = null) {
-    const args = yes ? [app.appKey, terms.creditGrade, BigInt(terms.rateBps), BigInt(terms.termMonths)] : [app.appKey];
+    const args = yes ? [app.appKey, terms.termsHash] : [app.appKey];
     return execute(app, yes ? 'approve' : 'reject', yes ? 'finalApprove' : 'finalReject', args, 'BANK_ROLE', app.bankWallet);
   }
   async function repay(app, amount, reference) {

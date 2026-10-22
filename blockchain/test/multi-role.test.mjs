@@ -166,8 +166,12 @@ test('multi-role: evaluator assigned at application, bank at passing evaluation;
   await reverts(v2.connect(evalA).confirmEvaluation.staticCall(L2.appKey,r2.cid,r2.hash,100,bankB.address),'WrongEvaluator');
   await confirm(L2,evalB,await prepared(L2)); await confirm(L3,evalA,r3);
   assert.equal((await synced(L2,'Eligible')).bankWallet,bankB.address); assert.equal((await synced(L3,'Eligible')).bankWallet,bankA.address);
-  await reverts(v2.connect(bankA).finalApprove.staticCall(L2.appKey,'CC',430,12),'WrongBank');
-  await (await v2.connect(bankB).finalApprove(L2.appKey,'CC',430,12)).wait(); await (await v2.connect(bankA).finalApprove(L3.appKey,'BB',390,24)).wait();
+  // Only the assigned bank prepares the terms; the chain gets their hash.
+  const terms=async(a,bank,body)=>{const r=await api(`/applications/${a.id}/loan-terms`,bank,body);assert.equal(r.response.status,201,JSON.stringify(r.data));return r.data.termsHash;};
+  assert.equal((await api(`/applications/${L2.id}/loan-terms`,bankA,{creditGrade:'CC',rateBps:430,termMonths:12})).response.status,404);
+  const h2=await terms(L2,bankB,{creditGrade:'CC',rateBps:430,termMonths:12}), h3=await terms(L3,bankA,{creditGrade:'BB',rateBps:390,termMonths:24});
+  await reverts(v2.connect(bankA).finalApprove.staticCall(L2.appKey,h2),'WrongBank');
+  await (await v2.connect(bankB).finalApprove(L2.appKey,h2)).wait(); await (await v2.connect(bankA).finalApprove(L3.appKey,h3)).wait();
   const a2=await synced(L2,'Approved'), a3=await synced(L3,'Approved');
   assert.equal(await rwa.ownerOf(a2.rwaTokenId),bankB.address); assert.equal(await rwa.ownerOf(a3.rwaTokenId),bankA.address);
   assert.deepEqual([a3.creditGrade,a3.rateBps,a3.approvedTermMonths],['BB',390,24]);

@@ -24,10 +24,9 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         Status status;
         address evaluator;
         address bank;
-        // Loan agreement fixed by the bank at final approval (v3).
-        string creditGrade;
-        uint256 rateBps;
-        uint256 termMonths;
+        // Loan agreement fixed by the bank at final approval (v3). Credit grade, rate and term are confidential,
+        // so only a salted hash of them is kept; the plaintext stays with the server.
+        bytes32 termsHash;
         uint256 approvedAt;
     }
     uint256 public constant contractVersion = 3;
@@ -47,7 +46,7 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
     error DuplicateRepayment();
     event Submitted(bytes32 indexed appKey, address indexed borrower, address indexed evaluator, uint256 tokenId, string cid, bytes32 fileHash, uint256 amount);
     event EvaluationConfirmed(bytes32 indexed appKey, string reportCid, bytes32 reportHash, uint256 value, bool eligible, address indexed bank);
-    event FinalApproved(bytes32 indexed appKey, address indexed bank, uint256 rwaTokenId, string creditGrade, uint256 rateBps, uint256 termMonths);
+    event FinalApproved(bytes32 indexed appKey, address indexed bank, uint256 rwaTokenId, bytes32 termsHash);
     event FinalRejected(bytes32 indexed appKey);
     event RepaymentRecorded(bytes32 indexed appKey, bytes32 indexed paymentRef, uint256 amount, uint256 total, bool fullyRepaid);
 
@@ -95,18 +94,17 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         accessSBT.burn(a.tokenId);
         emit EvaluationConfirmed(appKey, reportCid, reportHash, value, eligible, bank_);
     }
-    /// Creates the loan agreement: the reviewer's credit grade, the rate (basis points) and the term are
-    /// fixed on chain, and the RWA token is minted to the assigned bank in the same transaction.
-    function finalApprove(bytes32 appKey, string calldata creditGrade, uint256 rateBps, uint256 termMonths)
-        external onlyRole(BANK_ROLE) nonReentrant {
+    /// Creates the loan agreement: the hash of the agreed credit grade, rate and term is fixed on chain,
+    /// and the RWA token is minted to the assigned bank in the same transaction.
+    function finalApprove(bytes32 appKey, bytes32 termsHash) external onlyRole(BANK_ROLE) nonReentrant {
         Application storage a = _applications[appKey];
         if (a.status != Status.Eligible) revert WrongStage(appKey);
         if (msg.sender != a.bank) revert WrongBank();
-        if (!_validGrade(creditGrade) || rateBps == 0 || rateBps > 10000 || termMonths == 0 || termMonths > 600) revert InvalidInput();
+        if (termsHash == bytes32(0)) revert InvalidInput();
         a.status = Status.Approved;
-        (a.creditGrade, a.rateBps, a.termMonths, a.approvedAt) = (creditGrade, rateBps, termMonths, block.timestamp);
+        (a.termsHash, a.approvedAt) = (termsHash, block.timestamp);
         rwaToken.mint(a.bank, a.tokenId);
-        emit FinalApproved(appKey, a.bank, a.tokenId, creditGrade, rateBps, termMonths);
+        emit FinalApproved(appKey, a.bank, a.tokenId, termsHash);
     }
     function finalReject(bytes32 appKey) external onlyRole(BANK_ROLE) nonReentrant {
         Application storage a = _applications[appKey];
@@ -133,19 +131,9 @@ contract IPLoanManager is AccessControlEnumerable, ReentrancyGuard {
         Application storage a = _applications[applicationKey[tokenId]];
         if (a.status == Status.None) revert InvalidInput();
         return art.tokenURI(IPLoanArt.Card({tokenId: tokenId, rwa: rwa, status: uint8(a.status), amount: a.amount,
-            appraisedValue: a.appraisedValue, repaidAmount: a.repaidAmount, creditGrade: a.creditGrade, rateBps: a.rateBps,
-            termMonths: a.termMonths, approvedAt: a.approvedAt, docCid: a.docCid, fileHash: a.fileHash,
+            appraisedValue: a.appraisedValue, repaidAmount: a.repaidAmount, termsHash: a.termsHash,
+            approvedAt: a.approvedAt, docCid: a.docCid, fileHash: a.fileHash,
             reportCid: a.reportCid, reportHash: a.reportHash}));
-    }
-    // Letter grades such as AAA, BB+ or CC: 1-8 characters of A-Z, '+' or '-'.
-    function _validGrade(string calldata grade) private pure returns (bool) {
-        bytes memory v = bytes(grade);
-        if (v.length == 0 || v.length > 8) return false;
-        for (uint256 i; i < v.length; ++i) {
-            bytes1 c = v[i];
-            if (!((c >= 0x41 && c <= 0x5a) || c == 0x2b || c == 0x2d)) return false;
-        }
-        return true;
     }
     function _validCid(string calldata cid) private pure returns (bool) {
         bytes memory v = bytes(cid);

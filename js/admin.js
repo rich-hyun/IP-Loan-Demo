@@ -44,13 +44,14 @@ el('deployManager').onclick = () => action(async () => {
   const bank = ethers.getAddress(el('adminBank').value.trim());
   if ([evaluator, bank].includes(ethers.ZeroAddress) || evaluator === bank) throw new Error('평가사와 은행은 서로 다른 영주소가 아닌 주소여야 합니다.');
   const artifact = await getJSON('blockchain/artifacts/IPLoanManager.json');
-  // v3: evaluator fixed at submission, bank at a passing evaluation, loan terms (grade, rate, term) at final approval.
+  // v3: evaluator fixed at submission, bank at a passing evaluation, the hash of the loan terms at final approval.
   const inputs = name => artifact.abi.find(a => a.type === 'function' && a.name === name)?.inputs.length;
   if (!artifact.compiler?.version?.startsWith('0.8.24+') || artifact.compiler.evmVersion !== 'paris' || inputs('submitApplication') !== 5
-    || inputs('confirmEvaluation') !== 5 || inputs('finalApprove') !== 4) throw new Error('v3 대출약정 계약을 먼저 컴파일하세요.');
+    || inputs('confirmEvaluation') !== 5 || inputs('finalApprove') !== 2) throw new Error('v3 대출약정 계약을 먼저 컴파일하세요.');
   const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, ctx.signer);
   const request = await factory.getDeployTransaction(ctx.address, evaluator, bank);
-  const storageKey = `iploan-deployment:v3:7601:${ctx.address.toLowerCase()}`;
+  // Keyed by build: a pending deploy of this code is never sent twice, while a rebuilt contract starts fresh.
+  const storageKey = `iploan-deployment:v3:7601:${ctx.address.toLowerCase()}:${ethers.keccak256(artifact.bytecode).slice(2, 10)}`;
   const previous = JSON.parse(localStorage.getItem(storageKey) || 'null');
   if (previous) {
     const old = await ctx.provider.getTransaction(previous.txHash);

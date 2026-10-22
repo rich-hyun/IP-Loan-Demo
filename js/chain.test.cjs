@@ -218,10 +218,10 @@ test('transactions must come from the signed-in wallet', async () => {
   await assert.rejects(h.api.register(application), /로그인한 지갑/);
   assert.equal(h.state.sends, 0);
 });
-test('approval sends the loan agreement terms; rejection sends only the application key', async () => {
+test('approval sends only the hash of the loan terms; rejection sends only the application key', async () => {
   let h = await harness({ stage: 2 });
-  await h.api.approve({ ...application, bankWallet: wallet }, true, { creditGrade: 'CC', rateBps: 430, termMonths: 24 });
-  assert.deepEqual(h.state.sentArgs, ['0xkey', 'CC', 430n, 24n]);
+  await h.api.approve({ ...application, bankWallet: wallet }, true, { termsHash: '0xterms' });
+  assert.deepEqual(h.state.sentArgs, ['0xkey', '0xterms']);
   h = await harness({ stage: 2 });
   await h.api.approve({ ...application, bankWallet: wallet }, false);
   assert.deepEqual(h.state.sentArgs, ['0xkey']);

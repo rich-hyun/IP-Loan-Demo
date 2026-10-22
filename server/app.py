@@ -124,10 +124,14 @@ MIGRATION_COLUMNS = {
     "rateBps": "INTEGER",
     "approvedTermMonths": "INTEGER",
     "approvedAt": "INTEGER",
+    "termsHash": "TEXT",
 }
 
 # Never returned by the API: encryption material and the private upload file name.
 PRIVATE_FIELDS = {"docKey", "docSalt", "patentStoredName", "debtTokenId", "rate"}
+# The agreed loan terms are confidential: only the borrower, the bank and the administrator see them.
+AGREEMENT_FIELDS = {"creditGrade", "rateBps", "approvedTermMonths"}
+CREDIT_GRADE = re.compile(r"^[A-Z+-]{1,8}$")
 
 PROFILE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS borrower_profiles (
@@ -300,6 +304,10 @@ def init_db():
         conn.execute(PROFILE_SCHEMA)
         conn.execute(JOB_SCHEMA)
         conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
+        # Agreed credit grade, rate and term per prepared hash. The chain keeps only the salted hash.
+        conn.execute("CREATE TABLE IF NOT EXISTS loan_terms (hash TEXT PRIMARY KEY, applicationId TEXT NOT NULL, "
+                     "creditGrade TEXT NOT NULL, rateBps INTEGER NOT NULL, termMonths INTEGER NOT NULL, "
+                     "salt TEXT NOT NULL, createdAt TEXT NOT NULL)")
         # Who removed which application; no company or document data is kept.
         conn.execute("CREATE TABLE IF NOT EXISTS deleted_applications (id TEXT, appKey TEXT, managerAddress TEXT, "
                      "chainStatus TEXT, deletedBy TEXT NOT NULL, deletedAt TEXT NOT NULL)")
@@ -567,7 +575,8 @@ def auth_logout():
 # ---------------------------------------------------------------- 신청·기업 프로필
 
 def public_application(application, capacities):
-    public = {k: v for k, v in application.items() if k not in PRIVATE_FIELDS and v is not None}
+    hidden = PRIVATE_FIELDS if capacities & {"borrower", "bank", "admin"} else PRIVATE_FIELDS | AGREEMENT_FIELDS
+    public = {k: v for k, v in application.items() if k not in hidden and v is not None}
     if public.get("docFileName"):
         public["documents"] = [name for name in (application.get("docFileName"), application.get("patentFileName")) if name]
     public["access"] = sorted(capacities)
@@ -1033,6 +1042,12 @@ def sync_application(app_id):
                                       (app_id, state["reportHash"], state["reportCid"])).fetchone()
             if not report or report["value"] != state["appraisedValue"]:
                 raise chain.ChainError("체인의 평가보고서가 이 신청에서 준비한 보고서와 다릅니다.")
+        if stage in {"Approved", "Repaid"}:
+            terms = get_db().execute("SELECT * FROM loan_terms WHERE applicationId = ? AND hash = ?",
+                                     (app_id, state["termsHash"])).fetchone()
+            if not terms:
+                raise chain.ChainError("체인의 약정 조건이 이 신청에서 준비한 조건과 다릅니다.")
+            state.update(creditGrade=terms["creditGrade"], rateBps=terms["rateBps"], approvedTermMonths=terms["termMonths"])
         # Never accept caller-provided status, tokenId, repayment or a receipt as proof.
         state["status"] = CHAIN_TO_STATUS[stage]
         if state["appraisedValue"]:
@@ -1049,6 +1064,46 @@ def sync_application(app_id):
         return jsonify(application_response(app_id))
     except chain.ChainError as exc:
         return error_response(str(exc), 409, "chain_verification_failed")
+
+
+def terms_hash(application, salt, grade, rate_bps, term_months):
+    body = json.dumps({"appKey": application["appKey"], "creditGrade": grade, "rateBps": rate_bps, "termMonths": term_months},
+                      sort_keys=True, separators=(",", ":")).encode()
+    return "0x" + hashlib.sha256(salt + body).hexdigest()
+
+
+@app.route("/api/applications/<app_id>/loan-terms", methods=["POST"])
+@login_required
+def prepare_loan_terms(app_id):
+    """The bank's credit grade, rate and term stay here; finalApprove records only their hash.
+    The random salt keeps the few possible grade/rate/term combinations from being guessed from that hash."""
+    found, denied = load_application(app_id, "bank")
+    if denied:
+        return denied
+    application = found[0]
+    data = request.get_json(silent=True)
+    data = data if isinstance(data, dict) else {}
+    grade, rate, term = str(data.get("creditGrade") or "").strip().upper(), data.get("rateBps"), data.get("termMonths")
+    if not CREDIT_GRADE.match(grade) or type(rate) is not int or not 1 <= rate <= 10000 \
+            or type(term) is not int or not 1 <= term <= 600:
+        return error_response("신용등급·금리·기간을 확인해 주세요.", 400, "invalid_terms")
+    try:
+        if chain.snapshot(application)["chainStatus"] != "Eligible":
+            return error_response("약정 심사 중인 신청만 약정할 수 있습니다.", 409, "wrong_stage")
+    except chain.ChainError as exc:
+        return error_response(str(exc), 409, "chain_unavailable")
+    db = get_db()
+    # Retrying the same terms (e.g. after closing MetaMask) gives the same hash.
+    previous = db.execute("SELECT hash FROM loan_terms WHERE applicationId = ? AND creditGrade = ? AND rateBps = ? AND termMonths = ?",
+                          (app_id, grade, rate, term)).fetchone()
+    if previous:
+        return jsonify({"termsHash": previous["hash"]})
+    salt = secrets.token_bytes(32)
+    digest = terms_hash(application, salt, grade, rate, term)
+    db.execute("INSERT INTO loan_terms (hash, applicationId, creditGrade, rateBps, termMonths, salt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+               (digest, app_id, grade, rate, term, base64.b64encode(salt).decode("ascii"), timestamp()))
+    db.commit()
+    return jsonify({"termsHash": digest}), 201
 
 
 def assign_bank(application):
@@ -1170,6 +1225,7 @@ def delete_application(app_id):
     application = found[0]
     db = get_db()
     db.execute("DELETE FROM evaluation_reports WHERE applicationId = ?", (app_id,))
+    db.execute("DELETE FROM loan_terms WHERE applicationId = ?", (app_id,))
     db.execute("DELETE FROM evaluation_jobs WHERE appId = ?", (app_id,))
     db.execute("DELETE FROM applications WHERE id = ?", (app_id,))
     db.execute("INSERT INTO deleted_applications (id, appKey, managerAddress, chainStatus, deletedBy, deletedAt) VALUES (?, ?, ?, ?, ?, ?)",
