@@ -61,6 +61,34 @@ globalThis.LoanWorkflow = (() => {
     form.append('auth', JSON.stringify(await sign('create', '', manifest)));
   }
   function clearDraft() { sessionStorage.removeItem('iploan-workflow-request'); }
+  /* 보고서 요약의 최근 결산 재무(백만원)와 참고 점검. 값이 없으면 '-'이고 점검에서는 판정 불가다. */
+  const FINANCIAL_ROWS = [
+    ['매출액', 'revenue_krw'], ['영업이익', 'operating_income_krw'], ['당기순이익', 'net_income_krw'], ['자산총계', 'total_assets_krw'],
+    ['부채총계', 'total_liabilities_krw'], ['자본총계', 'total_equity_krw'], ['총차입금', 'total_borrowings_krw'], ['금융비용', 'finance_costs_krw'],
+    ['부채비율 (%)', 'debt_ratio_pct', true], ['유동비율 (%)', 'current_ratio_pct', true], ['차입금의존도 (%)', 'debt_dependency_pct', true],
+    ['이자보상배율 (배)', 'interest_coverage_times', true],
+  ];
+  const CHECK_RESULT = { pass: true, fail: false, unknown: null };
+  function millionCell(amount) {
+    if (amount == null) return NA_HTML;
+    const value = Math.round(amount / 1e6);
+    return (value === 0 ? 0 : value).toLocaleString('ko-KR');
+  }
+  const ratioCell = value => value == null ? NA_HTML : Number(value).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function financialHTML(evaluation) {
+    const esc = escapeHtml, rows = evaluation.financials || [];
+    const checks = (evaluation.financialChecks || []).map(check => reviewCheckHTML(
+      check.label, `${check.criterion}${check.year ? ` · ${check.year}년 결산` : ''}`,
+      check.result === 'unknown' ? '판정 불가 (자료 없음)' : check.observed, CHECK_RESULT[check.result])).join('');
+    const table = rows.length ? `<div class="table-wrap"><table class="data-table fin-table">
+        <thead><tr><th>항목 (백만원)</th>${rows.map(row => `<th>${esc(row.year)}년<span class="fin-date">${esc(row.fiscal_date || '결산일 미상')}${row.fiscal_date_assumed ? ' (추정)' : ''}</span></th>`).join('')}</tr></thead>
+        <tbody>${FINANCIAL_ROWS.map(([label, key, ratio]) => `<tr><td>${label}</td>${rows.map(row =>
+          `<td class="num">${key === 'debt_ratio_pct' && row.capital_impaired ? '자본잠식' : ratio ? ratioCell(row[key]) : millionCell(row[key])}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div>
+      <p class="help">출처: ${rows.map(row => `${esc(row.year)}년 ${esc(row.source_label)}`).join(' · ')}. (추정): 결산일 미확인</p>`
+      : '<div class="empty-hint">보고서에 재무자료가 없습니다. 직접 확인해 주세요.</div>';
+    return `<div class="section-title">재무 참고 점검</div><div class="check-list">${checks}</div>${table}`;
+  }
   const formatTime = seconds => seconds ? new Date(seconds * 1000).toLocaleString('ko-KR', { hour12: false }) : '—';
   function reportPanel(app) {
     const evaluation = app.evaluation || {};
@@ -131,6 +159,7 @@ globalThis.LoanWorkflow = (() => {
       ${evaluation.valueSource ? `<p>금액 출처: ${esc(evaluation.valueSource)} ${esc(evaluation.valueRaw || '')}</p>` : ''}
       ${evaluation.valueMessage ? `<p>${esc(evaluation.valueMessage)}</p>` : ''}
       <p>적용 평가가치: ${won(evaluation.reviewValue || (app.appraisedValue > 0 ? app.appraisedValue : null))} · LTV ${app.ltv == null ? '판정 대기' : `${esc(app.ltv)}%`}</p>
+      ${complete && evaluation.financialChecks ? financialHTML(evaluation) : ''}
       ${evaluation.reviewNote ? `<p>평가사 검토 결과: ${esc(evaluation.reviewNote)}</p><p>검토 지갑: ${esc(evaluation.reviewer || '—')}</p>` : ''}
       <p>기존 v2 계약의 데모 기준: 신청금액 ≤ 적용 평가가치 × 70%. 평가사 온체인 확정 후 통과 건만 여신심사에 전달합니다.</p>
       ${app.rejectReason ? `<p class="workflow-error">${esc(app.rejectReason)}</p>` : ''}

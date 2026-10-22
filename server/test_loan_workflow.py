@@ -70,7 +70,7 @@ class LoanWorkflowTests(unittest.TestCase):
         return self.chain_states.get(application['id'], {'chainStatus': 'Evaluating', 'chainBlock': 1, 'appraisedValue': 0})
 
     def provider_job(self, state, value=100, artifacts=None):
-        return {'job_id': 'provider-job-1', 'status': state, 'valuation': {'amount': value, 'currency': 'KRW', 'unit': 'won'},
+        return {'job_id': 'provider-job-1', 'status': state, 'valuation': {'ip_value_krw': value, 'value_status': 'preliminary'},
                 'artifacts': artifacts if artifacts is not None else ({'pdf': '/pdf'} if state == 'completed' else {})}
 
     def provider_submit(self, path, filename, number):
@@ -360,6 +360,72 @@ class LoanWorkflowTests(unittest.TestCase):
         self.assertIsNone(result.json['evaluation']['autoValue'])
         self.assertIn('구조화된', result.json['evaluation']['valueMessage'])
         self.assertEqual(0, self.count('credit_cases'))
+
+    def summary_job(self, value=23_456_789, rating=' bb- '):
+        return {**self.provider_job('completed'), 'valuation': {'ip_value_krw': value, 'value_status': 'preliminary',
+                'valuation_date': '2026-10-21', 'report_number': 'PRE-IP-2026-10-000001', 'discount_rate': 0.1665},
+                'credit_rating': rating, 'financials': [
+                    {'year': 2025, 'fiscal_date': '2025-12-31', 'source': 'nice_finance', 'total_equity_krw': -505_540_000,
+                     'operating_income_krw': -365_170_000, 'current_ratio_pct': 8.84, 'finance_costs_krw': 0}]}
+
+    def clear_summary(self, app_id):
+        # The state of a job that completed before the summary fields were stored.
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute('UPDATE loan_evaluations SET valuation=NULL, financials=NULL, creditRating=NULL, checkedAt=0 WHERE appId=?', (app_id,))
+
+    def test_report_summary_supplies_value_credit_grade_and_financial_checks(self):
+        self.result = self.summary_job()
+        app_id = self.create().json['id']
+        evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+        self.assertEqual(23_456_789, evaluation['autoValue'])
+        self.assertEqual('provider-valuation-json', evaluation['valueSource'])
+        self.assertIn('사전평가', evaluation['valueMessage'])
+        self.assertEqual({'ip_value_krw': 23_456_789, 'value_status': 'preliminary', 'valuation_date': '2026-10-21',
+                          'report_number': 'PRE-IP-2026-10-000001'}, evaluation['valuation'])
+        self.assertEqual('BB-', evaluation['creditRating'])
+        self.assertEqual(['NICE BizAPI'], [row['source_label'] for row in evaluation['financials']])
+        checks = {check['key']: check['result'] for check in evaluation['financialChecks']}
+        self.assertEqual({'capital': 'fail', 'operating_income': 'fail', 'interest_coverage': 'pass', 'current_ratio': 'fail'}, checks)
+        listed = next(a for a in self.client.get('/api/applications').json if a['id'] == app_id)
+        self.assertEqual('BB-', listed['evaluation']['creditRating'])
+        self.assertNotIn('financials', listed['evaluation'])
+
+    def test_unknown_grade_and_old_valuation_shape_are_not_guessed(self):
+        self.result = {**self.provider_job('completed'), 'valuation': {'amount': 100, 'currency': 'KRW', 'unit': 'won'},
+                       'credit_rating': '등급 없음'}
+        app_id = self.create().json['id']
+        evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+        self.assertIsNone(evaluation['autoValue'])
+        self.assertIsNone(evaluation['creditRating'])
+        self.assertEqual({'unknown'}, {check['result'] for check in evaluation['financialChecks']})
+
+    def test_job_completed_before_summary_is_filled_once_and_keeps_a_prepared_review(self):
+        app_id = self.completed()
+        report = self.prepare(app_id)
+        self.assertEqual(200, report.status_code, report.get_data(as_text=True))
+        self.clear_summary(app_id)
+        with patch.object(workflow.patent_api, 'status', return_value=self.summary_job(555)) as status:
+            evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+            self.client.get(f'/api/applications/{app_id}/evaluation')
+        status.assert_called_once_with('provider-job-1')
+        self.assertEqual('BB-', evaluation['creditRating'])
+        self.assertEqual(1, len(evaluation['financials']))
+        self.assertEqual(100, evaluation['autoValue'])  # bound into the prepared hash
+        self.assertEqual(report.json['hash'], self.prepare(app_id).json['hash'])
+
+    def test_unreviewed_old_job_adopts_the_exact_value_and_a_failed_read_waits(self):
+        app_id = self.completed()
+        self.clear_summary(app_id)
+        with patch.object(workflow.patent_api, 'status', side_effect=PatentAPIError('down')) as status:
+            evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+            self.client.get(f'/api/applications/{app_id}/evaluation')
+        self.assertEqual(1, status.call_count)
+        self.assertEqual(('', None), (evaluation['error'], evaluation['creditRating']))
+        self.clear_summary(app_id)
+        with patch.object(workflow.patent_api, 'status', return_value=self.summary_job()):
+            evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+        self.assertEqual(23_456_789, evaluation['autoValue'])
+        self.assertEqual('BB-', evaluation['creditRating'])
 
     def test_actual_template_html_value_is_cached_bound_and_provided_to_reviewer(self):
         self.result = {'job_id': 'html-money', 'status': 'completed', 'artifacts': {'html': '/html'}}

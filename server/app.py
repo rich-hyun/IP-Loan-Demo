@@ -286,7 +286,7 @@ def application_to_public(row):
         # Public list retains existing demo metadata; reports and progress come from the
         # evaluation API, and the patent original requires wallet authentication.
         public["workflow"] = True
-        public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt")}
+        public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt", "creditRating")}
         case = get_db().execute("SELECT applicationId FROM credit_cases WHERE applicationId=?", (public["id"],)).fetchone()
         public["creditCaseId"] = case["applicationId"] if case else None
     return public

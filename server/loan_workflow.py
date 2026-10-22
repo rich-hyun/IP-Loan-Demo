@@ -20,9 +20,11 @@ from flask import Response, jsonify, request
 if __package__:
     from .patent_api import patent_api, PatentAPIError
     from .patent_value import html_valuation
+    from .report_summary import clean_credit_rating, clean_financials, clean_valuation, financial_checks, public_financials
 else:
     from patent_api import patent_api, PatentAPIError
     from patent_value import html_valuation
+    from report_summary import clean_credit_rating, clean_financials, clean_valuation, financial_checks, public_financials
 
 
 SCHEMA = """
@@ -65,7 +67,7 @@ def migrate(conn):
         if statement.strip():
             conn.execute(statement)
     existing = {row[1] for row in conn.execute('PRAGMA table_info(loan_evaluations)')}
-    for column in ('valueSource', 'valueReportHash', 'valueRaw'):
+    for column in ('valueSource', 'valueReportHash', 'valueRaw', 'valuation', 'financials', 'creditRating'):
         if column not in existing:
             conn.execute(f'ALTER TABLE loan_evaluations ADD COLUMN {column} TEXT')
 
@@ -93,10 +95,14 @@ def summary(db, app_id):
     row = job(db, app_id)
     if not row:
         return None
-    return {key: row[key] for key in (
+    result = {key: row[key] for key in (
         'state', 'jobId', 'attempt', 'stage', 'error', 'updatedAt', 'retryAt',
         'autoValue', 'valueMessage', 'reviewValue', 'reviewNote', 'reviewer',
-        'reviewedAt', 'confirmedAt', 'preparedHash', 'valueSource', 'valueReportHash', 'valueRaw')}
+        'reviewedAt', 'confirmedAt', 'preparedHash', 'valueSource', 'valueReportHash', 'valueRaw', 'creditRating')}
+    financials = json.loads(row['financials'] or '[]')
+    result.update(valuation=json.loads(row['valuation'] or 'null'), financials=public_financials(financials),
+                  financialChecks=financial_checks(financials))
+    return result
 
 
 def read_document(application, row):
@@ -210,20 +216,27 @@ def safe_error(exc):
     return str(exc).replace(patent_api.token, '[redacted]') if patent_api.token else str(exc)
 
 
-def store_result(db, app_id, result):
-    """Optional numeric adapter contract: valuation={amount: integer, currency: KRW, unit: won}.
+def summary_values(result):
+    """The completed status carries the report's summary: valuation (ip_value_krw in won), financials and credit_rating."""
+    valuation = clean_valuation(result.get('valuation'))
+    return valuation, {'valuation': json.dumps(valuation), 'financials': json.dumps(clean_financials(result.get('financials'))),
+                       'creditRating': clean_credit_rating(result.get('credit_rating'))}
 
-    Existing provider contract promises reports, not structured monetary value.
-    Never infer a value from text, score, example amount, or loan request.
-    """
+
+def value_message(valuation):
+    message = ('보고서 요약표의 평가금액입니다.' if valuation['value_status'] == 'confirmed' else
+               '보고서 요약표의 사전평가 값입니다(확정 평가액 아님).') + ' 평가사의 검토·확정이 필요합니다.'
+    if valuation['ip_value_krw'] <= 0:
+        message += ' 자동 산출값이 0 이하이므로 이 값으로 LTV 심사를 통과할 수 없습니다.'
+    return message
+
+
+def store_result(db, app_id, result):
+    """Never infer a value from text, score, example amount, or loan request; only the provider's numeric valuation."""
     if not isinstance(result, dict) or result.get('status') not in patent_api.statuses or not re.fullmatch(r'[A-Za-z0-9_-]{1,200}', str(result.get('job_id', ''))):
         raise PatentAPIError('평가 응답의 작업번호와 상태를 확인할 수 없습니다.', uncertain=True)
-    valuation = result.get('valuation')
-    value = None
-    if isinstance(valuation, dict) and valuation.get('currency') == 'KRW' and valuation.get('unit') == 'won':
-        candidate = valuation.get('amount')
-        if type(candidate) is int and abs(candidate) <= 9_000_000_000_000_000:
-            value = candidate
+    valuation, summary_fields = summary_values(result)
+    value = valuation['ip_value_krw'] if valuation else None
     artifacts = result.get('artifacts') or {}
     kinds = sorted(k for k in artifacts if k in patent_api.kinds) if isinstance(artifacts, dict) else []
     prior = job(db, app_id)
@@ -238,9 +251,9 @@ def store_result(db, app_id, result):
     if prior['state'] != 'submitting' and prior['jobId'] and prior['jobId'] != result['job_id']:
         raise PatentAPIError('공급자가 다른 작업번호를 반환했습니다.')
     update(db, app_id, state=result['status'], jobId=result['job_id'], stage=safe_error(result.get('stage') or '')[:1000],
-           artifacts=json.dumps(kinds), autoValue=value,
+           artifacts=json.dumps(kinds), autoValue=value, **summary_fields,
            valueSource='provider-valuation-json' if value is not None else None, valueReportHash=None, valueRaw=None,
-           valueMessage=(None if value is not None else
+           valueMessage=(value_message(valuation) if value is not None else
                          '공급자가 구조화된 원화 평가액을 제공하지 않았습니다. 보고서를 검토하고 적용 가치와 사유를 입력하세요.'
                          if result['status'] == 'completed' else '보고서 생성이 완료되면 자동 산출 값을 확인합니다.'),
            error=safe_error(result.get('error') or ''), checkedAt=time.time())
@@ -252,7 +265,8 @@ def submit(native, app_id):
     # Only an atomic claimant submits. A crash after this point is ambiguous and
     # must never automatically create a second provider job.
     claimed = db.execute("""UPDATE loan_evaluations SET state='submitting',attempt=attempt+1,jobId=NULL,
-        autoValue=NULL,valueSource=NULL,valueRaw=NULL,valueReportHash=NULL,artifacts='[]',updatedAt=?,error=NULL
+        autoValue=NULL,valueSource=NULL,valueRaw=NULL,valueReportHash=NULL,valuation=NULL,financials=NULL,creditRating=NULL,
+        artifacts='[]',updatedAt=?,error=NULL
         WHERE appId=? AND state IN ('pending','submission_rejected','failed')""", (time.time(), app_id)).rowcount
     if claimed:
         db.execute("""INSERT INTO loan_evaluation_attempts(appId,attempt,state,updatedAt)
@@ -291,6 +305,15 @@ def refresh(native, app_id):
                 store_result(db, app_id, patent_api.status(row['jobId']))
             except PatentAPIError as exc:
                 update(db, app_id, error=safe_error(exc))
+    elif row['jobId'] and row['state'] == 'completed' and row['financials'] is None and time.time() - row['checkedAt'] >= 600:
+        # Completed before the summary fields were stored: read them once more from the same job.
+        claimed = db.execute('UPDATE loan_evaluations SET checkedAt=? WHERE appId=? AND checkedAt=?', (time.time(), app_id, row['checkedAt'])).rowcount
+        db.commit()
+        if claimed:
+            try:
+                backfill(db, app_id, patent_api.status(row['jobId']))
+            except PatentAPIError:
+                pass  # retried after 10 minutes; the report itself is unaffected
     current = job(db, app_id)
     if current['state'] == 'completed' and current['autoValue'] is None and not current['valueSource'] and 'html' in json.loads(current['artifacts']):
         try:
@@ -300,6 +323,18 @@ def refresh(native, app_id):
         except (PatentAPIError, WorkflowError) as exc:
             update(db, app_id, valueMessage='보고서 금액을 확인하지 못했습니다. ' + safe_error(exc))
     return job(db, app_id)
+
+
+def backfill(db, app_id, result):
+    """A prepared review binds autoValue into its hash, so only an unreviewed job adopts the numeric value."""
+    row = job(db, app_id)
+    if result.get('job_id') != row['jobId'] or result.get('status') != 'completed':
+        return
+    valuation, values = summary_values(result)
+    if valuation and not row['preparedHash'] and not row['reviewedAt']:
+        values.update(autoValue=valuation['ip_value_krw'], valueSource='provider-valuation-json', valueReportHash=None,
+                      valueRaw=None, valueMessage=value_message(valuation))
+    update(db, app_id, **values)
 
 
 def artifact(db, app_id, kind):

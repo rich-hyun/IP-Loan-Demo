@@ -69,6 +69,7 @@ async function boot(storage = new Map([['iploan-role', 'borrower']]), server = n
     fetch: async (url, options = {}) => {
       let body;
       if (url.endsWith('/applications')) body = server.applications;
+      else if (url.endsWith('/evaluation')) body = server.evaluation;
       else if (options.method === 'PATCH' || options.method === 'POST') {
         const id = options.method === 'PATCH' ? url.split('/').pop() : 'new-profile';
         const old = server.profiles.find(p => p.id === id);
@@ -296,6 +297,31 @@ test('unconfirmed evaluation is pending, not rendered as rejection or approval',
   assert.match(html, /평가 확정 대기/);
   assert.doesNotMatch(html, /decision-banner show|최종 승인 완료/);
   assert.match(html, /finalChainDecision\('CHAIN-REVIEW', true\)" disabled/);
+});
+
+test('integrated review shows the report credit grade and financial checks instead of the TCB placeholder', async () => {
+  const page = await boot();
+  page.run(fs.readFileSync(`${__dirname}/workflow.js`, 'utf8'));
+  const evaluation = { state: 'completed', confirmedAt: 1, creditRating: 'BB-', financials: [
+    { year: 2025, fiscal_date: '2025-12-31', source_label: 'NICE BizAPI', total_equity_krw: -505540000, capital_impaired: true, debt_ratio_pct: null }],
+    financialChecks: [{ key: 'capital', label: '자본잠식 없음', criterion: '자본총계 0원 초과', year: 2025, result: 'fail', observed: '자본잠식 (자본총계 -506백만원)' },
+      { key: 'current_ratio', label: '유동비율', criterion: '유동자산이 유동부채의 100% 이상', year: 2025, result: 'unknown', observed: '자료 없음' }] };
+  page.server.evaluation = { id: 'CHAIN-REVIEW', workflow: true, chainStatus: 'Eligible', evaluation };
+  const html = addReviewCase(page, { workflow: true, evaluation: { state: 'completed', confirmedAt: 1, creditRating: 'BB-' } });
+  assert.match(html, /<div class="k">신용등급<\/div><div class="v">BB-<\/div>/);
+  assert.match(html, /check-title">신용등급<\/div>[\s\S]*?check-status">BB-</);
+  assert.doesNotMatch(html, /TCB 미연동|신용평가 점수/);
+  await new Promise(resolve => setImmediate(resolve));
+  const panel = page.element('workflowReview').innerHTML;
+  assert.match(panel, /재무 참고 점검/);
+  assert.match(panel, /class="check-item failed"[\s\S]*?자본잠식 \(자본총계 -506백만원\)/);
+  assert.match(panel, /판정 불가 \(자료 없음\)/);
+  assert.match(panel, /<td class="num">-506<\/td>/);
+  assert.match(panel, /<td class="num">자본잠식<\/td>/);
+  assert.match(panel, /2025년 NICE BizAPI/);
+
+  const missing = addReviewCase(page, { id: 'NO-GRADE', workflow: true, evaluation: { state: 'completed' } });
+  assert.match(missing, /check-status">판정 불가 \(자료 없음\)</);
 });
 
 test('review summary and chain rejection text escape user-controlled values', async () => {

@@ -1107,8 +1107,11 @@ function reviewSummaryHTML(app) {
     ['신용평가 점수', 'creditScore', v => `${escapeHtml(v)}점`],
     ['출원·등록번호', 'ipRegNo'], ['상환기간', 'termMonths', v => `${escapeHtml(v)}개월`],
   ];
+  // 통합 신청은 평가보고서의 신용등급을 보여준다.
+  if (app.workflow) fields[3] = ['신용등급', 'creditRating'];
+  const view = app.workflow ? { ...app, creditRating: app.evaluation?.creditRating } : app;
   return `<div class="review-summary">${fields.map(([label, key, fmt]) =>
-    `<div class="item"><div class="k">${label}</div><div class="v">${fieldHTML(app, key, fmt)}</div></div>`).join('')}</div>`;
+    `<div class="item"><div class="k">${label}</div><div class="v">${fieldHTML(view, key, fmt)}</div></div>`).join('')}</div>`;
 }
 
 function reviewCheckHTML(title, description, status, result) {
@@ -1160,7 +1163,8 @@ function loadChainReviewCase(app) {
       <div class="section-title">스마트컨트랙트 자동심사 조건</div>
       <div class="check-list" id="checkList">
         ${reviewCheckHTML('담보인정비율(LTV) 조건 충족', '신청금액이 산정 담보가치의 70% 이하인지 계약에서 판정', evaluated ? `LTV ${app.ltv == null ? '—' : app.ltv}% · ${ltvPass ? '통과' : '거절'}` : '평가 확정 대기', ltvPass)}
-        ${reviewCheckHTML('신용평가 점수 기준 충족', 'MVP에서는 TCB 미연동 · 온체인 판정 조건에 포함하지 않음', '미적용', null)}
+        ${app.workflow ? reviewCheckHTML('신용등급', '평가보고서 기업자료 기준 · 계약 자동심사에는 미포함', app.evaluation?.creditRating || '판정 불가 (자료 없음)', null)
+          : reviewCheckHTML('신용평가 점수 기준 충족', 'MVP에서는 TCB 미연동 · 온체인 판정 조건에 포함하지 않음', '미적용', null)}
         ${reviewCheckHTML('서류 해시 무결성 검증', '원부 대조는 mock이며 등록 CID·파일 해시는 서버가 체인 기록과 대조', hashPass === true ? '일치 · 대조 mock' : hashPass === false ? '불일치' : '확인 대기', hashPass)}
       </div>
       <div id="reviewActionArea">
@@ -1194,6 +1198,7 @@ function loadChainReviewCase(app) {
   if (app.workflow && typeof LoanWorkflow !== 'undefined') {
     document.getElementById('reviewBody').innerHTML += '<div class="panel" id="workflowReview"></div>';
     LoanWorkflow.panel(app, 'workflowReview');
+    LoanWorkflow.load(app.id);  // the list carries only the grade; financials come with the full evaluation
   }
   if (typeof LoanTokenCards !== 'undefined') {
     document.getElementById('reviewBody').innerHTML += LoanTokenCards.placeholder(app);

@@ -393,6 +393,14 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table tbody tr { cursor: pointer; transition: background .12s ease, box-shadow .12s ease; }
 .data-table tbody tr:hover { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--teal); }
 .data-table tbody tr:last-child td { border-bottom: none; }
+/* 재무 참고 점검 표: 읽기 전용, 숫자는 오른쪽 정렬. 좁은 화면에서는 심사 칸 안에서 가로 스크롤 */
+#reviewBody { min-width: 0; }
+.fin-table thead th, .fin-table tbody td { padding: 9px 12px; }
+.fin-table tbody tr { cursor: default; }
+.fin-table tbody tr:hover { background: none; box-shadow: none; }
+.fin-table th:not(:first-child), .fin-table td.num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.fin-date { display: block; font-weight: 500; color: var(--ink-faint); font-size: 11px; }
+.table-wrap + .help { margin: 8px 0 4px; font-size: 11.5px; color: var(--ink-faint); line-height: 1.7; }
 .cell-company { font-weight: 600; }
 .cell-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
 .cell-amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

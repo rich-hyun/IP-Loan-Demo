@@ -47,7 +47,7 @@ if os.environ.get('IPLOAN_TEST_WORKFLOW_FIXTURE') == '1':
         attempts[key] = attempts.get(key, 0) + 1
         state = 'failed' if b'FAIL_EVALUATION' in body and attempts[key] == 1 else 'completed'
         return {'job_id': 'fixture-' + key[:16], 'status': state,
-                'valuation': {'amount': 100, 'currency': 'KRW', 'unit': 'won'},
+                'valuation': {'ip_value_krw': 100, 'value_status': 'preliminary'},
                 'artifacts': {'pdf': '/pdf'} if state == 'completed' else {},
                 'error': 'test fixture failure' if state == 'failed' else ''}
 
