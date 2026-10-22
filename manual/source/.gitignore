@@ -1,0 +1,7 @@
+# build outputs (python build.py ../통합본.pdf, python build_volumes.py ..)
+*.pdf
+body.html
+vol*.html
+cover_vol*.html
+volumes/
+__pycache__/

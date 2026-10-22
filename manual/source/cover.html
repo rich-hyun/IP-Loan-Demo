@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&display=block">
+<style>
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; font-family: 'Noto Sans CJK KR', sans-serif; color: #1f2633; }
+.page { width: 210mm; height: 297mm; position: relative; overflow: hidden; background: #fff; }
+.top { position: absolute; inset: 0 0 auto 0; height: 182mm; background: #16233e; color: #fff; padding: 22mm 22mm 0; }
+.grid { position: absolute; right: -18mm; top: 26mm; width: 120mm; height: 120mm; opacity: 0.16; }
+.brand { display: flex; align-items: center; gap: 9pt; font-size: 10pt; letter-spacing: 0.02em; color: #c9d2e3; }
+.mark { width: 26pt; height: 26pt; border-radius: 5pt; background: #0e7a6e; display: flex; align-items: center; justify-content: center; }
+.label { margin-top: 44mm; font-size: 10.5pt; color: #8fd0c5; font-weight: 700; letter-spacing: 0.06em; }
+h1 { font-family: 'Noto Serif KR', serif; font-size: 40pt; line-height: 1.22; margin: 7mm 0 0; font-weight: 700; letter-spacing: -0.02em; }
+.sub { margin-top: 9mm; font-size: 11.5pt; color: #c9d2e3; }
+.rule { position: absolute; left: 22mm; bottom: 0; width: 40mm; height: 3pt; background: #0e7a6e; }
+.parts { position: absolute; left: 22mm; right: 22mm; top: 197mm; }
+.part { display: grid; grid-template-columns: 16mm 1fr; padding: 4.2mm 0; border-bottom: 0.7pt solid #d9dee6; }
+.part:first-child { border-top: 1.4pt solid #16233e; }
+.num { font-family: 'Noto Serif KR', serif; font-size: 17pt; color: #0e7a6e; font-weight: 700; line-height: 1.2; }
+.pt { font-size: 12.5pt; font-weight: 700; color: #16233e; }
+.pd { font-size: 8.8pt; color: #5b6475; margin-top: 1pt; }
+.meta { position: absolute; left: 22mm; right: 22mm; bottom: 15mm; display: flex; justify-content: space-between; font-size: 9pt; color: #5b6475; }
+.meta b { color: #16233e; }
+</style></head>
+<body><div class="page">
+  <div class="top">
+    <svg class="grid" viewBox="0 0 100 100" fill="none" stroke="#ffffff" stroke-width="0.35">
+      <rect x="6" y="6" width="38" height="38" rx="4"/><rect x="56" y="6" width="38" height="38" rx="4"/>
+      <rect x="6" y="56" width="38" height="38" rx="4"/><rect x="56" y="56" width="38" height="38" rx="4"/>
+      <path d="M44 25h12M25 44v12M75 44v12M44 75h12"/>
+    </svg>
+    <div class="brand"><div class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg></div>IP담보 자동대출 플랫폼</div>
+    <div class="label">LLM·블록체인 기반 IP담보 자동대출 시스템</div>
+    <h1>업무 프로세스<br>매뉴얼</h1>
+    <div class="sub">시범운영(실증) 기준 · 참여기관 공통</div>
+    <div class="rule"></div>
+  </div>
+  <div class="parts">
+    <div class="part"><div class="num">01</div><div><div class="pt">NH농협은행 여신담당자 업무 매뉴얼</div><div class="pd">심사 대기 확인부터 자동심사 결과·보고서·재무 검토, 최종 승인·거절, 상환 기록까지</div></div></div>
+    <div class="part"><div class="num">02</div><div><div class="pt">IP 가치평가기관 협업 프로세스</div><div class="pd">기관별 역할과 책임, 평가 상태별 조치, 평가사 업무 절차, 소통·이견 조정 체계</div></div></div>
+    <div class="part"><div class="num">03</div><div><div class="pt">비상시 대응 매뉴얼</div><div class="pd">비상 등급과 보고 체계, 상황별 대응 절차, 복구 후 점검과 예방 활동</div></div></div>
+  </div>
+  <div class="meta"><span><b>버전 1.0</b> · 2026. 10. 22.</span><span><b>주식회사 머스트리</b></span></div>
+</div></body></html>
