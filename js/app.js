@@ -810,11 +810,6 @@ function selectEvalItem(id) {
           <div class="report-stat-value">${won(r.appraisedValue)}</div>
         </div>
         <div class="report-stat">
-          <div class="report-stat-label">전문가 평가 대비 유사도</div>
-          <div class="report-stat-value">${r.similarity}</div>
-          <div class="similarity-bar"><div class="similarity-bar-fill" style="width:${r.similarity*100}%"></div></div>
-        </div>
-        <div class="report-stat">
           <div class="report-stat-label">보고서 생성 소요시간</div>
           <div class="report-stat-value">${r.genTime}</div>
         </div>
