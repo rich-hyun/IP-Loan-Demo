@@ -70,7 +70,7 @@ test('temporary Flask + actual local EVM: wallet login, LLM report registration,
   assert.deepEqual((await api('/applications',outsider)).data,[]);
   const sync=async(signer=borrower)=>{const result=await api(`/applications/${application.id}/sync`,signer,{status:'approved',rwaTokenId:'999',repaidAmount:999});assert.equal(result.response.status,200,JSON.stringify(result.data));return result.data;};
   assert.equal((await sync()).chainStatus,'None');
-  await (await manager.connect(borrower).submitApplication(application.appKey,application.docCid,application.docFileHash,70,application.evaluatorWallet)).wait();
+  await (await manager.connect(borrower).submitApplication(application.appKey,application.docCid,application.docFileHash,70,application.evaluatorWallet,application.sbtMetadataUri)).wait();
   let state=await sync();assert.equal(state.chainStatus,'Evaluating');assert.equal(state.status,'evaluating');assert.equal(state.sbtTokenId,'1');assert.ok(!state.rwaTokenId);
   async function document(signer, expected) {
     const response=await fetch(startup.url+`/applications/${application.id}/document`,{headers:await login(signer)});
@@ -89,15 +89,14 @@ test('temporary Flask + actual local EVM: wallet login, LLM report registration,
   const registered=await fetch(startup.url+`/applications/${application.id}/evaluation-report/document`,{headers:await login(bank)});
   assert.equal(registered.status,200);assert.match(await registered.text(),/^%PDF-1\.7\nLLM report job-/);
   const agreed=await api(`/applications/${application.id}/loan-terms`,bank,{creditGrade:'CC',rateBps:430,termMonths:24});assert.equal(agreed.response.status,201);
-  await (await manager.connect(bank).finalApprove(application.appKey,agreed.data.termsHash)).wait();
+  assert.match(agreed.data.rwaMetadataUri,/^https:\/\/rwa-gw\.mustree\.kr\/ipfs\/[A-Za-z0-9]+$/);
+  await (await manager.connect(bank).finalApprove(application.appKey,agreed.data.termsHash,agreed.data.rwaMetadataUri)).wait();
   state=await sync(bank);assert.equal(state.chainStatus,'Approved');assert.equal(state.rwaTokenId,'1');
   assert.deepEqual([state.creditGrade,state.rateBps,state.approvedTermMonths,state.termsHash],['CC',430,24,agreed.data.termsHash]);await document(bank,200);
   const rwa=new Contract(cfg.rwaTokenAddress,artifacts.IPLoanRWAToken.abi,provider);assert.equal(await rwa.ownerOf(1),bank.address);
-  // On chain only the hash: neither the stored record nor the token card carries the grade, rate or term.
+  // On chain only the terms hash and the server-drawn card URIs.
   assert.equal((await manager.getApplication(application.appKey)).termsHash,agreed.data.termsHash);
-  const meta=JSON.parse(Buffer.from((await rwa.tokenURI(1)).split(',')[1],'base64'));
-  const svg=Buffer.from(meta.image.split(',')[1],'base64').toString();
-  assert.equal(meta.termsHash,agreed.data.termsHash);assert.ok(!('creditGrade' in meta));assert.ok(!/CC|4\.30|24개월/.test(svg));
+  assert.equal(await rwa.tokenURI(1),agreed.data.rwaMetadataUri);assert.equal(state.rwaMetadataUri,agreed.data.rwaMetadataUri);
   const spoof=await fetch(startup.url+`/applications/${application.id}`,{method:'PATCH',headers:{...await login(bank),'Content-Type':'application/json'},body:JSON.stringify({status:'rejected'})});assert.equal(spoof.status,405);  // no client status writes; DELETE is admin-only
   await (await manager.connect(bank).recordRepayment(application.appKey,20,id('REF1'))).wait();state=await sync(bank);assert.equal(state.repaidAmount,20);
   await (await manager.connect(bank).recordRepayment(application.appKey,50,id('REF2'))).wait();state=await sync(bank);assert.equal(state.chainStatus,'Repaid');assert.equal(state.status,'repaid');assert.equal(state.repaidAmount,70);

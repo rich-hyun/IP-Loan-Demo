@@ -221,7 +221,8 @@ globalThis.IPLoanChain = (() => {
   }
   async function register(app) {
     if (!app.evaluatorWallet) throw new Error('신청에 저장된 담당 평가사 주소를 확인하세요.');
-    const args = [app.appKey, app.docCid, app.docFileHash, BigInt(app.amount), app.evaluatorWallet];
+    if (!app.sbtMetadataUri) throw new Error('신청을 다시 불러온 뒤 시도하세요.');
+    const args = [app.appKey, app.docCid, app.docFileHash, BigInt(app.amount), app.evaluatorWallet, app.sbtMetadataUri];
     return execute(app, 'submit', 'submitApplication', args, 'BORROWER_ROLE', app.borrowerWallet);
   }
   async function evaluate(app, report) {
@@ -230,9 +231,9 @@ globalThis.IPLoanChain = (() => {
     return execute(app, 'evaluate', 'confirmEvaluation', [app.appKey, report.cid, report.hash, BigInt(report.appraisedValue), bank], 'EVALUATOR_ROLE', app.evaluatorWallet);
   }
   // Approval creates the loan agreement on chain and the bank's RWA token. The credit grade, rate and term are
-  // confidential, so the chain gets only the salted hash the server prepared for them.
+  // confidential, so the chain gets only the salted hash the server prepared for them, plus the token card's URI.
   async function approve(app, yes, terms = null) {
-    const args = yes ? [app.appKey, terms.termsHash] : [app.appKey];
+    const args = yes ? [app.appKey, terms.termsHash, terms.rwaMetadataUri] : [app.appKey];
     return execute(app, yes ? 'approve' : 'reject', yes ? 'finalApprove' : 'finalReject', args, 'BANK_ROLE', app.bankWallet);
   }
   async function repay(app, amount, reference) {

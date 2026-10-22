@@ -6,6 +6,8 @@ import { compile } from '../scripts/compile.mjs';
 const artifacts = compile();
 const cid = 'bafybeigdyrzt1234567890', reportCid = 'bafybeireport1234567890', hash = id('salted document'), reportHash = id('report');
 const appKey = id('LN-2026-0011');
+// Token cards are server-drawn PNG/JSON on IPFS; the contract only accepts the fixed HTTPS gateway with a CID.
+const gateway = 'https://rwa-gw.mustree.kr/ipfs/', sbtUri = gateway + 'bafkreisbtcard0000001', rwaUri = gateway + 'bafkreirwacard0000001';
 async function fixture(t) {
   const connection = await network.connect('localTest');
   const provider = new BrowserProvider(connection.provider); provider.pollingInterval = 10;
@@ -19,16 +21,13 @@ async function fixture(t) {
   const nft = new Contract(await manager.rwaToken(), artifacts.IPLoanRWAToken.abi, provider);
   return { provider, admin, borrower, evaluator, bank, outsider, manager, sbt, nft };
 }
-// tokenURI is base64 JSON whose image is a base64 SVG card drawn on chain.
-const decode = uri => JSON.parse(Buffer.from(uri.split(',')[1], 'base64').toString());
-const card = metadata => { assert.match(metadata.image, /^data:image\/svg\+xml;base64,/); return Buffer.from(metadata.image.split(',')[1], 'base64').toString(); };
 async function submit(f, key=appKey, amount=70n) {
-  return (await f.manager.connect(f.borrower).submitApplication(key, cid, hash, amount, f.evaluator.address)).wait();
+  return (await f.manager.connect(f.borrower).submitApplication(key, cid, hash, amount, f.evaluator.address, sbtUri)).wait();
 }
 async function evaluate(f, value=100n, key=appKey, bank=f.bank.address) {
   return (await f.manager.connect(f.evaluator).confirmEvaluation(key, reportCid, reportHash, value, bank)).wait();
 }
-const terms = [id('salted loan terms')];
+const terms = [id('salted loan terms'), rwaUri];
 async function approve(f, key=appKey) {
   return (await f.manager.connect(f.bank).finalApprove(key, ...terms)).wait();
 }
@@ -47,22 +46,22 @@ test('submission creates record and evaluator SBT but no RWA token', async t => 
   assert.equal(await f.sbt.locked(a.tokenId), true); assert.equal(await f.sbt.supportsInterface('0xb45a3c0e'), true);
   assert.equal(await f.nft.balanceOf(f.bank.address), 0n);
   assert.equal(receipt.logs.filter(l=>l.topics[0]===id('Transfer(address,address,uint256)')).length, 1);
-  const access = decode(await f.sbt.tokenURI(a.tokenId));
-  assert.equal(access.name, 'IP Loan Appraisal Access #1'); assert.equal(access.cid, cid); assert.ok(!('amount' in access));
-  assert.deepEqual(access.attributes.map(x => x.value), ['평가 중', '70']);
-  const svg = card(access);
-  for (const text of ['Appraisal #1', '평가 중', '70원', '0x' + hash.slice(2, 8) + '…' + hash.slice(-4), '평가 확정 시 소각']) assert.ok(svg.includes(text), text);
+  assert.equal(a.sbtUri, sbtUri); assert.equal(await f.sbt.tokenURI(a.tokenId), sbtUri);
 });
 test('wrong role and malformed submission cannot create application', async t => {
   const f = await fixture(t);
-  await revert(f.manager.connect(f.outsider).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address), 'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(f.outsider).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address,sbtUri), 'AccessControlUnauthorizedAccount');
   for (const args of [[ZeroHash,cid,hash,70],[appKey,'invalid"CID',hash,70],[appKey,cid,ZeroHash,70],[appKey,cid,hash,0]])
-    await revert(f.manager.connect(f.borrower).submitApplication.staticCall(...args,f.evaluator.address),'InvalidInput');
+    await revert(f.manager.connect(f.borrower).submitApplication.staticCall(...args,f.evaluator.address,sbtUri),'InvalidInput');
+  // Only <gateway><CID>: other hosts, plain http, ipfs://, paths, queries and short CIDs are refused.
+  for (const uri of ['', gateway, 'https://evil.example/ipfs/bafkreisbtcard0000001', 'http://rwa-gw.mustree.kr/ipfs/bafkreisbtcard0000001',
+    'ipfs://bafkreisbtcard0000001', sbtUri + '/x', sbtUri + '?a=1', gateway + 'short', gateway + '"><svg>0000000'])
+    await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address,uri),'InvalidInput');
   assert.equal((await f.manager.getApplication(appKey)).status, 0n); assert.equal(await f.manager.nextTokenId(),1n);
 });
 test('same application can be submitted only once', async t => {
   const f=await fixture(t); await submit(f);
-  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address),'AlreadySubmitted');
+  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address,sbtUri),'AlreadySubmitted');
   assert.equal(await f.manager.nextTokenId(),2n);
 });
 test('evaluation confirmation burns SBT and performs boundary LTV rule in same transaction', async t => {
@@ -99,26 +98,19 @@ test('only assigned bank/reviewer may approve; RWA token is minted to that same 
 });
 test('final approval fixes only the hash of the confidential loan terms, with the RWA token', async t => {
   const f=await fixture(t); await submit(f); await evaluate(f);
-  await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey,ZeroHash),'InvalidInput');
-  const termsHash=id('salt + BB+ 4.15% 24 months'), short=termsHash.slice(0,8)+'…'+termsHash.slice(-4);
-  const receipt=await (await f.manager.connect(f.bank).finalApprove(appKey,termsHash)).wait();
+  const termsHash=id('salt + BB+ 4.15% 24 months');
+  for (const [hash_, uri] of [[ZeroHash,rwaUri],[termsHash,''],[termsHash,'ipfs://bafkreirwacard0000001'],[termsHash,rwaUri+'/x']])
+    await revert(f.manager.connect(f.bank).finalApprove.staticCall(appKey,hash_,uri),'InvalidInput');
+  const receipt=await (await f.manager.connect(f.bank).finalApprove(appKey,termsHash,rwaUri)).wait();
   const a=await f.manager.getApplication(appKey);
-  assert.equal(a.termsHash,termsHash);
+  assert.equal(a.termsHash,termsHash); assert.equal(a.rwaUri,rwaUri); assert.equal(a.sbtUri,sbtUri);
   assert.equal(a.approvedAt,BigInt((await f.provider.getBlock(receipt.blockNumber)).timestamp));
   const event=receipt.logs.map(l=>{try{return f.manager.interface.parseLog(l);}catch{return null;}}).find(e=>e?.name==='FinalApproved');
   assert.deepEqual([event.args.termsHash,event.args.rwaTokenId],[termsHash,1n]);
-  const metadata=decode(await f.nft.tokenURI(1));
-  assert.equal(metadata.name,'IP Loan RWA #1'); assert.equal(metadata.termsHash,termsHash);
-  for (const key of ['creditGrade','rateBps','termMonths']) assert.ok(!(key in metadata), key);
-  const svg=card(metadata);
-  for (const text of ['IP Loan #1','약정 체결','70원','100원','70.0%','약정 조건 해시',short,'남은 원금','상환 0원','width="0"']) assert.ok(svg.includes(text), text);
-  assert.ok(!/신용등급|금리|개월/.test(svg));
-  assert.deepEqual(metadata.attributes.map(x=>x.value),['약정 체결','70','100','70.0%',short,'0']);
-  assert.equal(metadata.reportCid,reportCid); assert.equal(metadata.reportHash,reportHash);
-  assert.equal(metadata.appraisedValue,'100'); assert.equal(metadata.amount,'70');
+  assert.equal(await f.nft.tokenURI(1),rwaUri);
   assert.equal(await f.nft.name(),'IP Loan RWA Token'); assert.equal(await f.nft.symbol(),'IPRWA');
   // Runtime code stays under EIP-170, the one deploy transaction under EIP-3860 and Mustsem's 30M block gas limit.
-  for (const address of [await f.manager.getAddress(), await f.manager.art()]) assert.ok((await f.provider.getCode(address)).length/2-1 <= 24576);
+  assert.ok((await f.provider.getCode(await f.manager.getAddress())).length/2-1 <= 24576);
   assert.ok((artifacts.IPLoanManager.bytecode.length-2)/2 <= 49152);
   const deployment=await f.provider.getTransactionReceipt(f.manager.deploymentTransaction().hash);
   assert.ok(deployment.gasUsed < 15_000_000n, String(deployment.gasUsed));
@@ -143,11 +135,7 @@ test('partial and full repayment update record and metadata while keeping bank N
   await (await f.manager.connect(f.bank).recordRepayment(appKey,50,id('REP-2'))).wait();
   a=await f.manager.getApplication(appKey); assert.equal(a.repaidAmount,70n); assert.equal(a.status,6n);
   assert.equal(await f.nft.ownerOf(1),f.bank.address); assert.equal(await f.provider.getBalance(await f.manager.getAddress()),0n);
-  const metadata=decode(await f.nft.tokenURI(1));
-  assert.equal(metadata.repaidAmount,'70'); assert.equal(metadata.cid,cid);
-  const svg=card(metadata);
-  for (const text of ['상환 완료','상환 70원','100%','width="428"','#12324A']) assert.ok(svg.includes(text), text);
-  assert.equal(metadata.status,6); assert.ok(!('docKey' in metadata));
+  assert.equal(await f.nft.tokenURI(1),rwaUri);  // the card is fixed at approval; repayments live in the record
   assert.equal((await f.manager.queryFilter(f.manager.filters.RepaymentRecorded())).length,2);
 });
 test('duplicate, overpayment, zero and wrong-wallet repayments are rejected', async t => {
@@ -169,7 +157,7 @@ test('revoked evaluator cannot act and earlier stages cannot approve or repay', 
 test('submission fixes only the evaluator; bank stays unassigned until evaluation', async t => {
   const f=await fixture(t); const E=await f.manager.EVALUATOR_ROLE();
   assert.equal(await f.manager.contractVersion(),3n);
-  const call=e=>f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,e);
+  const call=e=>f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,e,sbtUri);
   await revert(call(ZeroAddress),'InvalidInput');
   await (await f.manager.grantRole(E,f.borrower.address)).wait(); await revert(call(f.borrower.address),'InvalidInput');
   await revert(call(f.bank.address),'WrongEvaluator'); await revert(call(f.outsider.address),'WrongEvaluator');
@@ -203,15 +191,15 @@ test('admin enumerates, grants and revokes several holders per role; only admin 
   await revert(f.manager.connect(f.bank).revokeRole.staticCall(E,e2.address),'AccessControlUnauthorizedAccount');
   await (await f.manager.revokeRole(R,f.borrower.address)).wait(); await (await f.manager.revokeRole(E,f.evaluator.address)).wait();
   assert.deepEqual(await members(R),[r2.address]); assert.deepEqual(await members(E),[e2.address]);
-  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,e2.address),'AccessControlUnauthorizedAccount');
-  await revert(f.manager.connect(r2).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address),'WrongEvaluator');
-  await (await f.manager.connect(r2).submitApplication(appKey,cid,hash,70,e2.address)).wait();
+  await revert(f.manager.connect(f.borrower).submitApplication.staticCall(appKey,cid,hash,70,e2.address,sbtUri),'AccessControlUnauthorizedAccount');
+  await revert(f.manager.connect(r2).submitApplication.staticCall(appKey,cid,hash,70,f.evaluator.address,sbtUri),'WrongEvaluator');
+  await (await f.manager.connect(r2).submitApplication(appKey,cid,hash,70,e2.address,sbtUri)).wait();
 });
 test('two applications keep their own evaluator, bank, SBT and RWA token owners', async t => {
   const f=await fixture(t); const [e2,b2]=await Promise.all([5,6].map(i=>f.provider.getSigner(i)));
   await (await f.manager.grantRole(await f.manager.EVALUATOR_ROLE(),e2.address)).wait(); await (await f.manager.grantRole(await f.manager.BANK_ROLE(),b2.address)).wait();
   const key2=id('LN-2026-0012'); await submit(f);
-  await (await f.manager.connect(f.borrower).submitApplication(key2,cid,hash,70,e2.address)).wait();
+  await (await f.manager.connect(f.borrower).submitApplication(key2,cid,hash,70,e2.address,sbtUri)).wait();
   assert.equal(await f.sbt.ownerOf((await f.manager.getApplication(appKey)).tokenId),f.evaluator.address);
   assert.equal(await f.sbt.ownerOf((await f.manager.getApplication(key2)).tokenId),e2.address);
   await revert(f.manager.connect(e2).confirmEvaluation.staticCall(appKey,reportCid,reportHash,100,b2.address),'WrongEvaluator');

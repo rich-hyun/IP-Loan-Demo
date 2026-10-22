@@ -22,15 +22,15 @@ async function boot(options={}) {
     IPLoanChain:{init:async()=>{},connect:async()=>({address:admin,provider,signer:{}}),config:()=>cfg,transactionOverrides:()=>({})},
     ethers:{ZeroAddress:zero,ZeroHash:'0xzero',id:x=>x,getAddress:x=>x,keccak256:code=>code==='0xfeed'?'0xbuild001ffff':'0xbuild002ffff',
       Contract:class {contractVersion=async()=>3;hasRole=async role=>role==='0xzero'?state.isAdmin:!!state.hasRole;grantRole=grant;revokeRole=revoke;},
-      ContractFactory:class {getDeployTransaction=async()=>({data:'0xfeed'});deploy=async()=>{state.deploys++;return{deploymentTransaction:()=>({hash:'0xnew',wait:async()=>({status:1})}),getAddress:async()=> '0xmanager',accessSBT:async()=> '0xsbt',rwaToken:async()=> '0xrwa',art:async()=> '0xart'};}}},
-    fetch:async()=>state.noArtifact?{ok:false,json:async()=>({message:'404'})}:({ok:true,json:async()=>({abi:[{type:'function',name:'submitApplication',inputs:Array(5)},{type:'function',name:'confirmEvaluation',inputs:Array(5)},{type:'function',name:'finalApprove',inputs:Array(state.oldAbi?4:2)}],bytecode:state.bytecode||'0xfeed',compiler:{version:'0.8.24+commit.test',evmVersion:'paris'}})}),
+      ContractFactory:class {getDeployTransaction=async()=>({data:'0xfeed'});deploy=async()=>{state.deploys++;return{deploymentTransaction:()=>({hash:'0xnew',wait:async()=>({status:1})}),getAddress:async()=> '0xmanager',accessSBT:async()=> '0xsbt',rwaToken:async()=> '0xrwa'};}}},
+    fetch:async()=>state.noArtifact?{ok:false,json:async()=>({message:'404'})}:({ok:true,json:async()=>({abi:[{type:'function',name:'submitApplication',inputs:Array(6)},{type:'function',name:'confirmEvaluation',inputs:Array(5)},{type:'function',name:'finalApprove',inputs:Array(state.oldAbi?2:3)}],bytecode:state.bytecode||'0xfeed',compiler:{version:'0.8.24+commit.test',evmVersion:'paris'}})}),
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},confirm:()=>state.confirm});
   vm.runInContext(source,context); await vm.runInContext('adminReady',context);
   return{state,el,storage,run:s=>vm.runInContext(s,context)};
 }
 test('deployment uses connected admin and persists a versioned recovery hash',async()=>{
   const h=await boot(); await h.el('deployManager').onclick();
-  assert.equal(h.state.deploys,1);assert.match(h.el('adminResult').textContent,/RWA 토큰: 0xrwa\n그림\(메타데이터\): 0xart/);assert.equal(JSON.parse(h.storage.get(storageKey)).txHash,'0xnew');
+  assert.equal(h.state.deploys,1);assert.match(h.el('adminResult').textContent,/RWA 토큰: 0xrwa\n거래: 0xnew/);assert.equal(JSON.parse(h.storage.get(storageKey)).txHash,'0xnew');
 });
 test('pending deployment blocks duplicate broadcasts',async()=>{
   const h=await boot({previous:true});await h.el('deployManager').onclick();assert.equal(h.state.deploys,0);assert.match(h.el('adminResult').textContent,/미확정/);

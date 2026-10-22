@@ -44,10 +44,11 @@ el('deployManager').onclick = () => action(async () => {
   const bank = ethers.getAddress(el('adminBank').value.trim());
   if ([evaluator, bank].includes(ethers.ZeroAddress) || evaluator === bank) throw new Error('평가사와 은행은 서로 다른 영주소가 아닌 주소여야 합니다.');
   const artifact = await getJSON('blockchain/artifacts/IPLoanManager.json');
-  // v3: evaluator fixed at submission, bank at a passing evaluation, the hash of the loan terms at final approval.
+  // v3: evaluator and SBT card fixed at submission, bank at a passing evaluation, the hash of the loan terms and the
+  // RWA token card at final approval.
   const inputs = name => artifact.abi.find(a => a.type === 'function' && a.name === name)?.inputs.length;
-  if (!artifact.compiler?.version?.startsWith('0.8.24+') || artifact.compiler.evmVersion !== 'paris' || inputs('submitApplication') !== 5
-    || inputs('confirmEvaluation') !== 5 || inputs('finalApprove') !== 2) throw new Error('v3 대출약정 계약을 먼저 컴파일하세요.');
+  if (!artifact.compiler?.version?.startsWith('0.8.24+') || artifact.compiler.evmVersion !== 'paris' || inputs('submitApplication') !== 6
+    || inputs('confirmEvaluation') !== 5 || inputs('finalApprove') !== 3) throw new Error('v3 대출약정 계약을 먼저 컴파일하세요.');
   const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, ctx.signer);
   const request = await factory.getDeployTransaction(ctx.address, evaluator, bank);
   // Keyed by build: a pending deploy of this code is never sent twice, while a rebuilt contract starts fresh.
@@ -64,14 +65,14 @@ el('deployManager').onclick = () => action(async () => {
     return;
   }
   localStorage.setItem(storageKey, 'null'); localStorage.removeItem(storageKey);
-  if (!confirm(`Mustsem에 v3 계약 4개(Manager·평가 SBT·RWA 토큰·NFT 그림)를 생성합니다. 관리자 ${ctx.address}, 첫 평가사 ${evaluator}, 첫 은행 ${bank}. MetaMask에서 가스 요금을 확인하고 승인하세요.`)) return;
+  if (!confirm(`Mustsem에 v3 계약 3개(Manager·평가 SBT·RWA 토큰)를 생성합니다. 관리자 ${ctx.address}, 첫 평가사 ${evaluator}, 첫 은행 ${bank}. MetaMask에서 가스 요금을 확인하고 승인하세요.`)) return;
   const manager = await factory.deploy(ctx.address, evaluator, bank, IPLoanChain.transactionOverrides());
   const tx = manager.deploymentTransaction();
   deployedAddress = await manager.getAddress();
   result.textContent = `배포 전송: ${tx.hash}\nManager: ${deployedAddress}\n확정 대기 중…`;
   localStorage.setItem(storageKey, JSON.stringify({ address: deployedAddress, txHash: tx.hash }));
   await tx.wait(1, 120000);
-  result.textContent = `배포 완료\nManager: ${deployedAddress}\nSBT: ${await manager.accessSBT()}\nRWA 토큰: ${await manager.rwaToken()}\n그림(메타데이터): ${await manager.art()}\n거래: ${tx.hash}\n\nAPI의 IPLOAN_MANAGER_ADDRESS를 이 주소로 설정해 다시 시작한 후 차주·평가사·은행 주소를 추가하세요. 서버가 신청 시 평가사를, 평가 통과 시 은행·여신심사역을 배정합니다.`;
+  result.textContent = `배포 완료\nManager: ${deployedAddress}\nSBT: ${await manager.accessSBT()}\nRWA 토큰: ${await manager.rwaToken()}\n거래: ${tx.hash}\n\nAPI의 IPLOAN_MANAGER_ADDRESS를 이 주소로 설정해 다시 시작한 후 차주·평가사·은행 주소를 추가하세요. 서버가 신청 시 평가사를, 평가 통과 시 은행·여신심사역을 배정합니다.`;
 });
 for (const [button, grant] of [['grantRole', true], ['revokeRole', false]]) {
   el(button).onclick = () => action(async () => {

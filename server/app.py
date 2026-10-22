@@ -37,13 +37,14 @@ from web3 import Web3
 from werkzeug.utils import secure_filename
 
 if __package__:
-    from . import auth, chain, patent_pdf, report_summary
+    from . import auth, chain, patent_pdf, report_summary, token_media
     from .patent_api import PatentAPIError, patent_api
 else:
     import auth
     import chain
     import patent_pdf
     import report_summary
+    import token_media
     from patent_api import PatentAPIError, patent_api
 
 ROOT = Path(__file__).resolve().parent
@@ -125,6 +126,11 @@ MIGRATION_COLUMNS = {
     "approvedTermMonths": "INTEGER",
     "approvedAt": "INTEGER",
     "termsHash": "TEXT",
+    # Token cards on IPFS behind the HTTPS gateway; the contract fixes the metadata URIs.
+    "sbtMetadataUri": "TEXT",
+    "sbtImageUri": "TEXT",
+    "rwaMetadataUri": "TEXT",
+    "rwaImageUri": "TEXT",
 }
 
 # Never returned by the API: encryption material and the private upload file name.
@@ -800,9 +806,14 @@ def create_application():
     encrypted = encrypt_document(plaintext)
     try:
         uploaded = upload_encrypted_document(encrypted["payload"], document.filename)
+        # The evaluator's SBT card; its URI goes on chain with the borrower's submission.
+        sbt = token_media.prepare(base_record, upload_ipfs_payload)
     except IpfsUploadError as exc:
         Path(patent["path"]).unlink(missing_ok=True)
         return error_response(str(exc), exc.status_code, "ipfs_upload_failed")
+    except token_media.TokenMediaError:
+        Path(patent["path"]).unlink(missing_ok=True)
+        return error_response("서류 저장 결과를 확인하지 못했습니다.", 502, "ipfs_upload_failed")
 
     # 신청·프로필·LLM 작업 저장은 한 트랜잭션. 업로드 실패/원부 불일치 시 갱신하지 않는다.
     stored_name = uuid4().hex + ".pdf"
@@ -819,6 +830,8 @@ def create_application():
             "docSalt": base64.b64encode(encrypted["salt"]).decode("ascii"),
             "hashMatch": 1,
             "patentStoredName": stored_name,
+            "sbtMetadataUri": sbt["metadataUri"],
+            "sbtImageUri": sbt["imageUri"],
         })
         now = timestamp()
         db.execute("INSERT INTO evaluation_jobs (appId, status, businessNumber, submittedAt, updatedAt) "
@@ -1088,22 +1101,35 @@ def prepare_loan_terms(app_id):
             or type(term) is not int or not 1 <= term <= 600:
         return error_response("신용등급·금리·기간을 확인해 주세요.", 400, "invalid_terms")
     try:
-        if chain.snapshot(application)["chainStatus"] != "Eligible":
+        state = chain.snapshot(application)
+        if state["chainStatus"] != "Eligible":
             return error_response("약정 심사 중인 신청만 약정할 수 있습니다.", 409, "wrong_stage")
     except chain.ChainError as exc:
         return error_response(str(exc), 409, "chain_unavailable")
     db = get_db()
+    if not application.get("rwaMetadataUri"):
+        # The RWA token card shows the confirmed value, so it is drawn now; its URI goes on chain with the approval.
+        try:
+            rwa = token_media.prepare({**application, "appraisedValue": state["appraisedValue"]}, upload_ipfs_payload, rwa=True)
+        except IpfsUploadError as exc:
+            return error_response(str(exc), exc.status_code, "ipfs_upload_failed")
+        except token_media.TokenMediaError:
+            return error_response("서류 저장 결과를 확인하지 못했습니다.", 502, "ipfs_upload_failed")
+        db.execute("UPDATE applications SET rwaMetadataUri = ?, rwaImageUri = ? WHERE id = ? AND rwaMetadataUri IS NULL",
+                   (rwa["metadataUri"], rwa["imageUri"], app_id))
+        db.commit()
+    uri = db.execute("SELECT rwaMetadataUri FROM applications WHERE id = ?", (app_id,)).fetchone()["rwaMetadataUri"]
     # Retrying the same terms (e.g. after closing MetaMask) gives the same hash.
     previous = db.execute("SELECT hash FROM loan_terms WHERE applicationId = ? AND creditGrade = ? AND rateBps = ? AND termMonths = ?",
                           (app_id, grade, rate, term)).fetchone()
     if previous:
-        return jsonify({"termsHash": previous["hash"]})
+        return jsonify({"termsHash": previous["hash"], "rwaMetadataUri": uri})
     salt = secrets.token_bytes(32)
     digest = terms_hash(application, salt, grade, rate, term)
     db.execute("INSERT INTO loan_terms (hash, applicationId, creditGrade, rateBps, termMonths, salt, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
                (digest, app_id, grade, rate, term, base64.b64encode(salt).decode("ascii"), timestamp()))
     db.commit()
-    return jsonify({"termsHash": digest}), 201
+    return jsonify({"termsHash": digest, "rwaMetadataUri": uri}), 201
 
 
 def assign_bank(application):

@@ -194,6 +194,14 @@ class V3ApiTest(unittest.TestCase):
         plaintext = AESGCM(base64.b64decode(row["docKey"])).decrypt(encrypted[:12], encrypted[12:], None)
         self.assertEqual(REGISTRY, plaintext)
         self.assertEqual(row["docFileHash"], "0x" + hashlib.sha256(base64.b64decode(row["docSalt"]) + REGISTRY).hexdigest())
+        # The evaluator's SBT card: PNG and metadata on IPFS behind the HTTPS gateway, naming nobody.
+        gateway = app_module.token_media.HTTPS_GATEWAY
+        metadata = json.loads(self.ipfs[created["sbtMetadataUri"].removeprefix(gateway)])
+        self.assertTrue(self.ipfs[metadata["image"].removeprefix(gateway)].startswith(b"\x89PNG"))
+        self.assertEqual(created["sbtImageUri"], metadata["image"])
+        self.assertEqual(f"평가보고서 열람 SBT · {created['id']}", metadata["name"])
+        for private in ("테스트 주식회사", "홍길동", "암호화 업로드 특허", "123-45-67890", "10-2026-0000001"):
+            self.assertNotIn(private, json.dumps(metadata, ensure_ascii=False))
 
     def test_only_registered_borrowers_apply_and_both_documents_are_required(self):
         self.assertEqual(403, self.post("/applications", "evaluator", data=self.form()).status_code)
@@ -392,14 +400,22 @@ class V3ApiTest(unittest.TestCase):
         report = self.prepare(created["id"])[0].get_json()
         path, terms = f"/applications/{created['id']}/loan-terms", {"creditGrade": "cc", "rateBps": 430, "termMonths": 24}
         self.assertEqual(409, self.post(path, "bank", json=terms).status_code)  # not yet past the 70% rule
-        self.stage = {"chainStatus": "Eligible"}
+        self.stage = {"chainStatus": "Eligible", "appraisedValue": 100}
         for bad in ({**terms, "creditGrade": "C C"}, {**terms, "rateBps": 0}, {**terms, "termMonths": "24"}, {**terms, "rateBps": 4.3}):
             self.assertEqual(400, self.post(path, "bank", json=bad).status_code, bad)
         self.assertEqual(403, self.post(path, "evaluator", json=terms).status_code)
+        uploads = len(self.ipfs)
         prepared = self.post(path, "bank", json=terms)
         self.assertEqual(201, prepared.status_code, prepared.get_json())
-        terms_hash = prepared.get_json()["termsHash"]
-        self.assertEqual(terms_hash, self.post(path, "bank", json=terms).get_json()["termsHash"])  # a retry signs the same hash
+        terms_hash, rwa_uri = prepared.get_json()["termsHash"], prepared.get_json()["rwaMetadataUri"]
+        # The RWA token card is drawn once, with the confirmed value, and shows none of the terms.
+        card = json.loads(self.ipfs[rwa_uri.removeprefix(app_module.token_media.HTTPS_GATEWAY)])
+        self.assertEqual(uploads + 2, len(self.ipfs))
+        self.assertIn({"trait_type": "확정 평가액(원)", "value": "100"}, card["attributes"])
+        self.assertEqual(["유형", "신청번호", "IP 유형", "약정 금액(원)", "확정 평가액(원)", "담보인정비율"],
+                         [a["trait_type"] for a in card["attributes"]])
+        self.assertEqual((terms_hash, rwa_uri), tuple(self.post(path, "bank", json=terms).get_json()[k] for k in ("termsHash", "rwaMetadataUri")))
+        self.assertEqual(uploads + 2, len(self.ipfs))
         self.assertNotEqual(terms_hash, self.post(path, "bank", json={**terms, "rateBps": 431}).get_json()["termsHash"])
         plain = json.dumps({"appKey": created["appKey"], "creditGrade": "CC", "rateBps": 430, "termMonths": 24},
                            sort_keys=True, separators=(",", ":")).encode()
@@ -471,7 +487,7 @@ class V3ApiTest(unittest.TestCase):
         self.stage = {"chainStatus": "Evaluating"}
         self.complete_job(app_id)
         self.assertEqual(201, self.prepare(app_id)[0].status_code)
-        self.stage = {"chainStatus": "Eligible"}
+        self.stage = {"chainStatus": "Eligible", "appraisedValue": 100}
         terms = {"creditGrade": "BB", "rateBps": 430, "termMonths": 12}
         self.assertEqual(201, self.post(f"/applications/{app_id}/loan-terms", "bank", json=terms).status_code)
         stored = app_module.UPLOAD_DIR / self.row(app_id)["patentStoredName"]

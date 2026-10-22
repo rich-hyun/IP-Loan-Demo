@@ -50,7 +50,7 @@ async function boot({ session = null, loginSession = null, applications = [], pr
       if (path === '/borrower-profiles') return profiles;
       if (path.endsWith('/evaluation-report')) return { cid: 'bafyreport', hash: '0xreport', appraisedValue: JSON.parse(options.body).appraisedValue, bankWallet: BANK };
       if (options.method === 'DELETE') return { status: 'deleted' };
-      if (path.endsWith('/loan-terms')) return { termsHash: '0x' + '7'.repeat(64) };
+      if (path.endsWith('/loan-terms')) return { termsHash: '0x' + '7'.repeat(64), rwaMetadataUri: 'https://rwa-gw.mustree.kr/ipfs/bafyrwa' };
       if (path === '/documents/fields') return { ipType: '실용신안권', ipTitle: '접이식 거치대', ipRegNo: '20-2023-0001234' };
       if (path.endsWith('/evaluation')) return applications.find(a => path.includes(a.id));
       throw new Error('unexpected ' + path);
@@ -235,7 +235,7 @@ test('the bank enters the credit grade (prefilled from the report when it has on
   // prototype, so compare plain JSON.
   const terms = h.calls.find(call => call[1] === '/applications/LN-2026-100001/loan-terms');
   assert.deepEqual([terms[2].method, JSON.parse(terms[2].body)], ['POST', { creditGrade: 'BB+', rateBps: 435, termMonths: 24 }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(call => call[0] === 'approve').slice(2))), [true, { termsHash: '0x' + '7'.repeat(64) }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(call => call[0] === 'approve').slice(2))), [true, { termsHash: '0x' + '7'.repeat(64), rwaMetadataUri: 'https://rwa-gw.mustree.kr/ipfs/bafyrwa' }]);
   assert.equal(h.run("findApp('LN-2026-100001').chainStatus"), 'Approved');
 });
 

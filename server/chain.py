@@ -11,7 +11,7 @@ MANAGER_ADDRESS = os.environ.get("IPLOAN_MANAGER_ADDRESS", "").strip()
 ARTIFACT = Path(__file__).resolve().parents[1] / "blockchain/artifacts/IPLoanManager.json"
 TOKEN_ABI = [{"type": "function", "name": "ownerOf", "stateMutability": "view", "inputs": [{"name": "tokenId", "type": "uint256"}], "outputs": [{"name": "owner", "type": "address"}]}]
 FIELDS = ["borrower", "docCid", "fileHash", "amount", "reportCid", "reportHash", "appraisedValue", "tokenId", "repaidAmount", "status",
-          "evaluator", "bank", "termsHash", "approvedAt"]
+          "evaluator", "bank", "termsHash", "approvedAt", "sbtUri", "rwaUri"]
 CONTRACT_VERSION = 3
 ROLE_NAMES = {"BORROWER_ROLE": "borrower", "EVALUATOR_ROLE": "evaluator", "BANK_ROLE": "bank"}
 ADMIN_ROLE_ID = b"\x00" * 32
@@ -162,6 +162,11 @@ def snapshot(application):
                 raise ChainError("배정 전 단계인데 체인에 은행 주소가 기록돼 있습니다.")
         elif bank.lower() != (application.get("bankWallet") or "").lower():
             raise ChainError("체인의 은행·여신심사역이 서버가 배정한 담당자와 다릅니다.")
+        # Token cards: the wallet shows whatever URI the chain holds, so it must be the one the server drew.
+        if record["sbtUri"] != (application.get("sbtMetadataUri") or ""):
+            raise ChainError("체인의 SBT 카드 주소가 서버가 만든 카드와 다릅니다.")
+        if status in (4, 6) and record["rwaUri"] != (application.get("rwaMetadataUri") or ""):
+            raise ChainError("체인의 RWA 토큰 카드 주소가 서버가 만든 카드와 다릅니다.")
         token_id = record["tokenId"]
         if status == 1:
             token_address = manager.functions.accessSBT().call(block_identifier=block)

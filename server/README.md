@@ -48,6 +48,8 @@ IPLOAN_MANAGER_ADDRESS=<v3 Manager 주소> bash blockchain/scripts/start-mustsem
 - 신용등급은 심사역이 은행 CB 조회 결과를 입력한다. 평가 API가 회사자료(TCB 보고서)의 등급(`credit_rating`)을 주면 그 값을 미리 채운다.
 - 약정 조건(신용등급·금리·기간)은 비공개다. 서버가 32바이트 salt와 함께 `loan_terms`에 보관하고 체인에는 salted 해시만 기록한다.
   원문은 차주·담당 은행·관리자에게만 보이고, /sync는 체인의 해시가 보관한 조건과 일치할 때만 약정을 반영한다.
+- 토큰 카드는 `token_media.py`가 번들 IBM Plex 글꼴(SIL OFL 1.1, `fonts/`)과 Pillow로 그린 PNG다. 신청 때 SBT 카드,
+  약정 준비 때 RWA 토큰 카드를 IPFS에 올리고 HTTPS 게이트웨이 주소를 계약에 고정한다. 공개 카드에는 기업명·대표자명·특허 명칭을 넣지 않는다.
 - LLM 보고서 API의 산정액·재무는 형식을 검증해 저장한다. 재무 점검은 참고용이며 자료가 없으면 판정 불가로 둔다.
 - 원부 진위 대조는 mock이다. 실제 개인정보·영업비밀을 쓰지 않는다.
 

@@ -6,7 +6,7 @@ const source = fs.readFileSync(`${__dirname}/chain.js`, 'utf8');
 const wallet = '0x1111111111111111111111111111111111111111';
 const manager = '0x2222222222222222222222222222222222222222';
 const application = { id: 'LN-TEST', appKey: '0xkey', docCid: 'bafytestcid', docFileHash: '0xhash', amount: 70,
-  borrowerWallet: wallet, managerAddress: manager, chainId: 31337,
+  sbtMetadataUri: 'https://rwa-gw.mustree.kr/ipfs/bafysbtcard', borrowerWallet: wallet, managerAddress: manager, chainId: 31337,
   evaluatorWallet: '0x3333333333333333333333333333333333333333', bankWallet: '0x4444444444444444444444444444444444444444' };
 
 async function harness(options = {}) {
@@ -119,12 +119,13 @@ test('zero price never leaks to Sepolia or an unconfigured network', async () =>
   }
 });
 
-test('registration sends only the stored server-assigned evaluator, with no per-application admin transaction', async () => {
+test('registration sends only the stored server-assigned evaluator and SBT card, with no per-application admin transaction', async () => {
   const h = await harness();
   await h.api.register(application);
-  assert.equal(h.state.sentArgs.length, 5);
-  assert.equal(h.state.sentArgs.at(-1), application.evaluatorWallet);
+  assert.equal(h.state.sentArgs.length, 6);
+  assert.deepEqual(h.state.sentArgs.slice(-2), [application.evaluatorWallet, application.sbtMetadataUri]);
   assert.equal(h.state.sends, 1);
+  await assert.rejects((await harness()).api.register({ ...application, sbtMetadataUri: undefined }), /다시 불러온/);
 });
 
 test('missing stored assignment is refused before asking MetaMask to broadcast', async () => {
@@ -220,8 +221,8 @@ test('transactions must come from the signed-in wallet', async () => {
 });
 test('approval sends only the hash of the loan terms; rejection sends only the application key', async () => {
   let h = await harness({ stage: 2 });
-  await h.api.approve({ ...application, bankWallet: wallet }, true, { termsHash: '0xterms' });
-  assert.deepEqual(h.state.sentArgs, ['0xkey', '0xterms']);
+  await h.api.approve({ ...application, bankWallet: wallet }, true, { termsHash: '0xterms', rwaMetadataUri: 'https://rwa-gw.mustree.kr/ipfs/bafyrwa' });
+  assert.deepEqual(h.state.sentArgs, ['0xkey', '0xterms', 'https://rwa-gw.mustree.kr/ipfs/bafyrwa']);
   h = await harness({ stage: 2 });
   await h.api.approve({ ...application, bankWallet: wallet }, false);
   assert.deepEqual(h.state.sentArgs, ['0xkey']);

@@ -5,3 +5,4 @@ cryptography==46.0.3
 requests==2.32.5
 web3==7.14.0
 pypdf==5.1.0
+Pillow==11.3.0
