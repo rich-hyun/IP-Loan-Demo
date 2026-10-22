@@ -1,0 +1,34 @@
+{
+  "network": "Mustsem",
+  "chainId": 7601,
+  "rpcUrl": "https://block.mustree.kr",
+  "contractVersion": 3,
+  "managerAddress": "0xC9E94e50F3EAa3a4E4Fa0829B8EcE1fd993e68e6",
+  "accessSBTAddress": "0xb0EF1A380b41138379C329426DD12859da4d03e5",
+  "rwaTokenAddress": "0xc5eFeF1A53E45710FcD5B8AE08Dc6BB052302D01",
+  "artAddress": "0xce24a6870Bbae3018bc6C053E9D8FC4483313D9E",
+  "admin": "0xE63a192911048B74c1149DBb058DEbdC30cC785B",
+  "initialEvaluator": "0xa3B81443517443D7612040Dc8E02609c5b9Ad174",
+  "initialBank": "0xE63a192911048B74c1149DBb058DEbdC30cC785B",
+  "plannedBorrower": "0xed25983C90c773828a00b0FAF5e92cf5eE2cedb6",
+  "assignment": "Evaluator per application at submission; bank/reviewer at a passing evaluation. Final approval records only the salted hash of the agreed credit grade, rate and term (the plaintext stays with the server) and mints the RWA token to the bank. Token metadata carries an on-chain SVG card drawn by IPLoanArt. Roles are managed by the admin in admin.html.",
+  "replaces": "0x7428932Dd3542657139ff9d560250b0ef5b6E50E (see mustsem-v3-retired-20261021.json)",
+  "compiler": {
+    "version": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+    "evmVersion": "paris",
+    "viaIR": true,
+    "optimizerRuns": 200
+  },
+  "deploymentTransactionHash": "0x3fbe909c362cff42c1bc90893308601dce9749f9790848bc1d3990caa6e0a093",
+  "deploymentBlock": 13293592,
+  "deploymentNonce": 3,
+  "gasUsed": "6874130",
+  "effectiveGasPriceWei": "107",
+  "verification": {
+    "creationCodeAndConstructorArgs": true,
+    "tokenManagers": true,
+    "initialRoles": true,
+    "contractVersion": true
+  },
+  "verifiedDate": "2026-10-22"
+}

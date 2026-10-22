@@ -30,7 +30,7 @@ admin.html에서 관리자 지갑으로 "새 v3 계약 배포"를 승인한다. 
 deployments/에 새 파일로 기록한다. 이후 API를 v3 주소로 다시 시작하고 차주·평가사·은행 주소에 역할을 다시 부여한다.
 
 2026-10-21 배포분(Manager 0x7428932Dd3542657139ff9d560250b0ef5b6E50E)은 약정 조건을 평문으로 기록하는 빌드라 폐기했다
-(deployments/mustsem-v3-retired-20261021.json). 재배포한 계약은 deployments/mustsem-v3.json에 기록한다.
+(deployments/mustsem-v3-retired-20261021.json). 2026-10-22 재배포한 계약은 deployments/mustsem-v3.json(Manager 0xC9E94e50F3EAa3a4E4Fa0829B8EcE1fd993e68e6)에 기록했다.
 이전 v2 계약(deployments/mustsem.json, Manager 0x6D1004CB292e3ec45A4c4A0834C0eedAAbe16E38)은 기록으로 남긴다.
 v2에 등록된 신청은 v3 서버에서 열람만 할 수 있다. deployments/sepolia.json은 그 이전 단일 담당자 계약의 기록이다.
 
