@@ -299,7 +299,7 @@ test('unconfirmed evaluation is pending, not rendered as rejection or approval',
   assert.match(html, /finalChainDecision\('CHAIN-REVIEW', true\)" disabled/);
 });
 
-test('integrated review shows the report credit grade and financial checks instead of the TCB placeholder', async () => {
+test('integrated review shows the report credit grade, financial checks and auto-review row instead of the TCB placeholder', async () => {
   const page = await boot();
   page.run(fs.readFileSync(`${__dirname}/workflow.js`, 'utf8'));
   const evaluation = { state: 'completed', confirmedAt: 1, creditRating: 'BB-', financials: [
@@ -309,7 +309,7 @@ test('integrated review shows the report credit grade and financial checks inste
   page.server.evaluation = { id: 'CHAIN-REVIEW', workflow: true, chainStatus: 'Eligible', evaluation };
   const html = addReviewCase(page, { workflow: true, evaluation: { state: 'completed', confirmedAt: 1, creditRating: 'BB-' } });
   assert.match(html, /<div class="k">신용등급<\/div><div class="v">BB-<\/div>/);
-  assert.match(html, /check-title">신용등급<\/div>[\s\S]*?check-status">BB-</);
+  assert.match(html, /check-title">신용·재무 자동심사<\/div>[\s\S]*?check-status">판정 기록 없음</);
   assert.doesNotMatch(html, /TCB 미연동|신용평가 점수/);
   await new Promise(resolve => setImmediate(resolve));
   const panel = page.element('workflowReview').innerHTML;
@@ -321,7 +321,33 @@ test('integrated review shows the report credit grade and financial checks inste
   assert.match(panel, /2025년 NICE BizAPI/);
 
   const missing = addReviewCase(page, { id: 'NO-GRADE', workflow: true, evaluation: { state: 'completed' } });
-  assert.match(missing, /check-status">판정 불가 \(자료 없음\)</);
+  assert.match(missing, /<div class="k">신용등급<\/div><div class="v"><span class="val-na">/);
+});
+
+test('server auto-review verdict decides which final action the bank can sign', async () => {
+  const page = await boot();
+  const evaluation = (decision, label) => ({ state: 'completed', confirmedAt: 1, creditRating: 'BB-',
+    autoReview: { policy: 'v2-server-auto-review-1', decision, ltvPct: 70, reasons: [{ code: 'x', label }] } });
+  const approve = addReviewCase(page, { id: 'AUTO-APPROVE', workflow: true, evaluation: evaluation('approve', '신용등급 BBB- 이상') });
+  assert.match(approve, /check-title">신용·재무 자동심사<\/div><div class="check-desc">신용등급 BBB- 이상<\/div>[\s\S]*?check-status">승인</);
+  assert.match(approve, /decision-banner show approved[\s\S]*?자동심사 결과 — 승인/);
+  assert.doesNotMatch(approve, /finalChainDecision\('AUTO-APPROVE', true\)" disabled/);
+  assert.match(approve, /finalChainDecision\('AUTO-APPROVE', false\)" disabled/);
+
+  const reject = addReviewCase(page, { id: 'AUTO-REJECT', workflow: true, evaluation: evaluation('reject', '신용등급 CCC+ 이하') });
+  assert.match(reject, /class="check-item failed"[\s\S]*?check-status">거절</);
+  assert.match(reject, /decision-banner show rejected[\s\S]*?자동심사 결과 — 거절[\s\S]*?f-label">신청금액/);
+  assert.match(reject, /finalChainDecision\('AUTO-REJECT', true\)" disabled/);
+  assert.doesNotMatch(reject, /finalChainDecision\('AUTO-REJECT', false\)" disabled/);
+
+  const review = addReviewCase(page, { id: 'AUTO-REVIEW', workflow: true, evaluation: evaluation('review', '유동비율 100% 미만') });
+  assert.match(review, /decision-banner show review[\s\S]*?자동심사 결과 — 심사역 검토[\s\S]*?유동비율 100% 미만/);
+  assert.doesNotMatch(review, /finalChainDecision\('AUTO-REVIEW', (true|false)\)" disabled/);
+
+  const done = addReviewCase(page, { id: 'AUTO-DONE', workflow: true, chainStatus: 'Approved', status: 'approved', debtTokenId: '3',
+    evaluation: evaluation('reject', '신용등급 CCC+ 이하') });
+  assert.match(done, /최종 승인 완료/);
+  assert.match(done, /finalChainDecision\('AUTO-DONE', true\)" disabled/);
 });
 
 test('review summary and chain rejection text escape user-controlled values', async () => {
@@ -330,4 +356,51 @@ test('review summary and chain rejection text escape user-controlled values', as
     chainStatus: 'Rejected', status: 'rejected', rejectReason: '<img src=x>' });
   assert.doesNotMatch(html, /<img|<script>/);
   assert.match(html, /&lt;img/); assert.match(html, /&lt;script&gt;/);
+});
+
+test('wallet login opens only the roles the chain grants and logs out back to the sign-in view', async () => {
+  const address = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+  let current = null, logins = 0;
+  const chain = { init: async () => {}, restore: async () => current, session: () => current,
+    login: async () => { logins++; current = { address, token: 'token', roles: ['evaluator', 'admin'] }; return current; },
+    logout: async () => { current = null; } };
+  const page = await boot(new Map(), null, chain);
+  assert.equal(page.run('currentRole'), null);
+  assert.ok(page.element('view-login').classList.contains('active'));
+  assert.equal(page.element('userChip').hidden, true);
+  assert.equal(page.element('loginBtnTop').hidden, false);
+
+  await page.element('loginBtn').listeners.click();
+  assert.equal(logins, 1);
+  assert.equal(page.run('currentRole'), 'evaluator');
+  assert.equal(page.element('userName').textContent, '0x7099…79C8');
+  assert.equal(page.element('userChip').hidden, false);
+  assert.equal(page.element('loginBtnTop').hidden, true);
+  assert.equal(page.element('adminLink').hidden, false);
+  assert.match(page.element('roleOptions').innerHTML, /data-role="evaluator"/);
+  assert.doesNotMatch(page.element('roleOptions').innerHTML, /data-role="(lender|borrower)"/);
+  page.run("setRole('lender')");
+  assert.equal(page.run('currentRole'), 'evaluator');
+
+  await page.element('logoutBtn').listeners.click();
+  assert.equal(page.run('currentRole'), null);
+  assert.equal(page.element('userChip').hidden, true);
+  assert.ok(page.element('view-login').classList.contains('active'));
+});
+
+test('a restored session resumes without signing again, and a wallet without roles stays on the sign-in view', async () => {
+  let current = { address: '0x90F79bf6EB2c4f870365E785982E1f101E93b906', token: 'token', roles: ['bank'] }, logins = 0;
+  const chain = { init: async () => {}, restore: async () => current, session: () => current,
+    login: async () => { logins++; current = { address: '0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65', token: 't2', roles: [] }; return current; },
+    logout: async () => { current = null; } };
+  const page = await boot(new Map(), null, chain);
+  assert.equal(logins, 0);
+  assert.equal(page.run('currentRole'), 'lender');
+  assert.ok(page.element('view-review').classList.contains('active'));
+
+  await page.element('logoutBtn').listeners.click();
+  await page.element('loginBtn').listeners.click();
+  assert.equal(page.run('currentRole'), null);
+  assert.match(page.element('loginHelp').textContent, /등록된 역할이 없습니다/);
+  assert.match(page.element('roleOptions').innerHTML, /등록된 역할이 없습니다/);
 });

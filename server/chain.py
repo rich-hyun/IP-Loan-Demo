@@ -13,6 +13,8 @@ ARTIFACT = Path(__file__).resolve().parents[1] / "blockchain/artifacts/IPLoanMan
 TOKEN_ABI = [{"type": "function", "name": "ownerOf", "stateMutability": "view", "inputs": [{"name": "tokenId", "type": "uint256"}], "outputs": [{"name": "owner", "type": "address"}]}]
 FIELDS = ["borrower", "docCid", "fileHash", "amount", "reportCid", "reportHash", "appraisedValue", "tokenId", "repaidAmount", "status", "evaluator", "bank"]
 STAGES = ["None", "Evaluating", "Eligible", "RuleRejected", "Approved", "Rejected", "Repaid"]
+ROLE_NAMES = {"BORROWER_ROLE": "borrower", "EVALUATOR_ROLE": "evaluator", "BANK_ROLE": "bank"}
+ADMIN_ROLE_ID = b"\x00" * 32  # OpenZeppelin DEFAULT_ADMIN_ROLE
 
 class ChainError(Exception):
     pass
@@ -138,6 +140,20 @@ def has_role(wallet, role):
     _, manager = _manager()
     try:
         return manager.functions.hasRole(Web3.keccak(text=role), address(wallet)).call()
+    except Exception as exc:
+        raise ChainError("지갑 역할을 확인하지 못했습니다.") from exc
+
+def roles(wallet):
+    """Current on-chain roles of a wallet, as login role names (borrower/evaluator/bank/admin)."""
+    _, manager = _manager()
+    try:
+        wallet = address(wallet)
+        held = [name for role, name in ROLE_NAMES.items() if manager.functions.hasRole(Web3.keccak(text=role), wallet).call()]
+        if manager.functions.hasRole(ADMIN_ROLE_ID, wallet).call():
+            held.append("admin")
+        return held
+    except ChainError:
+        raise
     except Exception as exc:
         raise ChainError("지갑 역할을 확인하지 못했습니다.") from exc
 

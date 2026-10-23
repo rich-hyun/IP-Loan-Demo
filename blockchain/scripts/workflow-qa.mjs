@@ -23,7 +23,6 @@ await manager.waitForDeployment(); await (await manager.grantRole(await manager.
 let apiUrl;
 const walletScript = `
 globalThis.IPLOAN_API_BASE='/api';
-localStorage.setItem('iploan-role','borrower');
 const qaHandlers={};let qaAccount=1;
 globalThis.ethereum={on:(event,fn)=>{(qaHandlers[event]||=[]).push(fn)},request:async({method,params=[]})=>{
 const res=await fetch('/qa-wallet-rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params,account:qaAccount})});
@@ -31,7 +30,7 @@ const out=await res.json();if(out.error)throw Object.assign(new Error(out.error.
 }};
 addEventListener('DOMContentLoaded',()=>{const box=document.createElement('div');box.style='padding:12px;background:#fff3cf;position:sticky;top:0;z-index:99';
 box.innerHTML='<b>로컬 QA 전용 · 실제 자금 없음 · ${realProvider ? '실제 보고서 API' : '보고서 API 테스트 대역'} · IPFS 테스트 대역</b> <label>테스트 지갑 <select id="qaWallet"><option value="1">차주</option><option value="2">평가사</option><option value="3">은행</option><option value="4">미배정 사용자</option></select></label>';
-document.body.prepend(box);document.getElementById('qaWallet').onchange=async e=>{qaAccount=Number(e.target.value);const accounts=await ethereum.request({method:'eth_accounts'});for(const fn of qaHandlers.accountsChanged||[])fn(accounts);setRole(({1:'borrower',2:'evaluator',3:'lender',4:'evaluator'})[qaAccount]);};});`;
+document.body.prepend(box);document.getElementById('qaWallet').onchange=async e=>{qaAccount=Number(e.target.value);const accounts=await ethereum.request({method:'eth_accounts'});for(const fn of qaHandlers.accountsChanged||[])fn(accounts);};});`;
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -47,7 +46,8 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
       const response = await fetch(apiUrl + url.pathname.slice(4) + url.search, { method: req.method,
-        headers: { ...(req.headers['content-type'] ? { 'Content-Type': req.headers['content-type'] } : {}) },
+        headers: { ...(req.headers['content-type'] ? { 'Content-Type': req.headers['content-type'] } : {}),
+          ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}) },
         ...(['GET','HEAD'].includes(req.method) ? {} : { body: Buffer.concat(chunks) }),
       });
       res.writeHead(response.status, Object.fromEntries([...response.headers].filter(([k]) => !['content-length','transfer-encoding','connection','content-encoding'].includes(k))));

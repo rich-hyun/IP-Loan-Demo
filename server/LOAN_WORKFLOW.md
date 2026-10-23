@@ -9,10 +9,10 @@
 - 신규 신청의 진입점은 대출 신청이다. 특허 공고전문 PDF 하나를 `registryDocument` 필드로 받는다. 기존 필드 이름은 API 호환을 위해 유지한다. 현재 대출의 파일 상한인 20MiB를 적용한다.
 - 기존 AES-256-GCM 암호화·IPFS 업로드·원본 해시·기업 프로필·담당자 배정·v2 SBT/NFT 계약을 재사용한다. 같은 암호문을 대출 DB에 보관하고 외부 평가 API에 보낼 때만 임시 PDF로 복호화한다. 재시도 때 브라우저 업로드나 IPFS 재업로드가 필요 없다. 원부 진위 대조는 기존 mock이며 실제 특허청 검증으로 주장하지 않는다.
 - 외부 평가 접수·상태 조회·identity·보고서 다운로드는 기존 `patent_api.py` 클라이언트를 사용한다. 서버가 신청 저장 후 같은 요청에서 공급자 접수를 수행하며, 생성 작업은 공급자의 비동기 큐에서 진행된다. 접수 지연 중에는 제출 버튼에 처리 상태가 표시된다. 접수 후 상태 조회 버튼으로 15분의 읽기 세션을 만들면 10초마다 갱신한다. 페이지를 닫아도 작업번호와 파일은 DB에 남는다.
-- `applications.id`를 `loan_evaluations.appId`, `loan_evaluation_attempts.appId`, `loan_artifacts.appId`, `evaluation_reports.applicationId`, `credit_cases.applicationId`의 연결 키로 사용한다. 기존 `appKey`는 이 신청번호의 해시이다. 실패한 이전 접수의 작업번호·상태·오류도 차수별로 남긴다. 평가 작업번호, 원본 해시, 공급자 보고서 해시, 자동 산출 가치, 적용 가치, 평가사 지갑과 검토 사유, 보고서의 신용등급과 재무 점검 결과를 확정 JSON에 함께 넣고 기존 IPFS 보고서 CID·해시를 체인에 기록한다.
+- `applications.id`를 `loan_evaluations.appId`, `loan_evaluation_attempts.appId`, `loan_artifacts.appId`, `evaluation_reports.applicationId`, `credit_cases.applicationId`의 연결 키로 사용한다. 기존 `appKey`는 이 신청번호의 해시이다. 실패한 이전 접수의 작업번호·상태·오류도 차수별로 남긴다. 평가 작업번호, 원본 해시, 공급자 보고서 해시, 자동 산출 가치, 적용 가치, 평가사 지갑과 검토 사유, 보고서의 신용등급과 재무 점검 결과, 서버 자동심사 판정을 확정 JSON에 함께 넣고 기존 IPFS 보고서 CID·해시를 체인에 기록한다.
 - 실제 검토 사유·자동 산출값이 공개 IPFS에서 평문으로 노출되지 않도록 확정 JSON은 원본의 서버 보관 키와 새 IV로 AES-GCM 암호화해 업로드한다. 체인의 보고서 해시는 평문 확정 JSON의 SHA256이다. 공급자 보고서와 평가 진행 상태는 인증 없이 열람한다. 특허 원본은 지갑 서명 API로만 확인한다. 최종 적용 가치는 기존 계약 설계대로 체인에 공개된다.
 - 평가사는 공급자 보고서·자동 산출 값을 확인하고 적용 가치와 검토 사유를 입력한다. 준비된 확정 내용은 변경하지 않는 것으로 가정했다. 지갑 취소·응답 유실 시 같은 내용으로 재시도하며 실제 체인 확인 전에는 여신심사에 전달하지 않는다. 일반 PATCH로 확정이나 심사 상태를 우회할 수 없다.
-- 현재 v2 계약에 이미 `amount * 100 <= value * 70` 규칙이 있다. 이 **데모 계약의 70% 기준**을 서버에서도 정수 비교로 적용한다. 표시용 LTV의 반올림값으로 판정하지 않는다. 새로운 정책 수치를 임의로 정하지 않았다. 계약·RPC·역할 설정이 없으면 통합 접수/확정을 차단한다. 다른 LTV 정책은 계약과 서버를 함께 변경해야 하며 환경변수만으로 계약과 다른 정책을 적용하지 않는다.
+- 현재 v2 계약에 이미 `amount * 100 <= value * 70` 규칙이 있다. 이 **데모 계약의 70% 기준**을 서버에서도 정수 비교로 적용한다. 표시용 LTV의 반올림값으로 판정하지 않는다. 체인 진입 기준에는 새 수치를 두지 않았다(서버 자동심사 기준은 아래 별도). 계약·RPC·역할 설정이 없으면 통합 접수/확정을 차단한다. 다른 LTV 정책은 계약과 서버를 함께 변경해야 하며 환경변수만으로 계약과 다른 정책을 적용하지 않는다.
 - 실제 체인 확정이 보고서·검토 기록과 일치하고 양의 적용 가치로 LTV를 통과해야 `credit_cases` 한 건이 생성된다. 미완료·실패·보고서 없음·가치 없음/0/음수·LTV 초과는 심사 건을 만들지 않는다. 초과 건은 `RuleRejected/rejected`와 사유를 표시한다.
 
 ## 평가 API 요약값: 금액·신용등급·재무
@@ -20,12 +20,19 @@
 평가 API 1.0.0의 완료 상태 응답(`GET /v1/evaluations/{job_id}`)에는 보고서 요약값이 함께 온다. `report_summary.py`가 정해진 필드의 형식만 확인해 `loan_evaluations`에 저장한다.
 
 - `valuation.ip_value_krw`(원 단위 정수)를 자동 산출 가치로 쓴다(`valueSource=provider-valuation-json`). 보고서 글자는 억 원 단위로 반올림되므로 숫자 필드를 우선한다. `value_status`가 `confirmed`가 아니면 사전평가 값으로 안내한다. 0 이하 값도 그대로 보여주고 부적합 안내를 붙인다. 평가사는 지금처럼 적용 가치와 검토 사유를 입력해 확정한다.
-- `credit_rating`은 평가기가 보유한 같은 기업의 회사자료(TCB)에 적힌 등급이다. 대문자 등급(`BB-` 등)만 남기고 해석할 수 없으면 비운다. 여신심사 화면의 "신용등급"에 표시하고, 없으면 "판정 불가 (자료 없음)"으로 표시한다. v2 계약에는 신용등급 필드가 없으므로 체인에 기록하지 않고 자동심사(70% 규칙)에도 쓰지 않는다.
-- `financials`는 최근 3개 결산연도만 남긴다. 자본잠식 여부는 자본총계로 다시 계산하고, 잠식이면 부채비율을 비운다. 은행 화면의 재무 참고 점검(자본잠식·영업이익·이자보상배율 1배·유동비율 100%)은 참고용이며 승인·거절을 자동으로 정하지 않는다. 값이 없으면 통과가 아니라 판정 불가다.
+- `credit_rating`은 평가기가 보유한 같은 기업의 회사자료(TCB)에 적힌 등급이다. 대문자 등급(`BB-` 등)만 남기고 해석할 수 없으면 비운다. 여신심사 화면의 "신용등급"에 표시하고, 없으면 "판정 불가 (자료 없음)"으로 표시한다. v2 계약에는 신용등급 필드가 없으므로 체인에 기록하지 않는다. 계약 자동심사(70% 규칙)에는 쓰지 않고 서버 자동심사에 쓴다.
+- `financials`는 최근 3개 결산연도만 남긴다. 자본잠식 여부는 자본총계로 다시 계산하고, 잠식이면 부채비율을 비운다. 은행 화면의 재무 점검(자본잠식·영업이익·이자보상배율 1배·유동비율 100%)은 서버 자동심사에 쓴다. 값이 없으면 통과가 아니라 판정 불가다.
+- 서버 자동심사(`report_summary.auto_review`, 정책 `v2-server-auto-review-1`)는 확정 준비 때 신용등급·재무 점검·신청금액·적용 가치로 승인(`approve`)·거절(`reject`)·검토 필요(`review`)를 정한다. 기준 수치는 `report_summary.py` 상단 상수에 모았다. LTV는 계약처럼 정수로 비교한다(`amount * 100 <= value * 60`).
+  - LTV 70% 초과, 또는 CCC+ 이하 등급: 거절. 70% 초과는 계약도 `RuleRejected`로 막는다.
+  - 등급 없음·해석 불가, 재무 점검 하나라도 미충족·자료 없음: 검토 필요. 자료 없음을 통과로 보지 않는다.
+  - AAA~BBB-, 점검 4개 통과: 승인.
+  - BB+~B-, 점검 4개 통과, LTV 60% 이하: 승인. 60% 초과면 검토 필요.
+- 계약은 바꾸지 않았다. 체인은 여전히 70% 규칙만 판정하고 최종 승인·거절은 은행 지갑이 한다. 은행 결정이 판정과 달라도 체인 상태가 최종이므로 동기화를 막지 않고 표시만 한다.
 - 이 필드가 생기기 전에 완료된 작업은 상태 조회 때 같은 작업번호로 요약값을 한 번 더 읽는다. 실패하면 10분 뒤 다시 시도한다. 확정 준비(`preparedHash`)가 끝난 건은 확정 JSON이 자동 산출 가치를 포함하므로 금액을 바꾸지 않고 신용등급·재무만 채운다.
 - 요약값이 없는 예전 작업은 HTML 보고서의 `IP 가치금액` 표를 읽는 `patent_value.py`를 대비책으로 유지한다. 정확히 `IP 가치금액`인 `th`와 바로 뒤 `td`, 명시된 원/만원/백만원/억원 단위만 읽고, 누락·충돌·원 미만 소수는 해석하지 않는다. 일반 본문·신청금액·신용점수에서 금액을 추정하지 않는다.
-- 신용등급과 재무 점검 결과는 평가사 확정 JSON에 들어가 보고서 해시로 체인에 묶인다. 확정 JSON은 암호화해 IPFS에 올리므로 등급 원문은 체인에 남지 않는다. 같은 확정을 재시도하면 처음 준비한 값을 그대로 써서 해시가 바뀌지 않는다.
+- 신용등급·재무 점검 결과·자동심사 판정(`autoReview`: `policy`·`decision`·`ltvPct`·`reasons[{code,label}]`)은 평가사 확정 JSON에 들어가 보고서 해시로 체인에 묶인다. 확정 JSON은 암호화해 IPFS에 올리므로 등급 원문은 체인에 남지 않는다. 같은 확정을 재시도하면 처음 준비한 값을 그대로 써서 해시가 바뀌지 않는다. 자동심사 이전에 준비한 확정은 재시도해도 `autoReview` 없이 유지한다.
 - 진행 상태와 보고서처럼 요약값도 `GET /api/applications/<id>/evaluation`에서 인증 없이 열람한다. 신청 목록에는 신용등급만 포함한다.
+- 같은 응답의 `evaluation.autoReview`는 준비된 확정 JSON의 판정이다. 확정 준비 전이나 자동심사 이전 확정이면 `null`이고, 표시용으로 새로 계산하지 않는다. `evaluation.autoReviewFollowed`는 체인 상태가 `Approved`·`Repaid`(승인)·`Rejected`(거절)일 때 은행 결정이 판정과 같으면 `true`, 다르면 `false`다. 그 전이거나 판정이 `review`·없음이면 `null`이다.
 
 ## 접근 권한·중복 방지·복구
 
@@ -40,6 +47,18 @@
 - 공개 데모의 기존 목록/프로필 메타데이터 API는 유지한다. 새 평가의 원본과 검토 확정은 인증 API로만 제공한다. 공급자 보고서는 신청번호만 알면 열람할 수 있으므로 운영 공개 전에 접근 범위를 다시 정해야 한다. 운영용 전체 목록 인증·개인정보 및 암호화 키 관리 개선은 별도 기존 제약이다.
 - `patent.html#apply`는 통합 신청으로 이동하고 `#evaluate`는 이전 특허 DB의 이력 조회용으로 남긴다. `/api/patent`의 기존 쓰기는 통합 서버에서 410으로 차단한다. 이전 단독 서버의 호환성 테스트 코드는 유지하며 실제 서비스는 `server/app.py`로 실행한다. `ALLOW_LEGACY_TEST_SUBMISSIONS`는 과거 입력의 회귀 테스트 전용 Flask 설정이고 일반 실행에서 활성화하지 않는다.
 - 기존 미온체인 신청은 조회용으로 유지하고 lifecycle PATCH는 409로 차단한다. 검증되지 않은 예전 시연용 값으로 새 여신심사 전이를 만들 수 없다. 기존 온체인 신청은 기존 지갑 거래·동기화 경로를 유지한다.
+
+## 지갑 로그인
+
+v3와 같은 방식이다(`server/auth.py`). 계약은 바꾸지 않았다.
+
+- `POST /api/auth/challenge` `{address}` → `{nonce, message}`. 메시지에 서비스 이름(`IP담보 자동대출`)·주소·체인 ID·nonce·발급/만료 시각이 들어간다. 거래가 아니며 수수료가 없다.
+- `POST /api/auth/login` `{address, nonce, signature}` → `{token, address, roles, expiresAt}`. challenge는 5분 뒤 만료되고 실패해도 한 번만 소비된다. 세션은 12시간이다. SQLite `auth_challenges`·`sessions`에 두고 토큰은 SHA256만 저장하므로 gunicorn 워커 간에 공유된다.
+- `GET /api/auth/me`(Bearer) → `{address, roles}`. `POST /api/auth/logout`(Bearer)은 그 세션만 끝내며 체인을 읽지 않는다.
+- 역할은 설정된 v2 Manager의 `hasRole`로 읽는다(`chain.roles`). `DEFAULT_ADMIN_ROLE`→`admin`, `BORROWER_ROLE`→`borrower`, `EVALUATOR_ROLE`→`evaluator`, `BANK_ROLE`→`bank`. `me`는 워커별 30초 캐시(`IPLOAN_ROLE_CACHE_SECONDS`)를 쓰고 로그인은 새로 읽는다. 역할이 없어도 로그인은 된다. 계약 주소·RPC가 없거나 연결되지 않으면 login·me는 503 `chain_unavailable`이다.
+- 세션은 지갑만 증명한다. 건별 서명 `{nonce, signature}` 자리에 `{"login": "<token>"}`을 보내면 `loan_workflow.authorize`가 세션의 지갑을 쓴다. 그 뒤의 담당자 대조·체인 `require_role`(캐시 없음)·단계 규칙·`create`의 `borrowerWallet` 확인은 서명 경로와 같다. `create`는 multipart `auth` 필드의 JSON 문자열, 나머지는 JSON 본문의 `auth` 키다. 만료·모르는 토큰은 403이다.
+- 기존 원본 열람 `POST /api/applications/<id>/document`도 `{nonce, signature}` 대신 `{"login": "<token>"}`을 받는다. `address`를 함께 보내면 세션 지갑과 같아야 한다. 이후 단계·담당자·역할 확인은 같다.
+- 세션은 만료·로그아웃 전까지 재사용된다. 세션으로 보낸 요청은 내용에 대한 서명이 없다. 공개 열람 API는 지금처럼 인증 없이 연다. 계약 거래는 여전히 각 지갑이 MetaMask로 서명한다.
 
 ## 실행과 설정
 
@@ -81,7 +100,7 @@ node scripts/workflow-qa.mjs --real-provider
 
 ```powershell
 $env:PYTHONPATH="$PWD/server"
-server/venv/Scripts/python.exe -m unittest server.test_app server.test_patent_integration server.test_participant_assignment server.test_loan_workflow server.test_patent_value server.test_server_compat server.test_evaluations -q
+server/venv/Scripts/python.exe -m unittest server.test_app server.test_auth server.test_patent_integration server.test_participant_assignment server.test_loan_workflow server.test_patent_value server.test_report_summary server.test_server_compat server.test_evaluations -q
 Remove-Item Env:PYTHONPATH
 node --check js/workflow.js
 node --check js/app.js
@@ -92,6 +111,6 @@ node scripts/build-web.mjs
 node --test test/*.test.mjs
 ```
 
-서버 테스트는 임시 DB만 사용한다. 신규 테스트는 정상·LTV 초과·미완료·실패·재시도·접수 불명·동시 중복·서명 재사용/변조·권한 회수·정책 설정 누락을 검사한다. HTML 어댑터는 단위 변환·0/음수·누락·모호한 값·불일치를 검사한다. 실제 EVM 통합 테스트의 공급자 및 IPFS는 테스트 대역이다. 정적 HTML/JS 프로젝트로 별도 TypeScript 타입 검사기는 없으며 JS 구문 검사, 회귀 테스트, 계약 컴파일, Python 테스트로 검증한다.
+서버 테스트는 임시 DB만 사용한다. 신규 테스트는 정상·LTV 초과·미완료·실패·재시도·접수 불명·동시 중복·서명 재사용/변조·권한 회수·정책 설정 누락, 자동심사 기준표·확정 JSON 바인딩·재시도 해시 유지를 검사한다. HTML 어댑터는 단위 변환·0/음수·누락·모호한 값·불일치를 검사한다. 실제 EVM 통합 테스트의 공급자 및 IPFS는 테스트 대역이다. 정적 HTML/JS 프로젝트로 별도 TypeScript 타입 검사기는 없으며 JS 구문 검사, 회귀 테스트, 계약 컴파일, Python 테스트로 검증한다.
 
 테스트 대역 통과는 실제 공급자·실제 IPFS·운영 체인 전체 연동의 검증이 아니다.

@@ -164,6 +164,7 @@ function hideConnNotice() { document.getElementById('connNotice').classList.remo
 
 /* ---------------- Navigation ---------------- */
 const VIEW_META = {
+  login:     { title:'지갑 인증 로그인', sub:'등록된 지갑으로 로그인하면 담당 업무 화면이 열립니다' },
   dashboard: { title:'대시보드',        sub:'LLM·블록체인 기반 IP담보 자동대출 서비스 현황' },
   list:      { title:'대출 신청 리스트', sub:'전체 대출 신청 건의 심사 진행 상태를 확인합니다' },
   apply:     { title:'대출 신청',        sub:'지식재산권을 담보로 등록하고 대출을 신청합니다' },
@@ -231,7 +232,7 @@ async function loadServerData() {
   }
   renderBorrowerProfiles();
   applyRole();
-  if (typeof IPLoanChain !== 'undefined') await IPLoanChain.init(API_BASE);
+  if (typeof IPLoanChain !== 'undefined' && !chainReady) { await IPLoanChain.init(API_BASE); chainReady = true; }
 }
 
 /* 차주기업은 자기 회사 건만 본다 */
@@ -267,23 +268,50 @@ document.getElementById('borrowerProfileSelect').addEventListener('change', (e) 
   document.getElementById('borrowerProfileSelect').value = currentBorrowerProfileId;
 });
 
-let currentRole = 'lender';
-try {
-  const saved = localStorage.getItem(ROLE_STORAGE_KEY);
-  if (ROLES[saved]) currentRole = saved;
-} catch (err) { /* 저장소를 쓸 수 없으면 기본 역할 */ }
+/* 지갑 로그인: 서명 한 번으로 세션을 받고, 체인에 등록된 역할의 업무 화면만 연다.
+   지갑 모듈이 로그인을 제공하지 않으면(화면 단위 테스트) 예전처럼 역할을 골라 쓴다. */
+const LOGIN = typeof IPLoanChain !== 'undefined' && typeof IPLoanChain.login === 'function';
+const CHAIN_ROLES = { borrower: 'borrower', evaluator: 'evaluator', bank: 'lender' };
+const ROLE_AVATARS = { borrower: '차주', evaluator: '평가', lender: '은행' };
+function session() { return LOGIN ? IPLoanChain.session() : null; }
+function heldRoles() {
+  if (!LOGIN) return Object.keys(ROLES);
+  return Object.keys(CHAIN_ROLES).filter(role => session()?.roles?.includes(role)).map(role => CHAIN_ROLES[role]);
+}
+function shortAddress(address) { return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—'; }
+function savedRole() {
+  try { return localStorage.getItem(ROLE_STORAGE_KEY); } catch { return null; }  // 저장소를 쓸 수 없으면 기본 역할
+}
+function chooseRole() {
+  const held = heldRoles();
+  currentRole = held.includes(savedRole()) ? savedRole() : held[0] || null;
+}
 
-function canView(name) { return ROLES[currentRole].views.includes(name); }
+let currentRole = null;  // 로그인 전에는 어떤 업무 화면도 열지 않는다
+if (!LOGIN) chooseRole();
+
+function canView(name) {
+  if (!currentRole) return name === 'login';
+  return ROLES[currentRole].views.includes(name);
+}
 
 function applyRole() {
   ROLES.borrower.role = `차주기업 담당자 · ${borrowerProfile()?.company || '새 차주기업'}`;
-  const r = ROLES[currentRole];
-  document.getElementById('userAvatar').textContent = r.avatar;
-  document.getElementById('userName').textContent = r.name;
-  document.getElementById('userRole').textContent = r.role;
-  document.querySelector('.role-option[data-role="borrower"]').textContent = ROLES.borrower.role;
+  const r = currentRole ? ROLES[currentRole] : null;
+  const user = session();
+  document.body?.classList.toggle('logged-out', !r);
+  if (LOGIN) {
+    document.getElementById('loginBtnTop').hidden = Boolean(user);
+    document.getElementById('userChip').hidden = !user;
+    document.getElementById('adminLink').hidden = !user?.roles?.includes('admin');
+  }
+  document.getElementById('userAvatar').textContent = LOGIN ? ROLE_AVATARS[currentRole] || '—' : r.avatar;
+  document.getElementById('userName').textContent = LOGIN ? shortAddress(user?.address) : r.name;
+  document.getElementById('userRole').textContent = r ? r.role : '등록된 역할 없음';
+  document.getElementById('roleOptions').innerHTML = heldRoles().map(key =>
+    `<button class="role-option" type="button" role="menuitemradio" data-role="${key}" aria-checked="${key === currentRole}">${escapeHtml(ROLES[key].role)}</button>`).join('')
+    || '<div class="role-option">등록된 역할이 없습니다</div>';
   document.querySelectorAll('.nav-item').forEach(b => { b.parentElement.hidden = !canView(b.dataset.view); });
-  document.querySelectorAll('.role-option').forEach(o => o.setAttribute('aria-checked', String(o.dataset.role === currentRole)));
   document.getElementById('dashListBtn').hidden = !canView('list');
   document.getElementById('statusPanelTitle').textContent = currentRole === 'borrower' ? '대출 신청 현황' : '오늘의 처리 현황';
   fillBorrowerInfo();
@@ -291,6 +319,7 @@ function applyRole() {
 
 function setRole(key) {
   if (applicationSubmitting || chainOperationBusy) return showToast('현재 지갑 작업 완료 후 역할을 전환해 주세요');
+  if (!heldRoles().includes(key)) return showToast('이 지갑에 등록되지 않은 역할입니다');
   currentRole = key;
   try { localStorage.setItem(ROLE_STORAGE_KEY, key); } catch (err) { /* 무시 */ }
   applyRole();
@@ -309,8 +338,9 @@ function toggleRoleMenu(open) {
 }
 
 userChip.addEventListener('click', () => toggleRoleMenu(roleMenu.hidden));
-roleMenu.querySelectorAll('.role-option').forEach(o => {
-  o.addEventListener('click', () => { toggleRoleMenu(false); setRole(o.dataset.role); });
+roleMenu.addEventListener('click', (e) => {
+  const option = e.target.closest?.('.role-option[data-role]');
+  if (option) { toggleRoleMenu(false); setRole(option.dataset.role); }
 });
 document.addEventListener('click', (e) => {
   if (!roleMenu.hidden && !document.getElementById('profile').contains(e.target)) toggleRoleMenu(false);
@@ -330,8 +360,8 @@ function showToast(msg) {
 
 function goView(name) {
   if (!canView(name)) {
-    showToast('현재 역할에서는 볼 수 없는 화면입니다');
-    name = 'dashboard';
+    if (currentRole) showToast('현재 역할에서는 볼 수 없는 화면입니다');
+    name = currentRole ? 'dashboard' : 'login';
   }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
@@ -339,6 +369,7 @@ function goView(name) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === navName));
   document.getElementById('topbarTitle').textContent = VIEW_META[name].title;
   document.getElementById('topbarSub').textContent = VIEW_META[name].sub;
+  document.getElementById('breadcrumbCurrent').textContent = VIEW_META[name].title;
 
   if (name === 'evaluate' && !evalInitDone) {
     const first = evalQueue()[0];
@@ -1119,10 +1150,25 @@ function reviewCheckHTML(title, description, status, result) {
     <div class="check-status">${escapeHtml(status)}</div></div>`;
 }
 
+/* 서버 자동심사: 평가 확정 때 신용등급·재무 점검·LTV로 내린 판정(확정 JSON 해시로 체인에 묶임). */
+const AUTO_REVIEW = {
+  approve: { label: '승인', style: 'approved', result: true, note: '자동심사 승인 · 은행 지갑 서명 대기' },
+  reject: { label: '거절', style: 'rejected', result: false, note: '자동심사 거절 · 은행 지갑 서명 대기' },
+  review: { label: '심사역 검토', style: 'review', result: null, note: '심사역 검토 대상 · 승인 또는 거절을 선택하세요' },
+};
+function autoReviewOf(app) {
+  const verdict = app.workflow ? app.evaluation?.autoReview : null;
+  return verdict && AUTO_REVIEW[verdict.decision] ? verdict : null;
+}
+function autoReviewReasons(verdict) { return (verdict.reasons || []).map(r => r.label).join(' · '); }
+
 function chainDecisionHTML(app) {
   const stage = app.chainStatus;
+  const verdict = autoReviewOf(app);
   const decisions = {
-    Eligible: ['자동심사 결과 — 통과', '70% 규칙을 통과했습니다. 은행 지갑의 최종 승인·거절을 기다립니다.', 'approved'],
+    Eligible: verdict
+      ? [`자동심사 결과 — ${AUTO_REVIEW[verdict.decision].label}`, `${autoReviewReasons(verdict)}. 은행 지갑의 최종 ${verdict.decision === 'review' ? '승인·거절' : AUTO_REVIEW[verdict.decision].label} 서명을 기다립니다.`, AUTO_REVIEW[verdict.decision].style]
+      : ['자동심사 결과 — 통과', '70% 규칙을 통과했습니다. 은행 지갑의 최종 승인·거절을 기다립니다.', 'approved'],
     Approved: ['최종 승인 완료', '은행 지갑의 최종 승인으로 채권 NFT가 발급되었습니다.', 'approved'],
     Repaid: ['완납 기록 완료', '시연 원금 전액의 상환 기록을 완료했습니다. 채권 NFT는 은행에 유지됩니다.', 'approved'],
     RuleRejected: ['자동심사 결과 — 거절', app.rejectReason || '신청금액이 평가액의 70%를 초과했습니다.', 'rejected'],
@@ -1131,12 +1177,12 @@ function chainDecisionHTML(app) {
   const decision = decisions[stage];
   if (!decision) return '<div class="decision-banner" id="decisionBanner"></div>';
   const [title, description, style] = decision;
-  const icon = style === 'approved' ? '<path d="m7.5 12.5 3 3 6-7"></path>' : '<path d="m9.5 9.5 5 5m0-5-5 5"></path>';
+  const icon = style === 'approved' ? '<path d="m7.5 12.5 3 3 6-7"></path>' : style === 'review' ? '<path d="M12 7.5v5.5M12 16.5h.01"></path>' : '<path d="m9.5 9.5 5 5m0-5-5 5"></path>';
   return `<div class="decision-banner show ${style}" id="decisionBanner">
     <div class="decision-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle>${icon}</svg><span class="decision-title">${title}</span></div>
     <div class="decision-desc">${escapeHtml(description)}</div>
     <div class="decision-figures">
-      <div><div class="f-label">${stage === 'Eligible' ? '최종 승인 대상금액' : ['Approved', 'Repaid'].includes(stage) ? '승인금액' : '신청금액'}</div><div class="f-value">${won(app.amount)}</div></div>
+      <div><div class="f-label">${stage === 'Eligible' && verdict?.decision !== 'reject' ? '최종 승인 대상금액' : ['Approved', 'Repaid'].includes(stage) ? '승인금액' : '신청금액'}</div><div class="f-value">${won(app.amount)}</div></div>
       <div><div class="f-label">상환 기록 합계</div><div class="f-value">${won(app.repaidAmount || 0)}</div></div>
     </div></div>`;
 }
@@ -1151,22 +1197,24 @@ function loadChainReviewCase(app) {
   // The contract stage is authoritative, not rounded LTV or an unintegrated TCB score.
   const ltvPass = evaluated ? app.chainStatus !== 'RuleRejected' : null;
   const hashPass = appField(app, 'hashMatch') === 1 ? true : appField(app, 'hashMatch') === 0 ? false : null;
+  const verdict = autoReviewOf(app);
+  const decision = eligible ? verdict?.decision : null;  // 판정이 있으면 그 결정만 서명할 수 있다
   document.getElementById('reviewBody').innerHTML = `<div class="panel" style="margin-bottom:16px;">
     <div class="panel-header"><h3>${escapeHtml(app.company)} · ${escapeHtml(app.ipTitle)}</h3><span class="hint">${escapeHtml(app.id)}</span></div>
     <div class="panel-body">
       ${reviewSummaryHTML(app)}
-      <div class="section-title">스마트컨트랙트 자동심사 조건</div>
+      <div class="section-title">자동심사 조건</div>
       <div class="check-list" id="checkList">
         ${reviewCheckHTML('담보인정비율(LTV) 조건 충족', '신청금액이 산정 담보가치의 70% 이하인지 계약에서 판정', evaluated ? `LTV ${app.ltv == null ? '—' : app.ltv}% · ${ltvPass ? '통과' : '거절'}` : '평가 확정 대기', ltvPass)}
-        ${app.workflow ? reviewCheckHTML('신용등급', '평가보고서 기업자료 기준 · 계약 자동심사에는 미포함', app.evaluation?.creditRating || '판정 불가 (자료 없음)', null)
+        ${app.workflow ? reviewCheckHTML('신용·재무 자동심사', verdict ? autoReviewReasons(verdict) : '평가 확정 때 신용등급·재무 점검·LTV로 판정', verdict ? AUTO_REVIEW[verdict.decision].label : evaluated ? '판정 기록 없음' : '평가 확정 대기', verdict ? AUTO_REVIEW[verdict.decision].result : null)
           : reviewCheckHTML('신용평가 점수 기준 충족', 'MVP에서는 TCB 미연동 · 온체인 판정 조건에 포함하지 않음', '미적용', null)}
         ${reviewCheckHTML('서류 해시 무결성 검증', '원부 대조는 mock이며 등록 CID·파일 해시는 서버가 체인 기록과 대조', hashPass === true ? '일치 · 대조 mock' : hashPass === false ? '불일치' : '확인 대기', hashPass)}
       </div>
       <div id="reviewActionArea">
-        <p class="review-chain-note">${eligible ? '자동심사 완료 · 은행 최종 승인 대기' : evaluated ? '이미 처리된 건입니다 · 체인 기록 기준' : '평가 확정 후 계약이 자동심사를 실행합니다.'}</p>
+        <p class="review-chain-note">${eligible ? AUTO_REVIEW[decision]?.note || '자동심사 완료 · 은행 최종 승인 대기' : evaluated ? '이미 처리된 건입니다 · 체인 기록 기준' : '평가 확정 후 계약이 자동심사를 실행합니다.'}</p>
         <div class="decision-actions review-chain-actions">
-          <button class="btn btn-primary" onclick="finalChainDecision('${app.id}', true)" ${eligible ? '' : 'disabled'}>MetaMask 최종 승인·채권 NFT 발급</button>
-          <button class="btn btn-outline" onclick="finalChainDecision('${app.id}', false)" ${eligible ? '' : 'disabled'}>MetaMask 최종 거절</button>
+          <button class="btn btn-primary" onclick="finalChainDecision('${app.id}', true)" ${eligible && decision !== 'reject' ? '' : 'disabled'}>MetaMask 최종 승인·채권 NFT 발급</button>
+          <button class="btn btn-outline" onclick="finalChainDecision('${app.id}', false)" ${eligible && decision !== 'approve' ? '' : 'disabled'}>MetaMask 최종 거절</button>
           <button class="btn btn-outline" onclick="syncChainReview('${app.id}')">체인 확인·복구</button>
         </div>
       </div>
@@ -1209,6 +1257,8 @@ async function syncChainReview(id) {
 }
 async function finalChainDecision(id, yes) {
   if (chainOperationBusy) return;
+  const decision = autoReviewOf(findApp(id))?.decision;
+  if (decision === (yes ? 'reject' : 'approve')) return showToast(`자동심사 ${AUTO_REVIEW[decision].label} 건입니다`);
   if (!confirm(yes ? '은행 주소에 시연 채권 NFT를 발급하는 최종 승인을 실행할까요?' : '이 신청을 최종 거절할까요?')) return;
   chainOperationBusy = true;
   try {
@@ -1359,7 +1409,7 @@ async function resetAllState() {
 /* ---------------- Init ---------------- */
 let APPLICATIONS = [];
 
-async function initApp() {
+async function loadAndRender() {
   try {
     await loadServerData();
     hideConnNotice();
@@ -1372,7 +1422,101 @@ async function initApp() {
   renderListTable();
   renderEvalList();
   renderReviewList();
-  if (typeof location.hash === 'string' && ['#apply', '#evaluate', '#list'].includes(location.hash)) goView(location.hash.slice(1));
+}
+function linkedView() {
+  return typeof location.hash === 'string' && ['#apply', '#evaluate', '#list'].includes(location.hash) ? location.hash.slice(1) : null;
+}
+
+let chainReady = false;
+async function initApp() {
+  document.getElementById('todayDate').textContent = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' });
+  if (!LOGIN) {
+    await loadAndRender();
+    if (linkedView()) goView(linkedView());
+    return;
+  }
+  await IPLoanChain.init(API_BASE, onSessionChange);
+  chainReady = true;
+  let restored = null;
+  try { restored = await IPLoanChain.restore(); } catch { showConnNotice(); }
+  if (restored) await onLoggedIn();
+  else onLoggedOut();
+}
+
+/* ---------------- 지갑 로그인 ---------------- */
+/* 역할마다 처음 여는 화면: 차주는 신청 내역(없으면 신청), 평가사는 평가, 은행은 심사 */
+function goHome() {
+  const target = linkedView();
+  if (target && canView(target)) return goView(target);
+  if (currentRole === 'borrower') return goView(visibleApps().length ? 'list' : 'apply');
+  goView({ evaluator: 'evaluate', lender: 'review' }[currentRole] || 'dashboard');
+}
+
+async function onLoggedIn() {
+  chooseRole();
+  evalInitDone = reviewInitDone = false;
+  applyRole();
+  if (!currentRole) {
+    document.getElementById('loginHelp').textContent = `${session().address} 지갑에 등록된 역할이 없습니다. 관리자에게 주소 등록을 요청하세요.`;
+    goView('login');
+    return;
+  }
+  await loadAndRender();
+  goHome();
+}
+
+function onLoggedOut(message = '') {
+  APPLICATIONS = [];
+  currentRole = null;
+  applyRole();
+  goView('login');
+  if (message) showToast(message);
+}
+
+/* MetaMask 계정을 바꾸면 그 지갑의 세션으로 이어 가고, 처음 쓰는 지갑은 로그인 버튼으로 서명한다. */
+async function onSessionChange(reason) {
+  if (reason === 'ended') return onLoggedOut('로그인이 만료되어 다시 로그인해 주세요');
+  onLoggedOut(reason === 'signin' ? '바꾼 계정으로 로그인해 주세요' : '');
+  if (reason !== 'switched') return;
+  try {
+    if (await IPLoanChain.restore()) {
+      await onLoggedIn();
+      showToast(currentRole ? `${ROLES[currentRole].role.split(' · ')[0]}(으)로 전환했습니다` : '이 지갑에 등록된 역할이 없습니다');
+    }
+  } catch { showConnNotice(); }
+}
+
+let loginBusy = false;
+async function doLogin({ pick = false } = {}) {
+  if (loginBusy) return;
+  loginBusy = true;
+  const buttons = ['loginBtn', 'loginBtnTop', 'connectAccountsBtn'].map(id => document.getElementById(id));
+  buttons.forEach(b => { b.disabled = true; });
+  document.getElementById('loginBtn').textContent = 'MetaMask에서 서명해 주세요…';
+  try {
+    await IPLoanChain.login({ pick });
+    await onLoggedIn();
+    showToast(currentRole ? `${ROLES[currentRole].role.split(' · ')[0]}(으)로 로그인했습니다` : '로그인했지만 등록된 역할이 없습니다');
+  } catch (error) {
+    document.getElementById('loginHelp').textContent = error.message;
+    showToast(error.message);
+  } finally {
+    loginBusy = false;
+    buttons.forEach(b => { b.disabled = false; });
+    document.getElementById('loginBtn').textContent = 'MetaMask 지갑으로 로그인';
+  }
+}
+
+if (LOGIN) {
+  document.getElementById('loginBtn').addEventListener('click', () => doLogin());
+  document.getElementById('loginBtnTop').addEventListener('click', () => doLogin());
+  document.getElementById('connectAccountsBtn').addEventListener('click', () => doLogin({ pick: true }));
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    toggleRoleMenu(false);
+    if (applicationSubmitting || chainOperationBusy) return showToast('현재 지갑 작업 완료 후 로그아웃해 주세요');
+    await IPLoanChain.logout();
+    onLoggedOut('로그아웃했습니다');
+  });
 }
 
 document.getElementById('connNoticeRetry').addEventListener('click', async () => {

@@ -1,0 +1,119 @@
+<section class="chapter" id="appx" data-toc="부록">
+  <div class="chapter-head">
+    <div class="chapter-no">APPENDIX</div>
+    <div class="chapter-title serif">부록</div>
+    <p class="chapter-lead">화면 메시지별 조치, 상태 코드, 용어, 시스템 접속 정보를 모았다.</p>
+  </div>
+
+  <h2 id="a-1"><span class="no">부록 1</span>화면 메시지별 조치 요약</h2>
+  <table class="t compact">
+    <thead><tr><th style="width:44%">화면 메시지</th><th>조치</th><th style="width:8%" class="c">참조</th></tr></thead>
+    <tbody>
+      <tr><th colspan="3">지갑·거래</th></tr>
+      <tr><td>MetaMask 서명을 취소했습니다. 다시 시도할 수 있습니다.</td><td>같은 버튼으로 다시 실행</td><td class="c">A1</td></tr>
+      <tr><td>거래가 전송됐지만 아직 미확정입니다. 같은 동작을 다시 전송하지 말고 체인 확인을 눌러주세요.</td><td>거래 해시 기록, 잠시 뒤 체인 확인·복구</td><td class="c">A2</td></tr>
+      <tr><td>영수증 대기 시간이 초과됐습니다. 재전송하지 말고 체인 확인으로 복구하세요.</td><td>체인 확인·복구. 30분 이상이면 운영사 보고</td><td class="c">A2</td></tr>
+      <tr><td>지갑의 가스 잔액이 부족합니다.</td><td>운영사에 MST 충전 요청</td><td class="c">A3</td></tr>
+      <tr><td>이 신청에 배정된 평가사(은행) 지갑으로 전환하세요. / 이 신청 담당 지갑으로 전환하세요.</td><td>MetaMask에서 배정 지갑 선택</td><td class="c">A4</td></tr>
+      <tr><td>연결한 지갑에 BANK_ROLE(EVALUATOR_ROLE) 권한이 없습니다. / 이 지갑에 필요한 역할이 없습니다.</td><td>운영사에 권한 확인</td><td class="c">A4</td></tr>
+      <tr><td>계정 또는 네트워크가 변경됐습니다. 처음 지갑·네트워크로 돌아와 다시 시도하세요.</td><td>처음 지갑·Mustsem으로 돌아와 다시 실행</td><td class="c">A5</td></tr>
+      <tr><td>MetaMask에 대기 중인 요청을 먼저 확인하세요.</td><td>MetaMask 창의 대기 요청 정리</td><td class="c">A5</td></tr>
+      <tr><td>현재 신청 단계에서 실행할 수 없습니다. / 이미 등록된 신청입니다. 체인 상태를 동기화하세요.</td><td>체인 확인·복구 후 현재 단계 확인</td><td class="c">A7</td></tr>
+      <tr><td>이미 기록된 상환 참조번호입니다.</td><td>다른 고유 참조번호 입력</td><td class="c">2.10</td></tr>
+      <tr><td>남은 금액 이하의 양의 정수와 고유 참조번호를 입력하세요</td><td>상환금액·참조번호 확인</td><td class="c">2.10</td></tr>
+      <tr><th colspan="3">평가</th></tr>
+      <tr><td>양의 정수 적용 가치와 검토 사유를 입력하세요.</td><td>원 단위 정수와 검토 사유(1~2,000자) 입력</td><td class="c">3.5</td></tr>
+      <tr><td>평가가 완료되어야 확정할 수 있습니다. / 공급자의 평가보고서가 없습니다.</td><td>보고서 도착 후 확정. 파일 누락은 운영사 확인</td><td class="c">B6</td></tr>
+      <tr><td>이미 준비한 평가 확정 내용이 있습니다. 같은 내용으로 체인 확정·동기화를 재시도하세요.</td><td>처음 입력한 적용 가치·검토 사유로 재시도</td><td class="c">3.5</td></tr>
+      <tr><td>공급자가 지정한 대기 시간 이후에 재시도하세요.</td><td>대기 시간(통상 60초) 후 재시도</td><td class="c">B2</td></tr>
+      <tr><td>접수 중·완료·접수 불명 작업은 재접수할 수 없습니다. 기존 작업번호를 확인하세요.</td><td>상태 확인. 접수 불명은 작업번호로 복구</td><td class="c">B3</td></tr>
+      <tr><td>공급자 작업의 원본 SHA256·사업자번호가 신청과 일치하지 않습니다.</td><td>작업번호 재확인. 다른 신청의 작업이면 연결 불가</td><td class="c">B3</td></tr>
+      <tr><td>대출 신청에 저장된 동일한 사업자번호로 확인해야 합니다.</td><td>신청서와 같은 번호 입력. 틀린 번호면 재신청</td><td class="c">B4</td></tr>
+      <tr><td>LTV가 데모 계약 기준 70%를 초과하여 여신심사로 전달할 수 없습니다.</td><td>정상 판정 결과. 자동 거절 건</td><td class="c">1.4</td></tr>
+      <tr><th colspan="3">시스템·보안</th></tr>
+      <tr><td>서버에 연결할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도해주세요.</td><td>다시 시도, 지속 시 운영사 보고</td><td class="c">C1</td></tr>
+      <tr><td>IPFS 업로드 시간이 초과되었습니다. 잠시 후 다시 시도하세요.</td><td>같은 화면에서 다시 제출</td><td class="c">C3</td></tr>
+      <tr><td>토큰 발급 기록을 확인하지 못했습니다.</td><td>블록체인 연결 상태 확인</td><td class="c">C2</td></tr>
+      <tr><td>지갑 서명이 일치하지 않습니다. / 만료·재사용·내용이 변경된 서명입니다.</td><td>처음부터 다시 실행(서명 요청은 5분간 1회 유효)</td><td class="c">—</td></tr>
+      <tr><td>평가 완료·보고서 검토·평가사 확정 데이터가 일치하지 않습니다. / 보관 문서의 해시가 일치하지 않습니다.</td><td>처리 중단, 운영사 보고</td><td class="c">D3</td></tr>
+      <tr><td>서명 요청이 많습니다. 잠시 후 다시 시도하세요.</td><td>잠시 뒤 재시도. 본인 요청이 아니면 보고</td><td class="c">D4</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="a-2"><span class="no">부록 2</span>상태 코드 대조표</h2>
+  <h3>평가 작업 상태</h3>
+  <table class="t compact">
+    <thead><tr><th style="width:24%">작업 상태 (코드)</th><th style="width:20%">보고서함 표시</th><th style="width:22%">목록 화면 표시</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td>pending</td><td>접수 대기</td><td>평가중</td><td>평가 서비스 접수 전</td></tr>
+      <tr><td>submitting</td><td>접수 확인 중</td><td>평가중</td><td>평가 서비스에 전달 중</td></tr>
+      <tr><td>queued</td><td>생성 대기</td><td>평가중</td><td>대기열 순서 대기</td></tr>
+      <tr><td>running</td><td>생성 중</td><td>평가중</td><td>보고서 생성 중</td></tr>
+      <tr><td>awaiting_identity</td><td>기업 확인 필요</td><td>서류검증</td><td>사업자번호 입력 대기</td></tr>
+      <tr><td>completed</td><td>검토 대기</td><td>평가사 검토 대기</td><td>보고서 도착</td></tr>
+      <tr><td>failed</td><td>생성 실패</td><td>평가 생성 실패</td><td>보고서 생성 중단</td></tr>
+      <tr><td>submission_rejected</td><td>미접수</td><td>평가 생성 실패</td><td>외부 접수 거부, 재시도 가능</td></tr>
+      <tr><td>submission_unknown</td><td>접수 확인 필요</td><td>평가 생성 실패</td><td>접수 여부 불명, 자동 재접수 차단</td></tr>
+      <tr><td>(확정 후)</td><td>평가 확정</td><td>심사중 · 승인 · 거절</td><td>온체인 확정 완료</td></tr>
+    </tbody>
+  </table>
+  <h3>온체인 상태</h3>
+  <table class="t compact">
+    <thead><tr><th style="width:10%" class="c">값</th><th style="width:20%">상태</th><th style="width:22%">목록 화면 표시</th><th>결과 배너</th></tr></thead>
+    <tbody>
+      <tr><td class="c">0</td><td>None</td><td>서류검증</td><td>—</td></tr>
+      <tr><td class="c">1</td><td>Evaluating</td><td>평가중 등</td><td>—</td></tr>
+      <tr><td class="c">2</td><td>Eligible</td><td>심사중</td><td>자동심사 결과 — 통과</td></tr>
+      <tr><td class="c">3</td><td>RuleRejected</td><td>거절</td><td>자동심사 결과 — 거절</td></tr>
+      <tr><td class="c">4</td><td>Approved</td><td>승인</td><td>최종 승인 완료</td></tr>
+      <tr><td class="c">5</td><td>Rejected</td><td>거절</td><td>최종 심사 결과 — 거절</td></tr>
+      <tr><td class="c">6</td><td>Repaid</td><td>승인</td><td>완납 기록 완료</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="a-3"><span class="no">부록 3</span>용어 설명</h2>
+  <table class="t compact">
+    <thead><tr><th style="width:22%">용어</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><th>담보인정비율(LTV)</th><td>담보가치 대비 대출금액 비율. 이 시스템에서는 신청금액 ÷ 적용 평가가치 × 100이며, 계약 기준은 70% 이하</td></tr>
+      <tr><th>자동 산출 가치</th><td>LLM 평가 엔진이 보고서에서 산출한 특허 가치. 평가사 검토 전 초안</td></tr>
+      <tr><th>사전평가 값</th><td>평가 엔진이 확정 표시를 하지 않은 자동 산출 가치</td></tr>
+      <tr><th>적용 평가가치</th><td>평가사가 검토 후 확정해 블록체인에 기록한 가치. 화면의 '산정 담보가치'</td></tr>
+      <tr><th>스마트컨트랙트</th><td>블록체인에 배포되어 정해진 규칙대로 실행되는 프로그램. 이 시스템에서는 신청·평가·LTV 판정·승인·상환 기록을 처리</td></tr>
+      <tr><th>평가 SBT</th><td>담당 평가사에게 발급되는 양도 불가 토큰. 평가 중 원본 열람권 역할을 하며 평가 확정 시 소각</td></tr>
+      <tr><th>채권 NFT</th><td>최종 승인 시 담당 은행 지갑에 발급되는 기록용 토큰. 시범운영에서는 이전할 수 없고 법적 채권을 표시하지 않음</td></tr>
+      <tr><th>MetaMask</th><td>브라우저 확장형 지갑. 서명과 블록체인 거래 승인에 사용</td></tr>
+      <tr><th>지갑 공개 주소</th><td>0x로 시작하는 42자리 주소. 다른 사람에게 알려도 되는 식별자</td></tr>
+      <tr><th>개인키·복구 문구</th><td>지갑을 통제하는 비밀 값. 누구에게도 알려주면 안 됨</td></tr>
+      <tr><th>서명</th><td>지갑 주인임을 증명하는 메시지 승인. 비용 없음</td></tr>
+      <tr><th>거래(트랜잭션)</th><td>블록체인 상태를 바꾸는 요청. 가스 비용이 들고 확정되면 되돌릴 수 없음</td></tr>
+      <tr><th>가스 · MST</th><td>거래 수수료와 Mustsem 네트워크의 수수료 통화</td></tr>
+      <tr><th>거래 해시</th><td>거래마다 부여되는 고유 번호(0x…). 장애 확인과 복구에 사용</td></tr>
+      <tr><th>IPFS · CID</th><td>분산 파일 저장소와 저장된 파일의 고유 식별자</td></tr>
+      <tr><th>해시(SHA-256)</th><td>파일 내용으로 계산한 고유 값. 내용이 한 글자라도 바뀌면 값이 달라져 위변조 확인에 사용</td></tr>
+      <tr><th>AES-256-GCM</th><td>원본 문서와 평가 확정 내용 암호화에 쓰는 암호 방식</td></tr>
+      <tr><th>평가 작업번호</th><td>평가 서비스가 보고서 생성 작업에 부여한 번호</td></tr>
+      <tr><th>체인 확인·복구</th><td>서버가 블록체인 기록을 다시 읽어 화면·DB 상태를 맞추는 기능</td></tr>
+      <tr><th>공고전문</th><td>특허청이 발행하는 특허 등록공고 전문 PDF. 특허 내용을 확인하는 자료이며 현재 권리관계를 증명하지는 않음</td></tr>
+      <tr><th>TCB</th><td>기술신용평가. 평가보고서의 신용등급은 첨부된 기업자료 기준</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h2 id="a-4"><span class="no">부록 4</span>시스템 접속 정보</h2>
+  <table class="t kv compact">
+    <tbody>
+      <tr><th>업무 웹 화면</th><td>https://iploan.mustree.kr</td></tr>
+      <tr><th>관리자 화면</th><td>https://iploan.mustree.kr/admin.html (운영사 관리자 전용)</td></tr>
+      <tr><th>블록체인 네트워크</th><td>Mustsem · 체인 ID 7601 · RPC https://block.mustree.kr · 통화 MST</td></tr>
+      <tr><th>대출 관리 계약 (Manager)</th><td class="addr">0x65C40E399b145A9f9021652192C3e781dadbD2FA</td></tr>
+      <tr><th>평가 SBT 계약</th><td class="addr">0x8B06c5bfc253414BA29fa98B762Adc7AD9730f75</td></tr>
+      <tr><th>채권 NFT 계약</th><td class="addr">0x8d819dcb3EB5aC2C113D7E0f6199d7498cb8EccE</td></tr>
+      <tr><th>토큰 이미지 게이트웨이</th><td>https://rwa-gw.mustree.kr/ipfs/</td></tr>
+      <tr><th>LTV 기준</th><td>신청금액 × 100 ≤ 적용 평가가치 × 70 (계약 고정값)</td></tr>
+      <tr><th>제출 파일</th><td>특허 공고전문 PDF 1개, 최대 20MiB</td></tr>
+    </tbody>
+  </table>
+  <p class="small">계약을 다시 배포하면 계약 주소가 바뀐다. 운영사는 변경 시 이 표를 갱신해 참여기관에 배포한다.</p>
+  </div>
+</section>

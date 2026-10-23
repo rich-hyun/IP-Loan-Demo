@@ -43,6 +43,8 @@ globalThis.LoanWorkflow = (() => {
   }
   async function sign(action, id, payload) {
     const ctx = await IPLoanChain.connect();
+    const login = IPLoanChain.proof?.(ctx.address);  // a signed-in wallet needs no per-action signature
+    if (login) return login;
     const digest = await hash(new TextEncoder().encode(JSON.stringify(canonical(payload))));
     const challenge = await request('/workflow/challenge', { address: ctx.address, action, applicationId: id, digest });
     return { nonce: challenge.nonce, signature: await ctx.signer.signMessage(challenge.message) };
