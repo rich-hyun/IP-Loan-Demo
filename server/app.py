@@ -24,6 +24,7 @@ import time
 import sys
 from threading import Lock
 from datetime import date, datetime, timezone
+from functools import wraps
 from uuid import uuid4
 
 import requests
@@ -33,8 +34,9 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 if __package__:
-    from . import chain, loan_workflow
+    from . import auth, chain, loan_workflow
 else:
+    import auth
     import chain
     import loan_workflow
 from flask_cors import CORS
@@ -44,6 +46,8 @@ DB_PATH = os.environ.get("IPLOAN_DB_PATH", os.path.join(os.path.dirname(__file__
 IPFS_UPLOAD_URL = os.environ.get("IPLOAN_IPFS_UPLOAD_URL", "https://api.mustree.kr/upload")
 MAX_DOCUMENT_BYTES = int(os.environ.get("IPLOAN_MAX_DOCUMENT_BYTES", 20 * 1024 * 1024))
 CID_PATTERN = re.compile(r"^[A-Za-z0-9]{10,128}$")
+ROLE_CACHE_SECONDS = float(os.environ.get("IPLOAN_ROLE_CACHE_SECONDS", "30"))
+SERVICE_NAME = "IP담보 자동대출"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_DOCUMENT_BYTES + (1024 * 1024)
@@ -255,6 +259,8 @@ def init_db():
         conn.execute(SCHEMA)
         conn.execute(PROFILE_SCHEMA)
         conn.execute("CREATE TABLE IF NOT EXISTS evaluation_reports (hash TEXT PRIMARY KEY, applicationId TEXT, cid TEXT, payload TEXT, value INTEGER)")
+        for statement in auth.SCHEMA:
+            conn.execute(statement)
         loan_workflow.migrate(conn)
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
         for column, column_type in MIGRATION_COLUMNS.items():
@@ -286,7 +292,7 @@ def application_to_public(row):
         # Public list retains existing demo metadata; reports and progress come from the
         # evaluation API, and the patent original requires wallet authentication.
         public["workflow"] = True
-        public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt", "creditRating")}
+        public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt", "creditRating", "autoReview")}
         case = get_db().execute("SELECT applicationId FROM credit_cases WHERE applicationId=?", (public["id"],)).fetchone()
         public["creditCaseId"] = case["applicationId"] if case else None
     return public
@@ -611,6 +617,101 @@ def chain_config():
         return error_response(str(exc), 503, "chain_unavailable")
 
 
+# ---------------------------------------------------------------- 지갑 로그인
+# One signed challenge gives a session token. It is accepted in place of a per-action signature
+# (loan_workflow.authorize, read_document); reads stay open and every chain transaction is still signed in the wallet.
+
+ROLE_CACHE = {}
+ROLE_CACHE_LOCK = Lock()
+
+
+def wallet_roles(wallet):
+    """On-chain role names with a short cache, for display only; actions still check the chain with require_role."""
+    now = time.monotonic()
+    with ROLE_CACHE_LOCK:
+        cached = ROLE_CACHE.get(wallet)
+        if cached and cached[1] > now:
+            return cached[0]
+    roles = set(chain.roles(wallet))
+    with ROLE_CACHE_LOCK:
+        if len(ROLE_CACHE) > 1000:
+            ROLE_CACHE.clear()
+        ROLE_CACHE[wallet] = (roles, now + ROLE_CACHE_SECONDS)
+    return roles
+
+
+def bearer_token():
+    header = request.headers.get("Authorization", "")
+    return header[7:].strip() if header.startswith("Bearer ") else ""
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        token = bearer_token()
+        wallet = auth.session_wallet(get_db(), token) if token else None
+        if not wallet:
+            return error_response("지갑으로 로그인해 주세요.", 401, "login_required")
+        try:
+            g.user = {"address": wallet, "roles": wallet_roles(wallet)}
+        except chain.ChainError as exc:
+            return error_response(str(exc), 503, "chain_unavailable")
+        return view(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/api/auth/challenge", methods=["POST"])
+def auth_challenge():
+    data = request.get_json(silent=True)
+    try:
+        wallet = chain.address((data or {}).get("address") if isinstance(data, dict) else None)
+        challenge = auth.create_challenge(get_db(), wallet, chain.CHAIN_ID, SERVICE_NAME)
+    except chain.ChainError as exc:
+        return error_response(str(exc), 400, "invalid_address")
+    except auth.AuthError as exc:
+        return error_response(str(exc), exc.status_code, "too_many_requests")
+    return jsonify(challenge)
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get("nonce"), str):
+        return error_response("요청 형식을 확인하세요.", 400, "invalid_request")
+    db = get_db()
+    try:
+        wallet = chain.address(data.get("address"))
+    except chain.ChainError as exc:
+        return error_response(str(exc), 400, "invalid_address")
+    try:
+        auth.verify_challenge(db, wallet, data["nonce"], data.get("signature"))
+        roles = sorted(chain.roles(wallet))
+    except auth.AuthError as exc:
+        return error_response(str(exc), exc.status_code, "login_failed")
+    except chain.ChainError as exc:
+        return error_response(str(exc), 503, "chain_unavailable")
+    with ROLE_CACHE_LOCK:
+        ROLE_CACHE.pop(wallet, None)
+    token, expires = auth.create_session(db, wallet)
+    return jsonify({"token": token, "address": wallet, "roles": roles, "expiresAt": expires})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+@login_required
+def auth_me():
+    return jsonify({"address": g.user["address"], "roles": sorted(g.user["roles"])})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    # Ending a session needs no chain read, so logout also works while the RPC is down.
+    token = bearer_token()
+    if not token or not auth.session_wallet(get_db(), token):
+        return error_response("지갑으로 로그인해 주세요.", 401, "login_required")
+    auth.end_session(get_db(), token)
+    return jsonify({"status": "ok"})
+
+
 def find_application(app_id):
     row = get_db().execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
     return dict(row) if row else None
@@ -744,21 +845,31 @@ def document_nonce(app_id):
 
 @app.route("/api/applications/<app_id>/document", methods=["POST"])
 def read_document(app_id):
+    """Proof is either {address, nonce, signature} over /document-nonce or {login} (a wallet sign-in session)."""
     data = request.get_json(silent=True) or {}
-    if not isinstance(data, dict) or not isinstance(data.get("nonce"), str):
+    login = data.get("login") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not (isinstance(login, str) or isinstance(data.get("nonce"), str)):
         return error_response("요청 형식을 확인하세요.", 400, "invalid_request")
-    with NONCE_LOCK:
-        challenge = NONCES.pop(data.get("nonce"), None)
+    if not isinstance(login, str):
+        with NONCE_LOCK:
+            challenge = NONCES.pop(data.get("nonce"), None)
     try:
-        wallet = chain.address(data.get("address"))
-        if not challenge or challenge[0] != app_id or challenge[1] != wallet or challenge[3] < time.time():
-            raise ValueError("만료되었거나 재사용한 열람 요청입니다.")
-        signature = data.get("signature")
-        if not isinstance(signature, str) or not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature):
-            raise ValueError("올바른 지갑 서명을 제출하세요.")
-        signer = Account.recover_message(encode_defunct(text=challenge[2]), signature=signature)
-        if signer.lower() != wallet.lower():
-            raise ValueError("지갑 서명을 확인하지 못했습니다.")
+        if isinstance(login, str):
+            wallet = auth.session_wallet(get_db(), login)
+            if not wallet:
+                raise ValueError("로그인이 만료되었습니다. 지갑으로 다시 로그인하세요.")
+            if data.get("address") is not None and chain.address(data.get("address")) != wallet:
+                raise ValueError("로그인한 지갑과 요청 지갑이 다릅니다. 다시 로그인하세요.")
+        else:
+            wallet = chain.address(data.get("address"))
+            if not challenge or challenge[0] != app_id or challenge[1] != wallet or challenge[3] < time.time():
+                raise ValueError("만료되었거나 재사용한 열람 요청입니다.")
+            signature = data.get("signature")
+            if not isinstance(signature, str) or not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature):
+                raise ValueError("올바른 지갑 서명을 제출하세요.")
+            signer = Account.recover_message(encode_defunct(text=challenge[2]), signature=signature)
+            if signer.lower() != wallet.lower():
+                raise ValueError("지갑 서명을 확인하지 못했습니다.")
         application = find_application(app_id)
         if not application or not application.get("appKey"):
             raise ValueError("열람 가능한 신청이 아닙니다.")

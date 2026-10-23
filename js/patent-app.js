@@ -128,6 +128,7 @@ function goView(name) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   document.getElementById('topbarTitle').textContent = VIEW_META[name].title;
   document.getElementById('topbarSub').textContent = VIEW_META[name].sub;
+  document.getElementById('breadcrumbCurrent').textContent = VIEW_META[name].title;
 
   if (name === 'evaluate' && !evalInitDone) {
     const first = evalQueue()[0];

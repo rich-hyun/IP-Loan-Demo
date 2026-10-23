@@ -46,8 +46,16 @@ if os.environ.get('IPLOAN_TEST_WORKFLOW_FIXTURE') == '1':
         key = hashlib.sha256(body).hexdigest()
         attempts[key] = attempts.get(key, 0) + 1
         state = 'failed' if b'FAIL_EVALUATION' in body and attempts[key] == 1 else 'completed'
+        # Report summary for the auto-review: a passing 2025 year by default, FIXTURE_CURRENT_FAIL drops the
+        # current ratio under 100%, FIXTURE_GRADE_CCC gives a rejectable grade.
+        year = {'year': 2025, 'fiscal_date': '2025-12-31', 'source': 'nice_finance', 'revenue_krw': 8710036000,
+                'operating_income_krw': 584083000, 'net_income_krw': 455107000, 'total_assets_krw': 9095449000,
+                'total_liabilities_krw': 6896117000, 'total_equity_krw': 2199332000, 'finance_costs_krw': 79266000,
+                'debt_ratio_pct': 313.56, 'current_ratio_pct': 61.65 if b'FIXTURE_CURRENT_FAIL' in body else 166.61,
+                'interest_coverage_times': 7.37}
         return {'job_id': 'fixture-' + key[:16], 'status': state,
                 'valuation': {'ip_value_krw': 100, 'value_status': 'preliminary'},
+                'credit_rating': 'ccc' if b'FIXTURE_GRADE_CCC' in body else 'bb-', 'financials': [year],
                 'artifacts': {'pdf': '/pdf'} if state == 'completed' else {},
                 'error': 'test fixture failure' if state == 'failed' else ''}
 

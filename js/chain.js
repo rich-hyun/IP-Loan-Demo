@@ -1,6 +1,9 @@
 /* Wallet-only demo flow. No private keys, platform issuer or server signing. */
 globalThis.IPLoanChain = (() => {
-  let base, cfg = null;
+  let base, cfg = null, session = null, onSessionChange = null, signingIn = false;
+  // One sign-in per wallet: switching MetaMask accounts moves to that wallet's session without signing again.
+  const SESSIONS_KEY = 'iploan-sessions';
+  let sessions = {};
   const pendingMemory = new Map();
   const messages = { AlreadySubmitted: '이미 등록된 신청입니다. 체인 상태를 동기화하세요.', WrongStage: '현재 신청 단계에서 실행할 수 없습니다.',
     WrongEvaluator: '이 신청에 배정된 평가사 지갑으로 전환하세요.', WrongBank: '이 신청에 배정된 은행 지갑으로 전환하세요.',
@@ -19,8 +22,31 @@ globalThis.IPLoanChain = (() => {
   async function request(path, options = {}) {
     const response = await fetch(base + path, options);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || '서버 요청 실패');
+    if (!response.ok) throw Object.assign(new Error(data.message || '서버 요청 실패'), { status: response.status });
     return data;
+  }
+  const postJSON = (path, body, headers = {}) =>
+    request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  function saveSession(value) {
+    if (value) sessions[value.address.toLowerCase()] = value;
+    else if (session) delete sessions[session.address.toLowerCase()];
+    session = value;
+    try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions)); }
+    catch { /* Sessions then last only for this page. */ }
+  }
+  function bearer() { return { Authorization: `Bearer ${session.token}` }; }
+  // The session stands in for the per-action wallet signature of the address it belongs to.
+  function proof(address) {
+    return session && (!address || address.toLowerCase() === session.address.toLowerCase()) ? { login: session.token } : null;
+  }
+  function accountsChanged(accounts) {
+    // A session belongs to one wallet. Another account resumes its own session, or has to sign in first.
+    const next = accounts[0]?.toLowerCase() || null;
+    if (onSessionChange && !signingIn && next !== (session?.address.toLowerCase() || null)) {
+      session = (next && sessions[next]) || null;
+      onSessionChange(session ? 'switched' : next ? 'signin' : 'ended');
+    }
+    renderWallet();
   }
   async function renderWallet() {
     const label = document.getElementById('walletState');
@@ -31,8 +57,10 @@ globalThis.IPLoanChain = (() => {
       label.textContent = `${accounts[0] || '지갑 미연결'} · ${cfg?.networkName || '계약 설정 필요'} (${cfg?.chainId || '—'})`;
     } catch { label.textContent = '지갑 상태를 확인하지 못했습니다.'; }
   }
-  async function init(apiBase) {
+  async function init(apiBase, sessionChanged = null) {
     base = apiBase;
+    onSessionChange = sessionChanged;
+    try { sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '{}') || {}; } catch { sessions = {}; }
     try {
       cfg = await request('/chain/config');
       const hint = document.getElementById('chainConfigHint');
@@ -48,7 +76,7 @@ globalThis.IPLoanChain = (() => {
       await renderWallet();
     };
     if (globalThis.ethereum && !ethereum.__iploanEvents) {
-      ethereum.on('accountsChanged', renderWallet);
+      ethereum.on('accountsChanged', accountsChanged);
       ethereum.on('chainChanged', renderWallet);
       ethereum.__iploanEvents = true;
     }
@@ -72,6 +100,7 @@ globalThis.IPLoanChain = (() => {
     }
     const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
     const address = ethers.getAddress(accounts[0]);
+    if (session && address.toLowerCase() !== session.address.toLowerCase()) throw new Error('로그인한 지갑으로 MetaMask 계정을 전환하세요.');
     if (expectedAddress && address.toLowerCase() !== expectedAddress.toLowerCase()) throw new Error('이 신청 담당 지갑으로 전환하세요.');
     const provider = new ethers.BrowserProvider(ethereum);
     const signer = await provider.getSigner();
@@ -158,18 +187,61 @@ globalThis.IPLoanChain = (() => {
     const paymentRef = ethers.id(reference);
     return execute(app, 'repay', 'recordRepayment', [app.appKey, BigInt(amount), paymentRef], 'BANK_ROLE', app.bankWallet);
   }
+  // Sign-in proves wallet ownership with a free message signature; roles come from the chain.
+  // pick: open MetaMask's account picker first, to connect another account to this site.
+  async function login({ pick = false } = {}) {
+    session = null;
+    signingIn = true;
+    try {
+      if (pick && globalThis.ethereum) {
+        try { await ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }); }
+        catch (error) { if (error.code === 4001 || error.code === -32002) throw error; }
+      }
+      const ctx = await connect();
+      const challenge = await postJSON('/auth/challenge', { address: ctx.address });
+      const signature = await ctx.signer.signMessage(challenge.message);
+      saveSession(await postJSON('/auth/login', { address: ctx.address, nonce: challenge.nonce, signature }));
+      return session;
+    } catch (error) { throw new Error(message(error)); }
+    finally { signingIn = false; }
+  }
+  // The active session is the one of the account MetaMask currently gives this site.
+  async function restore() {
+    let account = null;
+    try { account = globalThis.ethereum ? (await ethereum.request({ method: 'eth_accounts' }))[0]?.toLowerCase() || null : null; }
+    catch { account = null; }
+    session = (account && sessions[account]) || null;
+    if (!session) return null;
+    try { saveSession({ ...session, ...(await request('/auth/me', { headers: bearer() })) }); }
+    catch (error) { if (error.status === 401) saveSession(null); else throw error; }
+    return session;
+  }
+  async function logout() {
+    try { if (session) await postJSON('/auth/logout', {}, bearer()); }
+    catch { /* The session is dropped locally either way. */ }
+    saveSession(null);
+  }
   async function readDocument(app) {
     const ctx = await connect();
+    if (proof(ctx.address)) {
+      const response = await fetch(base + `/applications/${encodeURIComponent(app.id)}/document`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...proof(ctx.address), address: ctx.address }) });
+      return downloadDocument(response);
+    }
     const challenge = await request(`/applications/${encodeURIComponent(app.id)}/document-nonce`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: ctx.address }) });
     const signature = await ctx.signer.signMessage(challenge.message);
     const response = await fetch(base + `/applications/${encodeURIComponent(app.id)}/document`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...challenge, address: ctx.address, signature }) });
+    return downloadDocument(response);
+  }
+  async function downloadDocument(response) {
     if (!response.ok) { const data = await response.json(); throw new Error(data.message || '열람 실패'); }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = globalThis.document.createElement('a'); link.href = url; link.download = 'registry.pdf'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  return { init, connect, register, evaluate, approve, repay, sync, transactionOverrides, document: readDocument, config: () => cfg };
+  return { init, connect, login, logout, restore, proof, register, evaluate, approve, repay, sync, transactionOverrides,
+    document: readDocument, config: () => cfg, session: () => session };
 })();

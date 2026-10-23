@@ -18,13 +18,17 @@ from eth_account.messages import encode_defunct
 from flask import Response, jsonify, request
 
 if __package__:
+    from . import auth
     from .patent_api import patent_api, PatentAPIError
     from .patent_value import html_valuation
-    from .report_summary import clean_credit_rating, clean_financials, clean_valuation, financial_checks, public_financials
+    from .report_summary import (auto_review, clean_credit_rating, clean_financials, clean_valuation, financial_checks,
+                                 public_financials)
 else:
+    import auth
     from patent_api import patent_api, PatentAPIError
     from patent_value import html_valuation
-    from report_summary import clean_credit_rating, clean_financials, clean_valuation, financial_checks, public_financials
+    from report_summary import (auto_review, clean_credit_rating, clean_financials, clean_valuation, financial_checks,
+                                public_financials)
 
 
 SCHEMA = """
@@ -102,6 +106,16 @@ def summary(db, app_id):
     financials = json.loads(row['financials'] or '[]')
     result.update(valuation=json.loads(row['valuation'] or 'null'), financials=public_financials(financials),
                   financialChecks=financial_checks(financials))
+    # Only the verdict bound into the prepared (hashed) manifest; never a fresh one computed for display.
+    prepared = db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (row['preparedHash'],)).fetchone() if row['preparedHash'] else None
+    verdict = json.loads(prepared['payload']).get('autoReview') if prepared else None
+    result.update(autoReview=verdict, autoReviewFollowed=None)
+    if verdict and verdict.get('decision') in {'approve', 'reject'}:
+        # The bank's on-chain action is final; a different action is shown, not blocked. A review verdict has nothing to follow.
+        stage = db.execute('SELECT chainStatus FROM applications WHERE id=?', (app_id,)).fetchone()
+        outcome = {'Approved': 'approve', 'Repaid': 'approve', 'Rejected': 'reject'}.get(stage['chainStatus'] if stage else None)
+        if outcome:
+            result['autoReviewFollowed'] = outcome == verdict['decision']
     return result
 
 
@@ -115,6 +129,8 @@ def read_document(application, row):
 
 
 def authorize(native, action, app_id, payload, proof=None):
+    """Proof: {nonce, signature} for this action and payload, {login} (a wallet sign-in session),
+    or {session} (a status read session). Only the wallet comes from the proof; the checks after it are the same."""
     proof = proof if isinstance(proof, dict) else {}
     db = native.get_db()
     if action == 'status' and isinstance(proof.get('session'), str):
@@ -123,6 +139,10 @@ def authorize(native, action, app_id, payload, proof=None):
         if not session:
             raise WorkflowError('상태 조회 인증이 만료되었습니다. 지갑으로 다시 확인하세요.', 403)
         wallet = session['wallet']
+    elif isinstance(proof.get('login'), str):
+        wallet = auth.session_wallet(db, proof['login'])
+        if not wallet:
+            raise WorkflowError('로그인이 만료되었습니다. 지갑으로 다시 로그인하세요.', 403)
     else:
         nonce = proof.get('nonce')
         if not isinstance(nonce, str):
@@ -381,15 +401,17 @@ def prepare(native, application, data):
               'sourceReportKind': kind, 'autoValue': row['autoValue'], 'appraisedValue': value,
               'autoValueSource': row['valueSource'], 'autoValueReportHash': row['valueReportHash'],
               'reviewer': reviewer, 'reviewerNote': note.strip(), 'policy': 'v2-contract-demo-ltv-70-percent'}
-    # The report's credit grade and financial check results as reviewed. A retry repeats what was first prepared
-    # (nothing, for a review prepared before these were kept) so the same review keeps the same hash.
+    # The report's credit grade and financial check results as reviewed, and the server auto-review verdict on them.
+    # A retry repeats what was first prepared (nothing, for a review prepared before these were kept; no autoReview
+    # for one prepared before the auto-review) so the same review keeps the same hash.
     prior = db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (row['preparedHash'],)).fetchone() if row['preparedHash'] else None
     if prior:
-        report.update({k: v for k, v in json.loads(prior['payload']).items() if k in ('creditRating', 'financialChecks')})
+        report.update({k: v for k, v in json.loads(prior['payload']).items() if k in ('creditRating', 'financialChecks', 'autoReview')})
     else:
         checks = financial_checks(json.loads(row['financials'] or '[]'))
         report.update(creditRating=row['creditRating'], financialChecks=[
             {k: check[k] for k in ('key', 'year', 'result', 'observed')} for check in checks])
+        report['autoReview'] = auto_review(report['creditRating'], report['financialChecks'], application['amount'], value)
     payload = canonical(report)
     report_hash = '0x' + hashlib.sha256(payload.encode()).hexdigest()
     bank = native.assign_bank(application) if native.chain.eligible(application['amount'], value) else None

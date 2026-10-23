@@ -5,36 +5,52 @@
 <script>globalThis.IPLOAN_LEGACY_HISTORY_ONLY = true; if (location.hash === '#apply') location.replace('index.html#apply');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LLM 기반 기술평가 자동대출 시스템 · 주식회사 머스트리</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316233E'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%230E7A6E' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2300843D'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%23fff' stroke-width='1.6'/%3E%3C/svg%3E">
 <meta name="description" content="LLM·블록체인 기반 IP담보 자동대출 서비스">
-<link rel="stylesheet" href="css/patent.css?v=20261015-patent">
+<link rel="stylesheet" href="css/style.css?v=20261023-v3-look">
+<link rel="stylesheet" href="css/patent.css?v=20261023-v3-look">
 </head>
 <body>
 <div role="status" style="padding:16px;background:#fff3cf;color:#352500;position:relative;z-index:10">
   이 화면은 기존 특허평가 이력 조회용입니다. 신규 신청은 <a href="index.html#apply">대출·특허평가 통합 신청</a>에서 파일을 한 번만 제출하세요.
   신규 평가 검토는 통합 화면의 IP 가치평가 메뉴를 사용하세요.
 </div>
-<div class="app">
+<!-- ============ GLOBAL HEADER ============ -->
+<header class="gnb">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.2"></rect>
+        <rect x="14" y="3" width="7" height="7" rx="1.2"></rect>
+        <rect x="3" y="14" width="7" height="7" rx="1.2"></rect>
+        <rect x="14" y="14" width="7" height="7" rx="1.2"></rect>
+        <path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4"></path>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-name">IP담보 <span>자동대출</span></div>
+      <div class="brand-sub">주식회사 머스트리 · 기업 IP금융</div>
+    </div>
+  </div>
 
-  <!-- ============ SIDEBAR ============ -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1.2"></rect>
-          <rect x="14" y="3" width="7" height="7" rx="1.2"></rect>
-          <rect x="3" y="14" width="7" height="7" rx="1.2"></rect>
-          <rect x="14" y="14" width="7" height="7" rx="1.2"></rect>
-          <path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4"></path>
-        </svg>
-      </div>
-      <div>
-        <div class="brand-name">IP담보 자동대출<br>플랫폼</div>
-        <div class="brand-sub">주식회사 머스트리</div>
+  <div class="gnb-right">
+    <span class="topbar-date" id="todayDate"></span>
+    <div class="user-chip">
+      <div class="user-avatar">IP</div>
+      <div class="user-meta">
+        <div class="user-name">특허평가 보고서</div>
+        <div class="user-role">기업·특허 분석 및 평가</div>
       </div>
     </div>
+  </div>
+</header>
 
-    <a class="nav-item" href="index.html">← 대출 업무 화면으로</a><div class="nav-group-label">특허평가 업무</div>
+<div class="app">
+
+  <!-- ============ LEFT MENU ============ -->
+  <aside class="sidebar">
+    <a class="nav-item" href="index.html">← 대출 업무 화면으로</a>
+    <div class="nav-group-label">특허평가 업무</div>
     <ul class="nav">
       <li>
         <button class="nav-item active" data-view="dashboard">
@@ -68,6 +84,7 @@
       </li>
     </ul>
 
+
     <div class="sidebar-footer">
       <div class="chain-status">
         <div class="chain-status-row"><span class="dot"></span> 블록체인 네트워크 정상</div>
@@ -80,22 +97,11 @@
 
   <!-- ============ MAIN ============ -->
   <div class="main">
-    <header class="topbar">
-      <div>
-        <h1 class="topbar-title" id="topbarTitle">대시보드</h1>
-        <p class="topbar-sub" id="topbarSub">LLM·블록체인 기반 IP담보 자동대출 서비스 현황</p>
-      </div>
-      <div class="topbar-right">
-        <div class="topbar-date" id="todayDate"></div>
-        <div class="user-chip">
-          <div class="user-avatar">IP</div>
-          <div class="user-meta">
-            <div class="user-name">특허평가 보고서</div>
-            <div class="user-role">기업·특허 분석 및 평가</div>
-          </div>
-        </div>
-      </div>
-    </header>
+    <div class="page-head">
+      <div class="breadcrumb">홈 › <b id="breadcrumbCurrent">대시보드</b></div>
+      <h1 class="topbar-title" id="topbarTitle">대시보드</h1>
+      <p class="topbar-sub" id="topbarSub">LLM·블록체인 기반 IP담보 자동대출 서비스 현황</p>
+    </div>
 
     <main class="content">
 
@@ -384,7 +390,7 @@
 </div>
 
 <script src="js/evaluations.js?v=20261016-company-label"></script>
-<script src="js/patent-app.js?v=20261015-patent"></script>
+<script src="js/patent-app.js?v=20261023-v3-look"></script>
 <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

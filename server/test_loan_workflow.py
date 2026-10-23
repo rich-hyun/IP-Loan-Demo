@@ -25,6 +25,7 @@ os.environ.setdefault('IPLOAN_PATENT_UPLOAD_DIR', str(Path(_import_tmp.name) / '
 from server import app as native
 from server import loan_workflow as workflow
 from server.patent_api import PatentAPIError
+from server.report_summary import auto_review
 
 PDF = b'%PDF-1.4\nfictional patent for workflow test\n%%EOF'
 
@@ -440,22 +441,91 @@ class LoanWorkflowTests(unittest.TestCase):
         self.assertEqual('BB-', payload['creditRating'])
         self.assertEqual({'key': 'capital', 'year': 2025, 'result': 'fail', 'observed': '자본잠식 (자본총계 -506백만원)'},
                          payload['financialChecks'][0])
+        self.assertEqual('review', payload['autoReview']['decision'])
         with closing(sqlite3.connect(native.DB_PATH)) as db, db:
             db.execute("UPDATE loan_evaluations SET creditRating='AAA', financials='[]' WHERE appId=?", (app_id,))
         self.assertEqual(report.json['hash'], self.prepare(app_id, value=23_456_789).json['hash'])
+        self.assertEqual(payload, self.stored_payload(report.json['hash']))
 
     def test_review_prepared_before_the_summary_keeps_its_hash_on_retry(self):
         app_id = self.completed()
         report = self.prepare(app_id)
-        legacy = {k: v for k, v in self.stored_payload(report.json['hash']).items() if k not in ('creditRating', 'financialChecks')}
-        legacy_payload = workflow.canonical(legacy)
-        legacy_hash = '0x' + hashlib.sha256(legacy_payload.encode()).hexdigest()
+        legacy_hash = self.make_legacy(app_id, report.json['hash'], ('creditRating', 'financialChecks', 'autoReview'))
         with closing(sqlite3.connect(native.DB_PATH)) as db, db:
-            db.execute('UPDATE evaluation_reports SET hash=?, payload=? WHERE hash=?', (legacy_hash, legacy_payload, report.json['hash']))
-            db.execute("UPDATE loan_evaluations SET preparedHash=?, creditRating='BB' WHERE appId=?", (legacy_hash, app_id))
+            db.execute("UPDATE loan_evaluations SET creditRating='BB' WHERE appId=?", (app_id,))
         retry = self.prepare(app_id)
         self.assertEqual(200, retry.status_code, retry.get_data(as_text=True))
         self.assertEqual(legacy_hash, retry.json['hash'])
+
+    def make_legacy(self, app_id, report_hash, dropped):
+        """Rewrite the prepared manifest as an older server would have written it (without the dropped keys)."""
+        legacy = {k: v for k, v in self.stored_payload(report_hash).items() if k not in dropped}
+        legacy_payload = workflow.canonical(legacy)
+        legacy_hash = '0x' + hashlib.sha256(legacy_payload.encode()).hexdigest()
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute('UPDATE evaluation_reports SET hash=?, payload=? WHERE hash=?', (legacy_hash, legacy_payload, report_hash))
+            db.execute('UPDATE loan_evaluations SET preparedHash=? WHERE appId=?', (legacy_hash, app_id))
+        return legacy_hash
+
+    def test_review_prepared_before_the_auto_review_keeps_its_hash_and_shows_no_verdict(self):
+        self.result = self.summary_job()
+        app_id = self.create().json['id']
+        report = self.prepare(app_id, value=23_456_789)
+        legacy_hash = self.make_legacy(app_id, report.json['hash'], ('autoReview',))
+        retry = self.prepare(app_id, value=23_456_789)
+        self.assertEqual(200, retry.status_code, retry.get_data(as_text=True))
+        self.assertEqual(legacy_hash, retry.json['hash'])
+        payload = self.stored_payload(legacy_hash)
+        self.assertNotIn('autoReview', payload)
+        self.assertEqual('BB-', payload['creditRating'])
+        evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+        self.assertEqual((None, None), (evaluation['autoReview'], evaluation['autoReviewFollowed']))
+
+    def good_job(self):
+        return {**self.provider_job('completed'), 'credit_rating': 'BBB', 'financials': [
+            {'year': 2025, 'fiscal_date': '2025-12-31', 'source': 'nice_finance', 'total_equity_krw': 1_812_000_000,
+             'operating_income_krw': 900_000_000, 'interest_coverage_times': 15.3, 'current_ratio_pct': 150.0}]}
+
+    def test_reviewed_report_binds_the_auto_review_and_status_shows_the_bound_verdict(self):
+        self.result = self.summary_job()
+        app_id = self.create().json['id']
+        evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+        self.assertEqual((None, None), (evaluation['autoReview'], evaluation['autoReviewFollowed']))  # nothing unbound
+        report = self.prepare(app_id, value=23_456_789)
+        self.assertEqual(200, report.status_code, report.get_data(as_text=True))
+        payload = self.stored_payload(report.json['hash'])
+        expected = auto_review('BB-', payload['financialChecks'], 70, 23_456_789)
+        self.assertEqual(expected, payload['autoReview'])
+        self.assertEqual(('review', ['capital_fail', 'operating_income_fail', 'current_ratio_fail']),
+                         (expected['decision'], [reason['code'] for reason in expected['reasons']]))
+        evaluation = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']
+        self.assertEqual(expected, evaluation['autoReview'])
+        self.assertIsNone(evaluation['autoReviewFollowed'])
+        # The bank's review list carries the same bound verdict.
+        listed = next(a for a in self.client.get('/api/applications').json if a['id'] == app_id)
+        self.assertEqual(expected, listed['evaluation']['autoReview'])
+        # Later report data does not change the bound verdict.
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute("UPDATE loan_evaluations SET creditRating='AAA', financials='[]' WHERE appId=?", (app_id,))
+        self.assertEqual(expected, self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']['autoReview'])
+        # A review verdict leaves the bank's decision open: nothing to follow.
+        self.assertEqual(200, self.sync(app_id, report.json, 'Approved').status_code)
+        self.assertIsNone(self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']['autoReviewFollowed'])
+
+    def test_bank_action_against_the_verdict_still_syncs_and_is_shown(self):
+        followed = {}
+        for index, stages in enumerate([('Eligible', 'Approved', 'Repaid'), ('Eligible', 'Rejected')]):
+            self.result = self.good_job()
+            app_id = self.create(self.fields(request_id=f'auto-review-request-{index:04}')).json['id']
+            report = self.prepare(app_id)
+            self.assertEqual(200, report.status_code, report.get_data(as_text=True))
+            self.assertEqual('approve', self.stored_payload(report.json['hash'])['autoReview']['decision'])
+            for stage in stages:
+                synced = self.sync(app_id, report.json, stage)
+                self.assertEqual(200, synced.status_code, synced.get_data(as_text=True))
+                followed[stage] = self.client.get(f'/api/applications/{app_id}/evaluation').json['evaluation']['autoReviewFollowed']
+        self.assertEqual({'Eligible': None, 'Approved': True, 'Repaid': True, 'Rejected': False}, followed)
+        self.assertEqual(2, self.count('credit_cases'))
 
     def test_actual_template_html_value_is_cached_bound_and_provided_to_reviewer(self):
         self.result = {'job_id': 'html-money', 'status': 'completed', 'artifacts': {'html': '/html'}}
@@ -516,6 +586,81 @@ class LoanWorkflowTests(unittest.TestCase):
             self.assertEqual(200, self.call(app_id, 'identity', business_number='1234567890').status_code)
         identify.assert_called_once_with('provider-job-1', '1234567890')
         self.assertEqual(1, len(self.submissions))
+
+    def login(self, signer):
+        """A wallet sign-in session ({login}) in place of per-action signatures."""
+        challenge = self.client.post('/api/auth/challenge', json={'address': signer.address}).json
+        signature = Account.sign_message(encode_defunct(text=challenge['message']), signer.key).signature.hex()
+        names = {'BORROWER_ROLE': 'borrower', 'EVALUATOR_ROLE': 'evaluator', 'BANK_ROLE': 'bank'}
+        with patch.object(native.chain, 'roles', lambda wallet: [names[self.roles[wallet]]] if wallet in self.roles else []):
+            response = self.client.post('/api/auth/login', json={'address': signer.address, 'nonce': challenge['nonce'],
+                                                                 'signature': '0x' + signature.removeprefix('0x')})
+        self.assertEqual(200, response.status_code, response.get_data(as_text=True))
+        return {'login': response.json['token']}
+
+    def test_login_session_replaces_signatures_for_create_status_document_and_review(self):
+        self.result = self.provider_job('completed')
+        borrower, evaluator = self.login(self.borrower), self.login(self.evaluator)
+        fields = self.fields()
+        created = self.create(fields, proof=borrower)
+        self.assertEqual(201, created.status_code, created.get_data(as_text=True))
+        app_id = created.json['id']
+        # A session is not one-use: the same request number replays the same application.
+        replay = self.create(fields, proof=borrower)
+        self.assertEqual((200, app_id), (replay.status_code, replay.json['id']))
+        self.assertEqual(1, len(self.submissions))
+        self.sync(app_id)
+        status = self.client.post(f'/api/applications/{app_id}/evaluation', json={'action': 'status', 'auth': evaluator})
+        self.assertEqual(200, status.status_code, status.get_data(as_text=True))
+        for _ in range(2):
+            document = self.client.post(f'/api/applications/{app_id}/evaluation/document', json={'auth': evaluator})
+            self.assertEqual(PDF, document.data)
+        artifact = self.client.post(f'/api/applications/{app_id}/evaluation/artifacts/pdf', json={'auth': evaluator})
+        self.assertEqual(200, artifact.status_code)
+        body = {'appraisedValue': 100, 'reviewerNote': '보고서 검토 후 적용 가치 확정'}
+        report = self.client.post(f'/api/applications/{app_id}/evaluation-report', json={**body, 'auth': evaluator})
+        self.assertEqual(200, report.status_code, report.get_data(as_text=True))
+        self.assertEqual(self.evaluator.address, self.stored_payload(report.json['hash'])['reviewer'])
+        # The same review with a per-action signature binds the same manifest.
+        self.assertEqual(report.json['hash'], self.prepare(app_id).json['hash'])
+
+    def test_login_session_must_be_live_and_belong_to_the_assigned_participant(self):
+        app_id = self.completed()
+        body = {'appraisedValue': 100, 'reviewerNote': '보고서 검토 후 적용 가치 확정'}
+        create = lambda proof: self.create(self.fields(request_id='workflow-login-request-1'), proof=proof)
+        review = lambda proof: self.client.post(f'/api/applications/{app_id}/evaluation-report', json={**body, 'auth': proof})
+        document = lambda proof: self.client.post(f'/api/applications/{app_id}/evaluation/document', json={'auth': proof})
+        status = lambda proof: self.client.post(f'/api/applications/{app_id}/evaluation', json={'action': 'status', 'auth': proof})
+        for proof in ({'login': 'unknown-token'}, {'login': ''}):
+            for response in (create(proof), review(proof), document(proof), status(proof)):
+                self.assertEqual(403, response.status_code)
+                self.assertEqual('로그인이 만료되었습니다. 지갑으로 다시 로그인하세요.', response.json['message'])
+        borrower, other, bank = self.login(self.borrower), self.login(self.other), self.login(self.bank)
+        # Valid sessions, wrong wallet: the participant and role checks are the signature path's.
+        self.assertEqual(403, create(other).status_code)  # not the borrowerWallet of the form
+        self.assertEqual(403, review(borrower).status_code)  # review is the assigned evaluator's
+        for proof in (other, bank):  # not assigned (no bank before a passing review)
+            self.assertEqual(403, review(proof).status_code)
+            self.assertEqual(403, document(proof).status_code)
+            self.assertEqual(403, status(proof).status_code)
+        evaluator = self.login(self.evaluator)
+        del self.roles[self.evaluator.address]  # role revoked after sign-in
+        # The review endpoint answers a failed role check with 409, as it does for a per-action signature.
+        signed, session = self.prepare(app_id), review(evaluator)
+        self.assertEqual((409, 'chain_unavailable'), (signed.status_code, signed.json['error']))
+        self.assertEqual((409, 'chain_unavailable'), (session.status_code, session.json['error']))
+        self.assertEqual(403, document(evaluator).status_code)
+        self.roles[self.evaluator.address] = 'EVALUATOR_ROLE'
+        self.assertEqual(200, self.client.post('/api/auth/logout', headers={'Authorization': 'Bearer ' + evaluator['login']}).status_code)
+        self.assertEqual(403, review(evaluator).status_code)
+        evaluator = self.login(self.evaluator)
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute("UPDATE sessions SET expiresAt='2000-01-01T00:00:00Z'")
+        for response in (create(borrower), review(evaluator), document(evaluator), status(evaluator)):
+            self.assertEqual(403, response.status_code)
+        self.assertEqual(1, len(self.submissions))
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            self.assertEqual((None,), db.execute('SELECT preparedHash FROM loan_evaluations WHERE appId=?', (app_id,)).fetchone())
 
 
 if __name__ == '__main__':

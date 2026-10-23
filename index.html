@@ -4,35 +4,60 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LLM 기반 기술평가 자동대출 시스템 · 주식회사 머스트리</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316233E'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%230E7A6E' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2300843D'/%3E%3Cpath d='M6 7h5v5H6zM13 7h5v5h-5zM6 14h5v5H6zM13 14h5v5h-5z' fill='none' stroke='%23fff' stroke-width='1.6'/%3E%3C/svg%3E">
 <meta name="description" content="LLM·블록체인 기반 IP담보 자동대출 서비스">
-<link rel="stylesheet" href="css/style.css?v=20261022-hide-similarity">
+<link rel="stylesheet" href="css/style.css?v=20261023-v3-look">
 </head>
-<body>
-<div class="app">
+<body class="logged-out">
 
-  <!-- ============ SIDEBAR ============ -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1.2"></rect>
-          <rect x="14" y="3" width="7" height="7" rx="1.2"></rect>
-          <rect x="3" y="14" width="7" height="7" rx="1.2"></rect>
-          <rect x="14" y="14" width="7" height="7" rx="1.2"></rect>
-          <path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4"></path>
-        </svg>
-      </div>
-      <div>
-        <div class="brand-name">IP담보 자동대출<br>플랫폼</div>
-        <div class="brand-sub">주식회사 머스트리</div>
+<!-- ============ GLOBAL HEADER ============ -->
+<header class="gnb">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.2"></rect>
+        <rect x="14" y="3" width="7" height="7" rx="1.2"></rect>
+        <rect x="3" y="14" width="7" height="7" rx="1.2"></rect>
+        <rect x="14" y="14" width="7" height="7" rx="1.2"></rect>
+        <path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4"></path>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-name">IP담보 <span>자동대출</span></div>
+      <div class="brand-sub">주식회사 머스트리 · 기업 IP금융</div>
+    </div>
+  </div>
+  <div class="gnb-right">
+    <span class="topbar-date" id="todayDate"></span>
+    <div class="profile" id="profile">
+      <button class="btn btn-primary btn-sm" id="loginBtnTop" type="button">MetaMask 로그인</button>
+      <button class="user-chip" id="userChip" type="button" aria-haspopup="menu" aria-expanded="false" hidden>
+        <div class="user-avatar" id="userAvatar">—</div>
+        <div class="user-meta">
+          <div class="user-name" id="userName">—</div>
+          <div class="user-role" id="userRole">—</div>
+        </div>
+        <svg class="user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+      </button>
+      <div class="role-menu" id="roleMenu" role="menu" hidden>
+        <div class="role-menu-title">업무 역할 선택</div>
+        <div id="roleOptions"></div>
+        <hr>
+        <a class="role-option" id="adminLink" href="admin.html" hidden>관리자 · 주소 권한 관리</a>
+        <button class="role-option" type="button" id="logoutBtn">로그아웃</button>
       </div>
     </div>
+  </div>
+</header>
 
+<div class="app">
+
+  <!-- ============ LEFT MENU ============ -->
+  <aside class="sidebar">
     <div class="nav-group-label">업무 화면</div>
     <ul class="nav">
       <li>
-        <button class="nav-item active" data-view="dashboard">
+        <button class="nav-item" data-view="dashboard">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"></rect><rect x="13" y="3" width="8" height="8" rx="1.5"></rect><rect x="3" y="13" width="8" height="8" rx="1.5"></rect><rect x="13" y="13" width="8" height="8" rx="1.5"></rect></svg>
           대시보드
         </button>
@@ -63,8 +88,10 @@
       </li>
     </ul>
 
-    <a class="patent-nav-link" href="#apply" onclick="goView('apply')">대출·특허평가 통합 신청 <span aria-hidden="true">↗</span></a>
-    <a class="patent-nav-link" href="patent.html#evaluate">기존 특허평가 이력 <span aria-hidden="true">↗</span></a>
+    <div class="sidebar-shortcuts">
+      <a class="patent-nav-link" href="#apply" onclick="goView('apply')">대출·특허평가 통합 신청 <span aria-hidden="true">↗</span></a>
+      <a class="patent-nav-link" href="patent.html#evaluate">기존 특허평가 이력 <span aria-hidden="true">↗</span></a>
+    </div>
 
     <div class="sidebar-footer">
       <div class="chain-status">
@@ -78,31 +105,11 @@
 
   <!-- ============ MAIN ============ -->
   <div class="main">
-    <header class="topbar">
-      <div>
-        <h1 class="topbar-title" id="topbarTitle">대시보드</h1>
-        <p class="topbar-sub" id="topbarSub">LLM·블록체인 기반 IP담보 자동대출 서비스 현황</p>
-      </div>
-      <div class="topbar-right">
-        <div class="topbar-date">2026. 09. 22 (화)</div>
-        <div class="profile" id="profile">
-          <button class="user-chip" id="userChip" type="button" aria-haspopup="menu" aria-expanded="false">
-            <div class="user-avatar" id="userAvatar">김민</div>
-            <div class="user-meta">
-              <div class="user-name" id="userName">김민준</div>
-              <div class="user-role" id="userRole">여신심사역 · NH농협은행</div>
-            </div>
-            <svg class="user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
-          </button>
-          <div class="role-menu" id="roleMenu" role="menu" hidden>
-            <div class="role-menu-title">역할 전환</div>
-            <button class="role-option" type="button" role="menuitemradio" data-role="lender">여신심사역 · NH농협은행</button>
-            <button class="role-option" type="button" role="menuitemradio" data-role="evaluator">IP 가치평가자 · 지정 평가기관</button>
-            <button class="role-option" type="button" role="menuitemradio" data-role="borrower">차주기업 담당자</button>
-          </div>
-        </div>
-      </div>
-    </header>
+    <div class="page-head">
+      <div class="breadcrumb">홈 › <b id="breadcrumbCurrent">지갑 인증 로그인</b></div>
+      <h1 class="topbar-title" id="topbarTitle">지갑 인증 로그인</h1>
+      <p class="topbar-sub" id="topbarSub">등록된 지갑으로 로그인하면 담당 업무 화면이 열립니다</p>
+    </div>
 
     <main class="content">
 
@@ -111,8 +118,42 @@
         <button id="connNoticeRetry" type="button">다시 시도</button>
       </div>
 
+      <!-- ============ VIEW: LOGIN ============ -->
+      <section id="view-login" class="view active">
+        <div class="login-layout">
+          <div class="login-hero">
+            <span class="eyebrow">기업 지식재산(IP) 담보대출</span>
+            <h2>특허 하나로 시작하는<br>기술기업 금융</h2>
+            <p>LLM이 특허 가치평가보고서를 작성하고, 블록체인 스마트컨트랙트가 심사와 대출 승인을 기록합니다. 은행 심사역은 검증된 결과로 빠르게 결정합니다.</p>
+            <ul class="login-points">
+              <li><span class="num">1</span><div><b>LLM 가치평가</b>특허 공고전문으로 평가보고서를 자동 생성하고 평가사가 확정합니다</div></li>
+              <li><span class="num">2</span><div><b>자동심사</b>담보인정비율·신용등급·재무로 승인 여부를 자동 판정합니다</div></li>
+              <li><span class="num">3</span><div><b>블록체인 기록</b>최종 승인과 상환 이력을 블록체인에 기록합니다</div></li>
+            </ul>
+          </div>
+          <div class="panel login-card">
+            <h3>지갑 인증 로그인</h3>
+            <p class="lead">공동인증서 대신 MetaMask 지갑 서명으로 본인을 확인합니다.</p>
+            <ol class="login-steps">
+              <li><div>MetaMask 연결<small>네트워크가 다르면 자동으로 전환합니다</small></div></li>
+              <li><div>로그인 메시지 서명<small>거래가 아니며 수수료가 발생하지 않습니다</small></div></li>
+              <li><div>역할 확인<small>블록체인에 등록된 역할로 업무 화면이 열립니다</small></div></li>
+            </ol>
+            <button class="btn btn-primary btn-lg btn-block" id="loginBtn" type="button">MetaMask 지갑으로 로그인</button>
+            <button class="link-button" id="connectAccountsBtn" type="button">다른 계정 연결</button>
+            <div class="notice-box"><span><b>보안 안내</b> · 개인키나 복구 문구(시드)는 어떤 화면에서도 요구하지 않습니다. MetaMask에서 계정을 바꾸면 그 계정으로 전환됩니다.</span></div>
+            <p class="help" id="loginHelp">역할이 등록되지 않은 지갑은 관리자에게 주소 등록을 요청하세요.</p>
+          </div>
+        </div>
+        <div class="login-roles">
+          <div class="login-role"><b>차주기업</b>담보 IP를 등록하고 대출을 신청합니다. 진행 상황을 확인합니다.</div>
+          <div class="login-role"><b>IP 가치평가사</b>배정된 신청의 LLM 보고서를 검토하고 평가액을 확정합니다.</div>
+          <div class="login-role"><b>은행 여신심사역</b>자동심사 결과를 확인해 최종 승인하고 상환을 기록합니다.</div>
+        </div>
+      </section>
+
       <!-- ============ VIEW: DASHBOARD ============ -->
-      <section id="view-dashboard" class="view active">
+      <section id="view-dashboard" class="view">
 
         <div class="patent-entry">
           <div><div class="patent-entry-label">LOAN · PATENT VALUATION</div><h2>대출 신청 한 번으로 특허평가까지.</h2><p>특허 공고전문 PDF 1개를 제출하면 같은 신청으로 보고서 생성, 평가사 검토, LTV 판정, 여신심사를 진행합니다.</p></div>
@@ -450,6 +491,6 @@
 <script src="js/chain.js?v=20261021-loan-workflow"></script>
 <script src="js/token-cards.js?v=20261021-minted-only"></script>
 <script src="js/workflow.js?v=20261022-report-summary"></script>
-<script src="js/app.js?v=20261022-hide-similarity"></script>
+<script src="js/app.js?v=20261023-auto-review"></script>
 </body>
 </html>
