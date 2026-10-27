@@ -588,6 +588,32 @@ async function retryApplicationChain(id, onlySync = false) {
 document.getElementById('retryChainBtn').addEventListener('click', () => retryApplicationChain());
 document.getElementById('syncChainBtn').addEventListener('click', () => retryApplicationChain(null, true));
 
+/* The server reads the IP type, title and application number from the chosen PDF. Only empty fields, or fields
+   filled from an earlier PDF, are filled, so anything the borrower typed stays. */
+const PDF_FIELDS = { ipType: 'fIpType', ipTitle: 'fIpTitle', ipRegNo: 'fIpNo' };
+async function fillFromPdf(file) {
+  const token = typeof IPLoanChain !== 'undefined' && IPLoanChain.proof()?.login;
+  if (!file || !token) return;
+  const body = new FormData();
+  body.append('document', file, file.name);
+  let fields;
+  try {
+    const res = await fetch(`${API_BASE}/documents/fields`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
+    if (!res.ok) return;
+    fields = await res.json();
+  } catch { return; }
+  if (fileInput.files[0] !== file) return;
+  let filled = 0;
+  for (const [key, id] of Object.entries(PDF_FIELDS)) {
+    const el = document.getElementById(id), value = fields[key];
+    if (!value || (el.value && el.value !== el.dataset.autofill)) continue;
+    el.value = value;
+    el.dataset.autofill = value;
+    filled++;
+  }
+  if (filled) showToast('PDF에서 IP 정보를 채웠습니다. 확인해 주세요.');
+}
+
 uploadBox.addEventListener('click', () => fileInput.click());
 uploadBox.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
@@ -596,14 +622,33 @@ fileInput.addEventListener('change', () => {
   const files = Array.from(fileInput.files);
   const nameEl = document.getElementById('fileNameDisplay');
   const helpEl = document.getElementById('fileHelpText');
+  uploadBox.classList.toggle('has-file', files.length > 0);
   if (files.length === 0) {
-    nameEl.textContent = '클릭해서 PDF 선택';
+    nameEl.textContent = '클릭하거나 PDF를 끌어다 놓기';
     helpEl.textContent = '특허 공고전문 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
     return;
   }
   nameEl.textContent = files[0].name;
   helpEl.textContent = '원부 대조 후 AES-256-GCM으로 암호화해 업로드합니다';
+  fillFromPdf(files[0]);
 });
+// Dropping a PDF on the box is the same as choosing it.
+uploadBox.addEventListener('dragover', (e) => { e.preventDefault(); if (!applicationSubmitting) uploadBox.classList.add('dragging'); });
+uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('dragging'));
+uploadBox.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadBox.classList.remove('dragging');
+  if (applicationSubmitting) return;
+  const file = [...(e.dataTransfer?.files || [])].find(f => /\.pdf$/i.test(f.name));
+  if (!file) return showToast('PDF 파일을 놓아 주세요');
+  const picked = new DataTransfer();
+  picked.items.add(file);
+  fileInput.files = picked.files;
+  fileInput.dispatchEvent(new Event('change'));
+});
+// A file dropped beside the box must not open in the tab and discard the form.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
 
 applyForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -751,7 +796,8 @@ function resetApplyUI() {
   const btn = document.getElementById('applySubmitBtn');
   btn.disabled = false;
   btn.textContent = '제출하기';
-  document.getElementById('fileNameDisplay').textContent = '클릭해서 PDF 선택';
+  document.getElementById('fileNameDisplay').textContent = '클릭하거나 PDF를 끌어다 놓기';
+  uploadBox.classList.remove('has-file');
   document.getElementById('fileHelpText').textContent = '특허 공고전문 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
   fillBorrowerInfo();
   document.getElementById('borrowerProfileSelect').value = currentBorrowerProfileId;

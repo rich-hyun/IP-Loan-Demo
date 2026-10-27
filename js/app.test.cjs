@@ -64,11 +64,17 @@ async function boot(storage = new Map([['iploan-role', 'borrower']]), server = n
       querySelectorAll: selector => selector === '#applySteps .step' ? steps : [],
       addEventListener: () => {},
     },
+    window: { addEventListener: () => {} },
+    DataTransfer: class { constructor() { this.files = []; this.items = { add: file => this.files.push(file) }; } },
+    Event: class { constructor(type) { this.type = type; } },
     setTimeout: fn => { timers.push(fn); return timers.length; },
     clearTimeout: () => {}, setInterval: () => {},
     fetch: async (url, options = {}) => {
       let body;
-      if (url.endsWith('/applications')) body = server.applications;
+      if (url.endsWith('/documents/fields')) {
+        server.fieldRequests = [...(server.fieldRequests || []), options];
+        body = server.pdfFields || {};
+      } else if (url.endsWith('/applications')) body = server.applications;
       else if (url.endsWith('/evaluation')) body = server.evaluation;
       else if (options.method === 'PATCH' || options.method === 'POST') {
         const id = options.method === 'PATCH' ? url.split('/').pop() : 'new-profile';
@@ -403,4 +409,31 @@ test('a restored session resumes without signing again, and a wallet without rol
   assert.equal(page.run('currentRole'), null);
   assert.match(page.element('loginHelp').textContent, /등록된 역할이 없습니다/);
   assert.match(page.element('roleOptions').innerHTML, /등록된 역할이 없습니다/);
+});
+
+test('a dropped PDF is attached and fills only the IP fields the borrower left empty', async () => {
+  const chain = { init: async () => {}, proof: () => ({ login: 'session-token' }) };
+  const page = await boot(undefined, null, chain);
+  page.server.pdfFields = { ipType: '특허권', ipTitle: '두부 자극용 전위치료장치', ipRegNo: '10-2022-0132655' };
+  page.element('fIpNo').value = '10-2024-9999999';
+  const box = page.element('uploadBox'), input = page.element('fileInput');
+  input.dispatchEvent = event => input.listeners[event.type]();
+  const gazette = { name: '공고전문.PDF' };
+  box.listeners.drop({ preventDefault() {}, dataTransfer: { files: [{ name: 'memo.txt' }, gazette] } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(input.files[0], gazette);
+  assert.equal(page.element('fileNameDisplay').textContent, '공고전문.PDF');
+  assert.equal(page.server.fieldRequests[0].headers.Authorization, 'Bearer session-token');
+  assert.equal(page.element('fIpType').value, '특허권');
+  assert.equal(page.element('fIpTitle').value, '두부 자극용 전위치료장치');
+  assert.equal(page.element('fIpNo').value, '10-2024-9999999');
+});
+
+test('without a session, choosing a PDF attaches it without asking the server for fields', async () => {
+  const page = await boot(undefined, null, { init: async () => {}, proof: () => null });
+  page.element('fileInput').files = [{ name: 'test.pdf' }];
+  page.element('fileInput').listeners.change();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.server.fieldRequests, undefined);
+  assert.equal(page.element('fIpTitle').value, '');
 });

@@ -5,6 +5,7 @@ Temporary SQLite only; the chain is a test double. Session proof for loan_workfl
 from contextlib import closing
 import base64
 import hashlib
+import io
 import os
 from pathlib import Path
 import sqlite3
@@ -224,6 +225,26 @@ class RoleNameTests(SessionTestCase):
         with patch.object(chain, '_manager', return_value=(None, FakeManager(held, broken=True))):
             with self.assertRaises(chain.ChainError):
                 REAL_ROLES(admin)
+
+
+class DocumentFieldsTests(SessionTestCase):
+    """POST /api/documents/fields reads form fields from a PDF for a signed-in wallet and stores nothing."""
+
+    def test_signed_in_wallet_gets_the_fields_and_others_are_refused(self):
+        wallet = Account.create()
+        self.held[wallet.address] = ['borrower']
+        token = self.token(wallet)
+        post = lambda name, data, headers: self.client.post('/api/documents/fields', headers=headers,
+                                                            data={'document': (io.BytesIO(data), name)})
+        fields = {'ipType': '특허권', 'ipTitle': '두부 자극용 전위치료장치', 'ipRegNo': '10-2022-0132655'}
+        with patch.object(native.patent_pdf, 'read_fields', return_value=fields) as read:
+            response = post('gazette.pdf', PDF, {'Authorization': f'Bearer {token}'})
+            self.assertEqual((200, fields), (response.status_code, response.json))
+            read.assert_called_once_with(PDF)
+            self.assertEqual(401, post('gazette.pdf', PDF, {}).status_code)
+            self.assertEqual(400, post('notes.txt', PDF, {'Authorization': f'Bearer {token}'}).status_code)
+            self.assertEqual(400, post('fake.pdf', b'not a pdf', {'Authorization': f'Bearer {token}'}).status_code)
+            read.assert_called_once()
 
 
 class LegacyDocumentLoginTests(SessionTestCase):

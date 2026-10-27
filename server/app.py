@@ -34,11 +34,12 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 if __package__:
-    from . import auth, chain, loan_workflow
+    from . import auth, chain, loan_workflow, patent_pdf
 else:
     import auth
     import chain
     import loan_workflow
+    import patent_pdf
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -700,6 +701,19 @@ def auth_login():
 @login_required
 def auth_me():
     return jsonify({"address": g.user["address"], "roles": sorted(g.user["roles"])})
+
+
+@app.route("/api/documents/fields", methods=["POST"])
+@login_required
+def document_fields():
+    """Reads the IP type, title and application number from a chosen PDF to fill the form. Nothing is stored."""
+    upload = request.files.get("document")
+    if upload is None or not upload.filename.lower().endswith(".pdf"):
+        return error_response("PDF 파일을 선택해 주세요.", 400, "pdf_required")
+    pdf = upload.read(MAX_DOCUMENT_BYTES + 1)
+    if len(pdf) > MAX_DOCUMENT_BYTES or not pdf.lstrip().startswith(b"%PDF-"):
+        return error_response("올바른 PDF 파일인지 확인해 주세요.", 400, "invalid_pdf")
+    return jsonify(patent_pdf.read_fields(pdf))
 
 
 @app.route("/api/auth/logout", methods=["POST"])
