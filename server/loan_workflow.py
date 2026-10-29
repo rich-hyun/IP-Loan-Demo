@@ -394,6 +394,9 @@ def prepare(native, application, data):
         raise WorkflowError('공급자의 평가보고서가 없습니다.')
     kind = 'pdf' if 'pdf' in kinds else 'html'
     _, report_digest = artifact(db, app_id, kind)
+    prior = db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (row['preparedHash'],)).fetchone() if row['preparedHash'] else None
+    if not prior and not application.get('rightsCheckedAt'):
+        raise WorkflowError('등록원부와 신청 내용을 대조해 권리 확인을 먼저 해 주세요.')
     # An immutable reviewed manifest binds the actual provider report, file,
     # automatic and applied values, reviewer and policy to the on-chain digest.
     report = {'applicationId': app_id, 'appKey': application['appKey'], 'fileHash': application['docFileHash'],
@@ -401,13 +404,15 @@ def prepare(native, application, data):
               'sourceReportKind': kind, 'autoValue': row['autoValue'], 'appraisedValue': value,
               'autoValueSource': row['valueSource'], 'autoValueReportHash': row['valueReportHash'],
               'reviewer': reviewer, 'reviewerNote': note.strip(), 'policy': 'v2-contract-demo-ltv-70-percent'}
-    # The report's credit grade and financial check results as reviewed, and the server auto-review verdict on them.
-    # A retry repeats what was first prepared (nothing, for a review prepared before these were kept; no autoReview
-    # for one prepared before the auto-review) so the same review keeps the same hash.
-    prior = db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (row['preparedHash'],)).fetchone() if row['preparedHash'] else None
+    # The report's credit grade and financial check results as reviewed, the server auto-review verdict on them and the
+    # evaluator's rights check against the register. A retry repeats what was first prepared (nothing, for a review
+    # prepared before these were kept) so the same review keeps the same hash.
     if prior:
-        report.update({k: v for k, v in json.loads(prior['payload']).items() if k in ('creditRating', 'financialChecks', 'autoReview')})
+        report.update({k: v for k, v in json.loads(prior['payload']).items() if k in ('creditRating', 'financialChecks', 'autoReview', 'rightsCheck')})
     else:
+        register = json.loads(application.get('patentRegister') or '{}')
+        report['rightsCheck'] = {'checkedAt': application['rightsCheckedAt'], 'checkedBy': application['rightsCheckedBy'],
+                                 **{k: register.get(k) for k in ('status', 'registrationNumber', 'collectedAt', 'currentOwners', 'lapsedAt')}}
         checks = financial_checks(json.loads(row['financials'] or '[]'))
         report.update(creditRating=row['creditRating'], financialChecks=[
             {k: check[k] for k in ('key', 'year', 'result', 'observed')} for check in checks])

@@ -19,15 +19,19 @@ KINDS = (("실용신안", "실용신안권"), ("상표", "상표권"), ("특허"
 NUMBER = r"\d{2}-\d{4}-\d{7}"
 
 
-def read_fields(pdf):
+def read_text(pdf):
+    """앞 PAGES쪽의 텍스트. pypdf가 없거나 읽지 못하면 빈 문자열."""
     if PdfReader is None:
-        return {}
+        return ""
     try:
         reader = PdfReader(BytesIO(pdf))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages[:PAGES])
+        return "\n".join(page.extract_text() or "" for page in reader.pages[:PAGES])
     except Exception:
-        return {}
-    return parse_fields(text)
+        return ""
+
+
+def read_fields(pdf):
+    return parse_fields(read_text(pdf))
 
 
 def parse_fields(text):

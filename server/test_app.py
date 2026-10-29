@@ -86,6 +86,37 @@ class ApplicationUploadTest(unittest.TestCase):
         self.assertNotIn("docKey", listed)
         self.assertNotIn("docSalt", listed)
 
+    def test_collects_the_patent_register_for_the_gazette_registration_number(self):
+        upload = {"cid": "bafybeigdyrzt1234567890", "ipfs": "ipfs://bafybeigdyrzt1234567890"}
+        items = {"title": "암호화 업로드 특허", "owner": [{"ownerName": "테스트 주식회사", "finalOwnerYn": "Y"}]}
+        with patch.object(app_module, "upload_encrypted_document", return_value=upload), \
+             patch.object(app_module.patent_pdf, "read_text", return_value="(12) 등록특허공보(B1)\n(11) 등록번호   10-2642299"), \
+             patch.object(app_module.patent_register, "fetch", return_value=items) as fetch:
+            response = self.client.post("/api/applications", data=self.application_form(), content_type="multipart/form-data")
+
+        self.assertEqual(response.status_code, 201)
+        fetch.assert_called_once_with("1026422990000")
+        register = response.get_json()["patentRegister"]
+        self.assertEqual(("collected", "10-2642299", True), (register["status"], register["registrationNumber"], register["ownerMatch"]))
+        listed = next(item for item in self.client.get("/api/applications").get_json() if item["id"] == response.get_json()["id"])
+        self.assertEqual(register, listed["patentRegister"])
+        self.assertNotIn("rightsCheckRequired", listed)  # only integrated applications go through the evaluator check
+
+    def test_a_lapsed_patent_is_refused_before_anything_is_stored(self):
+        lapse = {"rgstCsName": "소멸등록", "rgstCsDate": "20260724", "rgstCsReason": "등록료불납", "rgstCsPupos": None}
+        items = {"title": "식사 보조장치", "right": [lapse], "owner": [{"ownerName": "테스트 주식회사", "finalOwnerYn": "Y"}]}
+        count = lambda: sqlite3.connect(app_module.DB_PATH).execute("SELECT COUNT(*) FROM applications").fetchone()[0]
+        before = count()
+        with patch.object(app_module, "upload_encrypted_document") as upload, \
+             patch.object(app_module.patent_pdf, "read_text", return_value="(11) 등록번호   10-1561775"), \
+             patch.object(app_module.patent_register, "fetch", return_value=items):
+            response = self.client.post("/api/applications", data=self.application_form(), content_type="multipart/form-data")
+
+        self.assertEqual((422, "patent_lapsed"), (response.status_code, response.get_json()["error"]))
+        self.assertEqual("소멸된 특허는 신청할 수 없습니다 (2026-07-24 소멸등록 · 등록료불납).", response.get_json()["message"])
+        upload.assert_not_called()
+        self.assertEqual(before, count())
+
     def test_registry_mismatch_is_saved_without_ipfs_upload(self):
         form = self.application_form()
         form["demoHashMismatch"] = "true"

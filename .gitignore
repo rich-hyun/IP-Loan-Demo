@@ -13,6 +13,7 @@ blockchain/scripts/deploy-local.mjs
 blockchain/scripts/prepare-wallet-demo.mjs
 .env
 .env.*
+server/local_keys.json
 !.env.example
 !docs/
 docs/*

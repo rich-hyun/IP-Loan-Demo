@@ -91,6 +91,46 @@ globalThis.LoanWorkflow = (() => {
       : '<div class="empty-hint">보고서에 재무자료가 없습니다. 직접 확인해 주세요.</div>';
     return `<div class="section-title">재무 참고 점검</div><div class="check-list">${checks}</div>${table}`;
   }
+  /* The register beside what the borrower entered, row by row. The marks are hints; the evaluator decides and records
+     the rights check, which the server requires before the confirm. */
+  const nameKey = value => String(value || '').normalize('NFKC').replace(/주식회사|유한회사|\((주|유)\)|\s/g, '');
+  const digits = value => String(value || '').replace(/\D/g, '');
+  function rightsHTML(app) {
+    const esc = escapeHtml, reg = app.patentRegister || {};
+    const canCheck = currentRole === 'evaluator' && app.chainStatus === 'Evaluating' && !app.evaluation?.confirmedAt;
+    const refresh = canCheck ? `<button class="text-button" type="button" onclick="LoanWorkflow.rights('${app.id}', 'refresh')">등록원부 다시 조회</button>` : '';
+    if (reg.status !== 'collected') {
+      return `<div class="section-title">등록원부 대조</div><div class="inline-message">${esc(reg.message || '등록원부 조회 기록이 없습니다.')} ${refresh}</div>${checkHTML(app, canCheck)}`;
+    }
+    const owners = reg.currentOwners || [];
+    const ownerMark = owners.some(o => nameKey(o) === nameKey(app.company)) ? 'same'
+      : app.ceo && owners.some(o => nameKey(o) === nameKey(app.ceo)) ? 'ceo' : 'diff';
+    const number = digits(app.ipRegNo);
+    const numberMark = !number ? null : [digits(reg.registrationNumber), digits(reg.applicationNumber)].includes(number) ? 'same' : 'diff';
+    const titleMark = app.ipTitle && reg.title ? (nameKey(app.ipTitle) === nameKey(reg.title) ? 'same' : 'diff') : null;
+    const licences = list => list?.length ? list.map(l => [l.licensee, l.scope, l.startAt && `${l.startAt}~${l.endAt || ''}`].filter(Boolean).join(' · ')) : '없음';
+    const last = (reg.annuities || []).at(-1);
+    const rows = [
+      ['권리자', [app.company, app.ceo && `대표 ${app.ceo}`].filter(Boolean).join(' · '), owners.join(', ') || '—', ownerMark],
+      ['발명의 명칭', app.ipTitle, reg.title, titleMark],
+      ['출원·등록번호', app.ipRegNo, [`등록 ${reg.registrationNumber || '—'}`, `출원 ${reg.applicationNumber || '—'}`], numberMark],
+      ['권리 상태', '', reg.lapsedAt ? `소멸 (${reg.lapsedAt}${reg.lapseReason ? ` · ${reg.lapseReason}` : ''})` : `존속 · 만료 ${reg.expiresAt || '—'}`, reg.lapsedAt ? 'diff' : null],
+      ['전용실시권', '', licences(reg.exclusiveLicenses), reg.exclusiveLicenses?.length ? 'diff' : null],
+      ['통상실시권', '', licences(reg.nonExclusiveLicenses), null],
+      ['연차료', '', last ? `${last.toYear}년차까지 납부 (${last.paidAt || '—'})` : '—', null],
+      ['권리 이력', '', (reg.rights || []).map(r => `${r.changedAt || ''} ${r.cause || ''}${r.reason ? ` (${r.reason})` : ''}`), null],
+    ];
+    const MARKS = { same: ['badge-approved', '일치'], ceo: ['badge-verify', '대표자 명의'], diff: ['badge-rejected', '확인 필요'] };
+    const cell = value => (Array.isArray(value) ? value : [value]).filter(Boolean).map(esc).join('<br>') || '—';
+    return `<div class="section-title">등록원부 대조 <span class="hint">${esc(reg.collectedAt ? new Date(reg.collectedAt).toLocaleString('ko-KR', { hour12: false }) : '')} 조회 ${refresh}</span></div>
+      <div class="table-wrap"><table class="data-table rights-table"><thead><tr><th>항목</th><th>신청 내용</th><th>등록원부</th><th></th></tr></thead>
+      <tbody>${rows.map(([label, entered, register, mark]) => `<tr><td>${label}</td><td>${cell(entered)}</td><td>${cell(register)}</td><td>${mark ? `<span class="badge ${MARKS[mark][0]}">${MARKS[mark][1]}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>${checkHTML(app, canCheck)}`;
+  }
+  function checkHTML(app, canCheck) {
+    if (app.rightsCheckedAt) return `<div class="rights-checked">✓ 권리 확인 완료 · ${escapeHtml(new Date(app.rightsCheckedAt).toLocaleString('ko-KR', { hour12: false }))}</div>`;
+    if (!canCheck || app.patentRegister?.lapsedAt) return '';
+    return `<div class="button-row"><button class="btn btn-outline" type="button" onclick="LoanWorkflow.rights('${app.id}', 'confirm')">권리 확인</button></div>`;
+  }
   const formatTime = seconds => seconds ? new Date(seconds * 1000).toLocaleString('ko-KR', { hour12: false }) : '—';
   function reportPanel(app) {
     const evaluation = app.evaluation || {};
@@ -123,6 +163,7 @@ globalThis.LoanWorkflow = (() => {
       body += '<div class="inline-message error-message">작업은 완료되었지만 PDF·HTML 보고서가 제공되지 않았습니다. 작업번호로 운영 담당자에게 확인해 주세요.</div>';
     }
     const value = `자동 산출 가치 ${evaluation.autoValue != null ? won(evaluation.autoValue) : '제공되지 않음'}${evaluation.valueMessage ? ` · ${esc(evaluation.valueMessage)}` : ''}`;
+    if (complete && app.rightsCheckRequired) body += rightsHTML(app);
     if (confirmed) {
       body += `<div class="evaluation-confirmed"><b>✓ 가치평가가 확정되었습니다</b><div>적용 평가가치 ${won(evaluation.reviewValue || (app.appraisedValue > 0 ? app.appraisedValue : null))} · LTV ${app.ltv == null ? '판정 대기' : `${esc(app.ltv)}%`} · 여신심사 ${esc(app.creditCaseId || '미생성')}</div><div class="help">${esc(formatTime(evaluation.confirmedAt))}</div>${evaluation.reviewNote ? `<p>${esc(evaluation.reviewNote)}</p>` : ''}</div>`;
     } else if (complete && app.chainStatus === 'Evaluating') {
@@ -130,7 +171,7 @@ globalThis.LoanWorkflow = (() => {
         <div class="form-grid"><div class="field"><label for="workflowValue">평가사 적용 가치 (원)<span class="req">*</span></label><input id="workflowValue" type="number" min="1" step="1" value="${evaluation.reviewValue || (evaluation.autoValue > 0 ? evaluation.autoValue : '')}"></div>
         <div class="field full"><label for="workflowNote">보고서 검토 결과·가치 적용 사유<span class="req">*</span></label><textarea id="workflowNote" rows="3" maxlength="2000">${esc(evaluation.reviewNote || '')}</textarea></div></div>
         ${evaluation.preparedHash ? '<p>확정 내용이 저장되었습니다. 같은 적용 가치·검토 사유로 확정을 재시도하거나 체인 확인·복구를 실행하세요.</p>' : ''}
-        <button class="btn btn-primary" type="button" onclick="LoanWorkflow.confirm('${app.id}')">평가사 검토·온체인 확정</button></div>`;
+        <button class="btn btn-primary" type="button" onclick="LoanWorkflow.confirm('${app.id}')" ${!app.rightsCheckRequired || app.rightsCheckedAt || evaluation.preparedHash ? '' : 'disabled title="권리 확인 후 확정할 수 있습니다"'}>평가사 검토·온체인 확정</button></div>`;
     } else if (complete) {
       body += `<div class="inline-message">${value}</div>`;
     }
@@ -187,13 +228,14 @@ globalThis.LoanWorkflow = (() => {
   }
   function merge(updated) {
     const app = findApp(updated.id);
-    const before = JSON.stringify([app.evaluation, app.chainStatus]);
+    const watched = a => JSON.stringify([a.evaluation, a.chainStatus, a.patentRegister, a.rightsCheckedAt]);
+    const before = watched(app);
     // Chain sync returns only the public evaluation summary; keep the report fields already loaded.
     if (updated.evaluation && !updated.evaluation.artifacts && app.evaluation) updated = { ...updated, evaluation: { ...app.evaluation, ...updated.evaluation } };
     Object.assign(app, updated);
     renderDashboard(); renderListTable(); renderEvalList(); renderReviewList();
     // Re-render only on change so the report preview is not reloaded by every poll.
-    if (selected?.id === app.id && before !== JSON.stringify([app.evaluation, app.chainStatus])) panel(app, selected.target);
+    if (selected?.id === app.id && before !== watched(app)) panel(app, selected.target);
     return app;
   }
   function message(error) {
@@ -237,6 +279,16 @@ globalThis.LoanWorkflow = (() => {
       if (failed) message(failed.reason);
     } finally { if (button) { button.disabled = false; button.textContent = '상태 새로고침'; } }
   }
+  async function rights(id, action) {
+    if (loading) return;
+    loading = true;
+    try {
+      const body = { action };
+      const updated = await request(`/applications/${encodeURIComponent(id)}/patent-register`, { ...body, auth: await sign('review', id, body) });
+      merge({ rightsCheckedAt: null, rightsCheckedBy: null, ...updated });  // a new lookup clears the check, and null fields are left out
+    } catch (error) { message(error); }
+    finally { loading = false; }
+  }
   async function mutate(id, action, extra = {}) {
     if (loading) return;
     loading = true;
@@ -274,7 +326,7 @@ globalThis.LoanWorkflow = (() => {
     } catch (error) { message(error); }
     finally { chainOperationBusy = false; }
   }
-  return { attach, clearDraft, panel, load, refresh, badge, download, confirm: confirmReview,
+  return { attach, clearDraft, panel, load, refresh, badge, download, confirm: confirmReview, rights,
     retry: id => mutate(id, 'retry'),
     identify: id => { const number = prompt('사업자번호 10자리를 입력하세요.'); if (number) return mutate(id, 'identity', { business_number: number.replace(/\D/g, '') }); },
     recover: id => { const jobId = prompt('공급자에서 확인한 기존 작업번호를 입력하세요. 원본 해시와 사업자번호가 일치해야 연결되며 새 작업은 만들지 않습니다.'); if (jobId) return mutate(id, 'recover', { job_id: jobId.trim() }); },

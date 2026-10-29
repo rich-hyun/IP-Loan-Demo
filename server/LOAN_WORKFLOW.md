@@ -34,6 +34,23 @@
 - 진행 상태와 보고서처럼 요약값도 `GET /api/applications/<id>/evaluation`에서 인증 없이 열람한다. 신청 목록에는 신용등급만 포함한다.
 - 같은 응답의 `evaluation.autoReview`는 준비된 확정 JSON의 판정이다. 확정 준비 전이나 자동심사 이전 확정이면 `null`이고, 표시용으로 새로 계산하지 않는다. `evaluation.autoReviewFollowed`는 체인 상태가 `Approved`·`Repaid`(승인)·`Rejected`(거절)일 때 은행 결정이 판정과 같으면 `true`, 다르면 `false`다. 그 전이거나 판정이 `review`·없음이면 `null`이다.
 
+## 특허 등록원부 자동 수집
+
+신청을 접수하면 서버가 공고전문 PDF의 `(11) 등록번호`(없으면 입력한 `ipRegNo`가 `10-NNNNNNN` 형식일 때)로 공공데이터포털 [등록원부 실시간 정보 조회](https://www.data.go.kr/data/15124946/openapi.do) `getPatentRegisterHistory`를 호출해 `applications.patentRegister`(JSON)에 요약을 저장한다(`server/patent_register.py`). 신청 응답과 목록에 `patentRegister`로 나온다.
+
+- 인증키는 `server/local_keys.json`(Git 제외)의 `PATENT_REGISTER_API_KEY`이고, 같은 이름의 환경변수가 우선한다. KIPRIS 키와 별개다. 운영 API는 NAS 폴더를 직접 실행하므로 운영 폴더에 파일을 두면 되고 Git으로 배포하지 않는다(공개 저장소·Pages). 조회마다 읽으므로 파일을 바꿔도 재시작이 필요 없다. 키가 든 URL이나 예외 원문은 저장·기록하지 않는다.
+
+  ```json
+  {"PATENT_REGISTER_API_KEY": "공공데이터포털 인증키"}
+  ```
+- `status`: `collected`, `not_found`(원부에 없음), `failed`(연결·응답 오류), `unconfigured`(키 없음), `no_number`(특허 등록번호를 못 찾음). 조회 실패는 신청을 막지 않는다.
+- 요약: 명칭·출원번호·등록일·존속만료일·최종처분, 현재 권리자(`currentOwners`)와 신청 기업명의 일치 여부(`ownerMatch`, `주식회사`·`(주)`·공백 무시), 권리 이력(`rights`), 연차료 납부(`annuities`), 전용·통상실시권. 주소·발명자는 저장하지 않는다.
+- `lastDispst`는 소멸 뒤에도 `등록결정`으로 남는다. 권리 이력의 `소멸등록`(이후 `회복등록`이 없을 때)을 `lapsedAt`·`lapseReason`으로 따로 둔다. 다음 연차료 납부기한은 계산하지 않는다.
+- **소멸된 특허는 신청이 시작되지 않는다.** PDF를 고르면 `POST /api/documents/fields`가 같은 조회를 해 `patentRegister`를 함께 돌려주고, 화면은 조회 동안 전체 음영과 "등록원부 확인 중입니다"를 띄운다. `lapsedAt`이 있으면 메시지를 보이고 제출을 막는다. 서버도 신청 접수 때 다시 조회해 IPFS 업로드·DB 저장 전에 422 `patent_lapsed`로 거절한다. 조회 실패·키 없음은 막지 않는다.
+- 특허(10-)만 조회한다. 실용신안·디자인·상표는 번호 체계와 오퍼레이션이 다르다.
+- **평가사 권리 확인.** 평가사 보고서 화면에 등록원부와 신청 내용(권리자·명칭·번호)을 항목별로 나란히 보이고, 권리 상태·실시권·연차료·권리 이력을 함께 보인다. 일치 표시는 참고용이고 판단은 평가사가 한다. `POST /api/applications/<id>/patent-register` `{action: "confirm" | "refresh"}`(배정 평가사, Evaluating 단계, 서명 또는 로그인 세션)로 확인을 기록하거나 다시 조회한다. 다시 조회하면 기존 확인이 지워진다. 소멸 특허는 확인할 수 없다.
+- 평가 확정(`evaluation-report`)은 권리 확인이 있어야 한다. 확인 시각·지갑과 그때의 등록번호·조회 시각·현재 권리자를 `rightsCheck`로 평가 매니페스트에 넣어 온체인 `reportHash`에 묶는다. 이 기능 전에 준비된 확정은 재시도 때 그대로 둔다.
+
 ## 접근 권한·중복 방지·복구
 
 - `GET /api/applications/<id>/evaluation`(진행 상태)과 `GET .../evaluation/artifacts/<kind>`(보고서, `?download=1`은 내려받기)는 인증 없이 열람한다. 상태 조회 때 서버가 공급자 진행 상황을 10초 간격 제한으로 확인해 저장한다.

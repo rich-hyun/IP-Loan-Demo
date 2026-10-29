@@ -330,6 +330,39 @@ test('integrated review shows the report credit grade, financial checks and auto
   assert.match(missing, /<div class="k">신용등급<\/div><div class="v"><span class="val-na">/);
 });
 
+test('the evaluator sees the register beside the application and must record the rights check before confirming', async () => {
+  const page = await boot();
+  page.run(fs.readFileSync(`${__dirname}/workflow.js`, 'utf8'));
+  page.run("currentRole = 'evaluator'");
+  const register = { status: 'collected', collectedAt: '2026-10-29T00:15:32+00:00', registrationNumber: '10-2642299', applicationNumber: '10-2022-0046360',
+    title: '할바흐 배열 마그네트 제조 방법', currentOwners: ['주식회사 마그트론', '<img src=x>'], expiresAt: '2042-04-14', lapsedAt: null,
+    rights: [{ changedAt: '2024-02-26', cause: '설정등록' }], annuities: [{ fromYear: 1, toYear: 3, paidAt: '2024-02-27' }], exclusiveLicenses: [], nonExclusiveLicenses: [] };
+  const app = { id: 'RIGHTS-1', workflow: true, rightsCheckRequired: true, chainStatus: 'Evaluating', company: '(주)마그트론', ceo: '홍길동', ipTitle: '할바흐 배열 마그네트 제조 방법',
+    ipRegNo: '10-2022-0046360', amount: 70, patentRegister: register, evaluation: { state: 'completed', artifacts: [] } };
+  const render = changes => { page.run(`LoanWorkflow.panel(${JSON.stringify({ ...app, ...changes })})`); return page.element('evalReportPanel').innerHTML; };
+  const html = render({});
+  assert.match(html, /등록원부 대조/);
+  assert.match(html, /<td>권리자<\/td><td>\(주\)마그트론 · 대표 홍길동<\/td><td>주식회사 마그트론, &lt;img src=x&gt;<\/td><td><span class="badge badge-approved">일치/);
+  assert.match(html, /<td>출원·등록번호<\/td><td>10-2022-0046360<\/td><td>등록 10-2642299<br>출원 10-2022-0046360<\/td><td><span class="badge badge-approved">일치/);
+  assert.match(html, /LoanWorkflow.rights\('RIGHTS-1', 'confirm'\)">권리 확인/);
+  assert.match(html, /LoanWorkflow.confirm\('RIGHTS-1'\)" disabled/);
+
+  const checked = render({ rightsCheckedAt: '2026-10-29T01:00:00+00:00' });
+  assert.match(checked, /✓ 권리 확인 완료/);
+  assert.doesNotMatch(checked, /LoanWorkflow.confirm\('RIGHTS-1'\)" disabled/);
+
+  const other = render({ patentRegister: { ...register, currentOwners: ['김직원'], lapsedAt: '2026-07-24', lapseReason: '등록료불납' } });
+  assert.match(other, /<td>김직원<\/td><td><span class="badge badge-rejected">확인 필요/);
+  assert.match(other, /소멸 \(2026-07-24 · 등록료불납\)/);
+  assert.doesNotMatch(other, /'confirm'\)">권리 확인/);
+  assert.match(render({ patentRegister: { status: 'failed', message: '등록원부 API에 연결하지 못했습니다.' } }), /연결하지 못했습니다[\s\S]*?'refresh'\)">등록원부 다시 조회[\s\S]*?'confirm'\)">권리 확인/);
+
+  // An API from before the rights check: no section, and the confirm stays as it was.
+  const before = render({ rightsCheckRequired: undefined, patentRegister: undefined });
+  assert.doesNotMatch(before, /등록원부 대조|권리 확인/);
+  assert.doesNotMatch(before, /LoanWorkflow.confirm\('RIGHTS-1'\)" disabled/);
+});
+
 test('server auto-review verdict decides which final action the bank can sign', async () => {
   const page = await boot();
   const evaluation = (decision, label) => ({ state: 'completed', confirmedAt: 1, creditRating: 'BB-',
@@ -427,6 +460,31 @@ test('a dropped PDF is attached and fills only the IP fields the borrower left e
   assert.equal(page.element('fIpType').value, '특허권');
   assert.equal(page.element('fIpTitle').value, '두부 자극용 전위치료장치');
   assert.equal(page.element('fIpNo').value, '10-2024-9999999');
+});
+
+test('a lapsed patent shows the register message and cannot be submitted until another PDF is chosen', async () => {
+  const page = await boot(undefined, null, { init: async () => {}, proof: () => ({ login: 'session-token' }) });
+  const message = '소멸된 특허는 신청할 수 없습니다 (2026-07-24 소멸등록 · 등록료불납).';
+  page.server.pdfFields = { ipTitle: '식사 보조장치', patentRegister: { status: 'collected', lapsedAt: '2026-07-24', message } };
+  const overlay = page.element('registerCheck'), input = page.element('fileInput');
+  overlay.hidden = true;
+  input.files = [{ name: 'lapsed.pdf' }];
+  input.listeners.change();
+  assert.equal(overlay.hidden, false);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(overlay.hidden, true);
+  assert.equal(page.element('fileHelpText').textContent, message);
+  assert.equal(page.element('applySubmitBtn').disabled, true);
+  assert.equal(page.element('fIpTitle').value, '');
+  await page.element('applyForm').listeners.submit({ preventDefault() {} });
+  assert.equal(page.uploads(), 0);
+
+  page.server.pdfFields = { patentRegister: { status: 'collected', lapsedAt: null } };
+  input.files = [{ name: 'valid.pdf' }];
+  input.listeners.change();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.element('applySubmitBtn').disabled, false);
+  assert.equal(page.element('uploadBox').classList.contains('blocked'), false);
 });
 
 test('without a session, choosing a PDF attaches it without asking the server for fields', async () => {

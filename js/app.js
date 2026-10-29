@@ -589,20 +589,34 @@ document.getElementById('retryChainBtn').addEventListener('click', () => retryAp
 document.getElementById('syncChainBtn').addEventListener('click', () => retryApplicationChain(null, true));
 
 /* The server reads the IP type, title and application number from the chosen PDF. Only empty fields, or fields
-   filled from an earlier PDF, are filled, so anything the borrower typed stays. */
+   filled from an earlier PDF, are filled, so anything the borrower typed stays. It also reads the patent register:
+   a lapsed patent cannot be submitted (the server refuses it too). */
 const PDF_FIELDS = { ipType: 'fIpType', ipTitle: 'fIpTitle', ipRegNo: 'fIpNo' };
+let lapsedPatent = null;
 async function fillFromPdf(file) {
   const token = typeof IPLoanChain !== 'undefined' && IPLoanChain.proof()?.login;
   if (!file || !token) return;
   const body = new FormData();
   body.append('document', file, file.name);
+  const overlay = document.getElementById('registerCheck');
+  overlay.hidden = false;
   let fields;
   try {
-    const res = await fetch(`${API_BASE}/documents/fields`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
+    // The server bounds its register call; this bounds a stalled connection so the overlay cannot stay up.
+    const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(40000) : undefined;
+    const res = await fetch(`${API_BASE}/documents/fields`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body, signal });
     if (!res.ok) return;
     fields = await res.json();
   } catch { return; }
+  finally { overlay.hidden = true; }
   if (fileInput.files[0] !== file) return;
+  if (fields.patentRegister?.lapsedAt) {
+    lapsedPatent = fields.patentRegister.message;
+    document.getElementById('fileHelpText').textContent = lapsedPatent;
+    uploadBox.classList.add('blocked');
+    document.getElementById('applySubmitBtn').disabled = true;
+    return;
+  }
   let filled = 0;
   for (const [key, id] of Object.entries(PDF_FIELDS)) {
     const el = document.getElementById(id), value = fields[key];
@@ -624,14 +638,22 @@ fileInput.addEventListener('change', () => {
   const helpEl = document.getElementById('fileHelpText');
   uploadBox.classList.toggle('has-file', files.length > 0);
   if (files.length === 0) {
+    clearLapsedPatent();
     nameEl.textContent = '클릭하거나 PDF를 끌어다 놓기';
     helpEl.textContent = '특허 공고전문 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
     return;
   }
   nameEl.textContent = files[0].name;
   helpEl.textContent = '원부 대조 후 AES-256-GCM으로 암호화해 업로드합니다';
+  clearLapsedPatent();
   fillFromPdf(files[0]);
 });
+function clearLapsedPatent() {
+  if (!lapsedPatent) return;
+  lapsedPatent = null;
+  uploadBox.classList.remove('blocked');
+  document.getElementById('applySubmitBtn').disabled = false;
+}
 // Dropping a PDF on the box is the same as choosing it.
 uploadBox.addEventListener('dragover', (e) => { e.preventDefault(); if (!applicationSubmitting) uploadBox.classList.add('dragging'); });
 uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('dragging'));
@@ -661,6 +683,7 @@ applyForm.addEventListener('submit', async (e) => {
     fileInput.click();
     return;
   }
+  if (lapsedPatent) return showToast(lapsedPatent);
   btn.disabled = true;
   applicationSubmitting = true;
   renderBorrowerProfiles();
@@ -797,6 +820,7 @@ function resetApplyUI() {
   btn.disabled = false;
   btn.textContent = '제출하기';
   document.getElementById('fileNameDisplay').textContent = '클릭하거나 PDF를 끌어다 놓기';
+  clearLapsedPatent();
   uploadBox.classList.remove('has-file');
   document.getElementById('fileHelpText').textContent = '특허 공고전문 PDF는 서버에서 암호화된 뒤 IPFS에 업로드됩니다';
   fillBorrowerInfo();

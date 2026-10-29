@@ -115,7 +115,13 @@ class LoanWorkflowTests(unittest.TestCase):
         self.sync(app_id)
         return app_id
 
-    def prepare(self, app_id, value=100, signer=None, **extra):
+    def check_rights(self, app_id, action='confirm', signer=None):
+        body = {'action': action}
+        return self.client.post(f'/api/applications/{app_id}/patent-register', json={**body, 'auth': self.proof('review', app_id, body, signer or self.evaluator)})
+
+    def prepare(self, app_id, value=100, signer=None, rights=True, **extra):
+        if rights:  # the evaluator's register check that a confirm requires; refused like the review when out of stage
+            self.check_rights(app_id)
         body = {'appraisedValue': value, 'reviewerNote': '보고서 검토 후 적용 가치 확정', **extra}
         return self.client.post(f'/api/applications/{app_id}/evaluation-report', json={**body, 'auth': self.proof('review', app_id, body, signer or self.evaluator)})
 
@@ -598,6 +604,40 @@ class LoanWorkflowTests(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.get_data(as_text=True))
         return {'login': response.json['token']}
 
+    def test_the_evaluator_rights_check_is_required_bound_and_cleared_by_a_new_lookup(self):
+        app_id = self.completed()
+        response = self.prepare(app_id, rights=False)
+        self.assertEqual((409, '등록원부와 신청 내용을 대조해 권리 확인을 먼저 해 주세요.'), (response.status_code, response.json['message']))
+        self.assertEqual(403, self.check_rights(app_id, signer=self.borrower).status_code)
+        self.assertEqual(403, self.check_rights(app_id, signer=self.other).status_code)
+        self.assertEqual(400, self.client.post(f'/api/applications/{app_id}/patent-register', json={'action': 'approve'}).status_code)
+
+        items = {'title': '가상 특허', 'owner': [{'ownerName': '가상 통합 기업', 'finalOwnerYn': 'Y'}]}
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute('UPDATE applications SET patentRegister=? WHERE id=?', (json.dumps({'registrationNumber': '10-2642299'}), app_id))
+        with patch.object(native.patent_register, 'fetch', return_value=items) as fetch:
+            refreshed = self.check_rights(app_id, 'refresh')
+        fetch.assert_called_once_with('1026422990000')
+        self.assertEqual(('collected', ['가상 통합 기업']), (refreshed.json['patentRegister']['status'], refreshed.json['patentRegister']['currentOwners']))
+        checked = self.check_rights(app_id)
+        self.assertEqual((self.evaluator.address, True), (checked.json['rightsCheckedBy'], checked.json['rightsCheckRequired']))
+        with patch.object(native.patent_register, 'fetch', return_value=items):
+            self.assertNotIn('rightsCheckedAt', self.check_rights(app_id, 'refresh').json)
+        self.assertEqual(409, self.prepare(app_id, rights=False).status_code)
+
+        report = self.prepare(app_id)
+        self.assertEqual(200, report.status_code, report.get_data(as_text=True))
+        bound = self.stored_payload(report.json['hash'])['rightsCheck']
+        self.assertEqual((self.evaluator.address, '10-2642299', ['가상 통합 기업'], None),
+                         (bound['checkedBy'], bound['registrationNumber'], bound['currentOwners'], bound['lapsedAt']))
+
+    def test_a_lapsed_patent_cannot_pass_the_rights_check(self):
+        app_id = self.completed()
+        with closing(sqlite3.connect(native.DB_PATH)) as db, db:
+            db.execute('UPDATE applications SET patentRegister=? WHERE id=?', (json.dumps({'status': 'collected', 'lapsedAt': '2026-07-24'}), app_id))
+        self.assertEqual(409, self.check_rights(app_id).status_code)
+        self.assertEqual(409, self.prepare(app_id).status_code)
+
     def test_login_session_replaces_signatures_for_create_status_document_and_review(self):
         self.result = self.provider_job('completed')
         borrower, evaluator = self.login(self.borrower), self.login(self.evaluator)
@@ -618,6 +658,8 @@ class LoanWorkflowTests(unittest.TestCase):
         artifact = self.client.post(f'/api/applications/{app_id}/evaluation/artifacts/pdf', json={'auth': evaluator})
         self.assertEqual(200, artifact.status_code)
         body = {'appraisedValue': 100, 'reviewerNote': '보고서 검토 후 적용 가치 확정'}
+        rights = self.client.post(f'/api/applications/{app_id}/patent-register', json={'action': 'confirm', 'auth': evaluator})
+        self.assertEqual(200, rights.status_code, rights.get_data(as_text=True))
         report = self.client.post(f'/api/applications/{app_id}/evaluation-report', json={**body, 'auth': evaluator})
         self.assertEqual(200, report.status_code, report.get_data(as_text=True))
         self.assertEqual(self.evaluator.address, self.stored_payload(report.json['hash'])['reviewer'])

@@ -34,12 +34,13 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
 if __package__:
-    from . import auth, chain, loan_workflow, patent_pdf
+    from . import auth, chain, loan_workflow, patent_pdf, patent_register
 else:
     import auth
     import chain
     import loan_workflow
     import patent_pdf
+    import patent_register
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -129,6 +130,9 @@ MIGRATION_COLUMNS = {
     "hashMatch": "INTEGER",
     "ipRegNo": "TEXT",
     "termMonths": "INTEGER",
+    "patentRegister": "TEXT",
+    "rightsCheckedAt": "TEXT",
+    "rightsCheckedBy": "TEXT",
 }
 
 FIELDS = ["id", "company", "bizNo", "ipType", "ipTitle", "amount", "status", "hash",
@@ -139,7 +143,7 @@ PUBLIC_FIELDS = set(FIELDS) | {
     "appKey", "borrowerWallet", "evaluatorWallet", "bankWallet", "managerAddress", "chainId", "chainStatus", "chainBlock",
     "sbtTokenId", "debtTokenId", "reportCid", "reportHash", "repaidAmount",
     "docCid", "docIpfsUri", "docFileHash", "docFileName", "hashMatch", "ipRegNo",
-    "borrowerProfileId", "ceo", "contact", "termMonths"
+    "borrowerProfileId", "ceo", "contact", "termMonths", "rightsCheckedAt", "rightsCheckedBy"
 }
 
 PROFILE_SCHEMA = """
@@ -285,14 +289,19 @@ def init_db():
 
 def application_to_public(row):
     """서버 전용 AES 키와 salt를 제외한 신청 데이터만 반환."""
-    public = {k: v for k, v in dict(row).items() if k in PUBLIC_FIELDS and v is not None}
+    row = dict(row)
+    public = {k: v for k, v in row.items() if k in PUBLIC_FIELDS and v is not None}
     if public.get("docFileName"):
         public["documents"] = [public["docFileName"]]
+    if row.get("patentRegister"):
+        public["patentRegister"] = json.loads(row["patentRegister"])
     evaluation = loan_workflow.summary(get_db(), public["id"])
     if evaluation:
         # Public list retains existing demo metadata; reports and progress come from the
         # evaluation API, and the patent original requires wallet authentication.
         public["workflow"] = True
+        # The page asks for the rights check only when the API says it enforces it, so either can be deployed first.
+        public["rightsCheckRequired"] = True
         public["evaluation"] = {key: evaluation[key] for key in ("state", "stage", "error", "updatedAt", "retryAt", "confirmedAt", "creditRating", "autoReview")}
         case = get_db().execute("SELECT applicationId FROM credit_cases WHERE applicationId=?", (public["id"],)).fetchone()
         public["creditCaseId"] = case["applicationId"] if case else None
@@ -440,6 +449,12 @@ def create_application():
     if not plaintext.lstrip().startswith(b"%PDF-"):
         return error_response("올바른 PDF 파일인지 확인해 주세요.", 400, "invalid_pdf")
 
+    # Before the write lock and any upload: a lapsed patent never starts an application. A failed lookup does not block.
+    register = patent_register.collect(patent_register.gazette_number(patent_pdf.read_text(plaintext)) or data.get("ipRegNo"),
+                                       (data.get("company") or "").strip())
+    if register.get("lapsedAt"):
+        return error_response(register["message"], 422, "patent_lapsed")
+
     workflow_identity = None
     if data.get("workflow") == "integrated" or not app.config.get("ALLOW_LEGACY_TEST_SUBMISSIONS", False):
         prior, workflow_identity = loan_workflow.begin_create(sys.modules[__name__], plaintext)
@@ -506,6 +521,7 @@ def create_application():
         "creditScore": None,
         "rate": None,
         "rejectReason": None,
+        "patentRegister": json.dumps(register, ensure_ascii=False),
     }
 
     if chain_fields:
@@ -706,14 +722,20 @@ def auth_me():
 @app.route("/api/documents/fields", methods=["POST"])
 @login_required
 def document_fields():
-    """Reads the IP type, title and application number from a chosen PDF to fill the form. Nothing is stored."""
+    """Reads the IP type, title and application number from a chosen PDF to fill the form, and the patent register
+    for its registration number so a lapsed patent is refused before the form is sent. Nothing is stored."""
     upload = request.files.get("document")
     if upload is None or not upload.filename.lower().endswith(".pdf"):
         return error_response("PDF 파일을 선택해 주세요.", 400, "pdf_required")
     pdf = upload.read(MAX_DOCUMENT_BYTES + 1)
     if len(pdf) > MAX_DOCUMENT_BYTES or not pdf.lstrip().startswith(b"%PDF-"):
         return error_response("올바른 PDF 파일인지 확인해 주세요.", 400, "invalid_pdf")
-    return jsonify(patent_pdf.read_fields(pdf))
+    text = patent_pdf.read_text(pdf)
+    fields = patent_pdf.parse_fields(text)
+    number = patent_register.gazette_number(text)
+    if number:
+        fields["patentRegister"] = patent_register.collect(number)
+    return jsonify(fields)
 
 
 @app.route("/api/auth/logout", methods=["POST"])
@@ -830,6 +852,31 @@ def prepare_evaluation_report(app_id):
         return error_response(str(exc), 409, "chain_unavailable")
     except IpfsUploadError as exc:
         return error_response(str(exc), exc.status_code, "ipfs_upload_failed")
+
+
+@app.route("/api/applications/<app_id>/patent-register", methods=["POST"])
+def patent_register_action(app_id):
+    """The assigned evaluator compares the register with the application and records the rights check that the
+    evaluation confirm requires, or looks the register up again (which clears an earlier check)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or data.get("action") not in {"confirm", "refresh"}:
+        return error_response("요청 형식을 확인해 주세요.", 400, "invalid_action")
+    payload = {k: v for k, v in data.items() if k != "auth"}
+    wallet = loan_workflow.authorize(sys.modules[__name__], "review", app_id, payload, data.get("auth"))
+    application = find_application(app_id)
+    db = get_db()
+    if data["action"] == "refresh":
+        stored = json.loads(application.get("patentRegister") or "{}")
+        register = patent_register.collect(stored.get("registrationNumber") or application.get("ipRegNo"), application["company"])
+        db.execute("UPDATE applications SET patentRegister=?, rightsCheckedAt=NULL, rightsCheckedBy=NULL WHERE id=?",
+                   (json.dumps(register, ensure_ascii=False), app_id))
+    elif json.loads(application.get("patentRegister") or "{}").get("lapsedAt"):
+        return error_response("소멸된 특허는 권리 확인을 할 수 없습니다.", 409, "patent_lapsed")
+    else:
+        db.execute("UPDATE applications SET rightsCheckedAt=?, rightsCheckedBy=? WHERE id=?",
+                   (datetime.now(timezone.utc).isoformat(timespec="seconds"), wallet, app_id))
+    db.commit()
+    return jsonify(application_to_public(find_application(app_id)))
 
 
 NONCES = {}

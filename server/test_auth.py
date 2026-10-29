@@ -237,10 +237,14 @@ class DocumentFieldsTests(SessionTestCase):
         post = lambda name, data, headers: self.client.post('/api/documents/fields', headers=headers,
                                                             data={'document': (io.BytesIO(data), name)})
         fields = {'ipType': '특허권', 'ipTitle': '두부 자극용 전위치료장치', 'ipRegNo': '10-2022-0132655'}
-        with patch.object(native.patent_pdf, 'read_fields', return_value=fields) as read:
+        text = '(12) 등록특허공보(B1)\n(11) 등록번호   10-2877748\n(21) 출원번호 10-2022-0132655\n(54) 발명의 명칭 두부 자극용 전위치료장치'
+        register = {'status': 'collected', 'lapsedAt': None}
+        with patch.object(native.patent_pdf, 'read_text', return_value=text) as read, \
+             patch.object(native.patent_register, 'collect', return_value=register) as collect:
             response = post('gazette.pdf', PDF, {'Authorization': f'Bearer {token}'})
-            self.assertEqual((200, fields), (response.status_code, response.json))
+            self.assertEqual((200, {**fields, 'patentRegister': register}), (response.status_code, response.json))
             read.assert_called_once_with(PDF)
+            collect.assert_called_once_with('10-2877748')
             self.assertEqual(401, post('gazette.pdf', PDF, {}).status_code)
             self.assertEqual(400, post('notes.txt', PDF, {'Authorization': f'Bearer {token}'}).status_code)
             self.assertEqual(400, post('fake.pdf', b'not a pdf', {'Authorization': f'Bearer {token}'}).status_code)
