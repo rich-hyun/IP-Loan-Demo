@@ -1,0 +1,50 @@
+{
+  "comment": "TPS 측정 설정. 엔드포인트 매핑은 docs: README.md 의 표와 같다. network=native 는 로컬 시험 체인(Hardhat 31337)에서 측정한다.",
+  "environment": {
+    "apiBase": "http://127.0.0.1:5101/api",
+    "rpcUrl": "http://127.0.0.1:8545",
+    "chainId": 31337,
+    "serverWorkers": 2,
+    "serverThreads": 4,
+    "mnemonicEnv": "TPS_MNEMONIC",
+    "defaultMnemonicLocalOnly": "test test test test test test test test test test test junk"
+  },
+  "measurement": {
+    "virtualUsers": 10,
+    "durationSeconds": 60,
+    "runs": 3,
+    "pauseBetweenRunsSeconds": 5,
+    "requestTimeoutMs": 30000,
+    "poolSafetyFactor": 1.4
+  },
+  "document": {
+    "sizeBytes": 993736,
+    "company": "TPS시험기업",
+    "bizNo": "5508102614",
+    "ipRegNo": "10-2877748",
+    "amount": 70000000,
+    "appraisedValue": 200000000
+  },
+  "endpoints": [
+    {"id": "E01", "api": "LLM 가치평가 API", "name": "IP 평가요청", "target": {"native": 10, "public": 1},
+     "kind": "http", "method": "POST", "path": "/applications", "body": "createApplication", "pool": null},
+    {"id": "E02", "api": "LLM 가치평가 API", "name": "LLM 보고서 자동 생성", "target": {"native": 5, "public": 0.5},
+     "kind": "http", "method": "GET", "path": "/applications/{id}/evaluation/artifacts/pdf", "pool": "reusable"},
+    {"id": "E03", "api": "LLM 가치평가 API", "name": "결과 해시 기록", "target": {"native": 5, "public": 0.5},
+     "kind": "tx", "contract": "confirmEvaluation", "signer": "evaluator", "pool": "evaluating"},
+    {"id": "E04", "api": "IP RWA화 API", "name": "대출신청 및 담보 IP 등록", "target": {"native": 10, "public": 1},
+     "kind": "tx", "contract": "submitApplicationWithMetadata", "signer": "borrower", "pool": "created"},
+    {"id": "E05", "api": "IP RWA화 API", "name": "IP 해시값 등록", "target": {"native": 10, "public": 1},
+     "kind": "http", "method": "POST", "path": "/applications/{id}/sync", "pool": "reusable"},
+    {"id": "E06", "api": "IP RWA화 API", "name": "RWA토큰 은행월렛 전송", "target": {"native": 5, "public": 0.5},
+     "kind": "tx", "contract": "finalApprove", "signer": "bank", "pool": "eligible"},
+    {"id": "E07", "api": "IP RWA화 API", "name": "IP 가치평가서 등록", "target": {"native": 5, "public": 0.5},
+     "kind": "http", "method": "POST", "path": "/applications/{id}/evaluation-report", "body": "evaluationReport", "pool": "rightsChecked"},
+    {"id": "E08", "api": "자동대출심사 API", "name": "신용평가 호출", "target": {"native": 10, "public": 1},
+     "kind": "http", "method": "GET", "path": "/applications/{id}/evaluation", "pool": "reusable"},
+    {"id": "E09", "api": "자동대출심사 API", "name": "대출승인여부 결정", "target": {"native": 5, "public": 0.5},
+     "kind": "tx", "contract": "finalApprove|finalReject", "signer": "bank", "pool": "eligible"},
+    {"id": "E10", "api": "자동대출심사 API", "name": "스마트컨트랙트 대출계약 생성", "target": {"native": 5, "public": 0.5},
+     "kind": "tx", "contract": "finalApprove", "signer": "bank", "pool": "eligible"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "iploan-tps-measure",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TPS measurement for the IP Loan API (local test chain + backend with test doubles for external services)",
+  "scripts": {
+    "env": "node start-env.mjs",
+    "pool": "node prepare-pool.mjs",
+    "measure": "node tps-measure.mjs"
+  },
+  "dependencies": { "ethers": "6.15.0" }
+}

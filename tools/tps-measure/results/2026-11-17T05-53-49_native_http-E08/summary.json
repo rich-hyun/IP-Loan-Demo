@@ -1,0 +1,98 @@
+{
+  "environment": {
+    "measuredBy": "tools/tps-measure/tps-measure.mjs",
+    "network": "native",
+    "chain": "HardhatNetwork/3.0.0/@nomicfoundation/edr/0.3.8 (local test chain 31337, automine)",
+    "manager": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "api": "http://127.0.0.1:5101/api, http://127.0.0.1:5102/api (server/app.py, 2 processes x 4 threads via waitress; IPFS·LLM 평가·등록원부 API 는 시험 대역)",
+    "host": {
+      "os": "Windows_NT 10.0.26200 x64",
+      "cpu": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+      "logicalCores": 8,
+      "memoryGB": 7.7,
+      "node": "v22.20.0"
+    },
+    "virtualUsers": 10,
+    "durationSeconds": 60,
+    "runs": 3
+  },
+  "summary": [
+    {
+      "id": "E08",
+      "api": "자동대출심사 API",
+      "name": "신용평가 호출",
+      "kind": "http",
+      "request": "GET /applications/{id}/evaluation",
+      "target": 10,
+      "tpsMean": 49.12222222222223,
+      "avgMsMean": 205.29289256473444,
+      "p95MsMean": 431.0810333333405,
+      "successRateMean": 100,
+      "success": 8842,
+      "total": 8842,
+      "verdict": "달성",
+      "runs": [
+        {
+          "endpoint": "E08",
+          "run": 1,
+          "start": "2026-11-17T05:53:49.598Z",
+          "end": "2026-11-17T05:54:49.598Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 2510,
+          "success": 2510,
+          "tps": 41.833333333333336,
+          "avgMs": 238.11210605577674,
+          "p50Ms": 228.50410000000556,
+          "p95Ms": 471.4406000000017,
+          "maxMs": 806.7753999999986,
+          "successRate": 100,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {}
+        },
+        {
+          "endpoint": "E08",
+          "run": 2,
+          "start": "2026-11-17T05:54:54.803Z",
+          "end": "2026-11-17T05:55:54.803Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 3160,
+          "success": 3160,
+          "tps": 52.666666666666664,
+          "avgMs": 189.17396142405065,
+          "p50Ms": 169.96859999999288,
+          "p95Ms": 416.83090000000084,
+          "maxMs": 681.3015999999916,
+          "successRate": 100,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {}
+        },
+        {
+          "endpoint": "E08",
+          "run": 3,
+          "start": "2026-11-17T05:55:59.974Z",
+          "end": "2026-11-17T05:56:59.974Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 3172,
+          "success": 3172,
+          "tps": 52.86666666666667,
+          "avgMs": 188.59261021437598,
+          "p50Ms": 169.57149999999092,
+          "p95Ms": 404.97160000001895,
+          "maxMs": 813.0408999999927,
+          "successRate": 100,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {}
+        }
+      ]
+    }
+  ]
+}

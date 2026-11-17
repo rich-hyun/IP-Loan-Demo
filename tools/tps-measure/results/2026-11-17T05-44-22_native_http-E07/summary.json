@@ -1,0 +1,98 @@
+{
+  "environment": {
+    "measuredBy": "tools/tps-measure/tps-measure.mjs",
+    "network": "native",
+    "chain": "HardhatNetwork/3.0.0/@nomicfoundation/edr/0.3.8 (local test chain 31337, automine)",
+    "manager": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "api": "http://127.0.0.1:5101/api, http://127.0.0.1:5102/api (server/app.py, 2 processes x 4 threads via waitress; IPFS·LLM 평가·등록원부 API 는 시험 대역)",
+    "host": {
+      "os": "Windows_NT 10.0.26200 x64",
+      "cpu": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+      "logicalCores": 8,
+      "memoryGB": 7.7,
+      "node": "v22.20.0"
+    },
+    "virtualUsers": 10,
+    "durationSeconds": 60,
+    "runs": 3
+  },
+  "summary": [
+    {
+      "id": "E07",
+      "api": "IP RWA화 API",
+      "name": "IP 가치평가서 등록",
+      "kind": "http",
+      "request": "POST /applications/{id}/evaluation-report",
+      "target": 5,
+      "tpsMean": 1.3333333333333333,
+      "avgMsMean": 2563.0947010582004,
+      "p95MsMean": 4789.063666666666,
+      "successRateMean": 66.66666666666667,
+      "success": 240,
+      "total": 240,
+      "verdict": "무효(pool 소진)",
+      "runs": [
+        {
+          "endpoint": "E07",
+          "run": 1,
+          "start": "2026-11-17T05:44:22.911Z",
+          "end": "2026-11-17T05:45:22.911Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 198,
+          "success": 198,
+          "tps": 3.3,
+          "avgMs": 2969.368505555554,
+          "p50Ms": 2781.828700000002,
+          "p95Ms": 5053.178500000001,
+          "maxMs": 6151.883999999998,
+          "successRate": 100,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {}
+        },
+        {
+          "endpoint": "E07",
+          "run": 2,
+          "start": "2026-11-17T05:45:29.643Z",
+          "end": "2026-11-17T05:46:29.643Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 42,
+          "success": 42,
+          "tps": 0.7,
+          "avgMs": 4719.915597619048,
+          "p50Ms": 3926.824299999993,
+          "p95Ms": 9314.012499999997,
+          "maxMs": 10549.425900000002,
+          "successRate": 100,
+          "inFlightAtClose": 0,
+          "poolExhausted": true,
+          "blocks": 0,
+          "errors": {}
+        },
+        {
+          "endpoint": "E07",
+          "run": 3,
+          "start": "2026-11-17T05:45:55.928Z",
+          "end": "2026-11-17T05:46:55.928Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 0,
+          "success": 0,
+          "tps": 0,
+          "avgMs": null,
+          "p50Ms": null,
+          "p95Ms": null,
+          "maxMs": null,
+          "successRate": null,
+          "inFlightAtClose": 0,
+          "poolExhausted": true,
+          "blocks": 0,
+          "errors": {}
+        }
+      ]
+    }
+  ]
+}

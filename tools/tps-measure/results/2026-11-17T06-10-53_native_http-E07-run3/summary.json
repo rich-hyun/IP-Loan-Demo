@@ -1,0 +1,58 @@
+{
+  "environment": {
+    "measuredBy": "tools/tps-measure/tps-measure.mjs",
+    "network": "native",
+    "chain": "HardhatNetwork/3.0.0/@nomicfoundation/edr/0.3.8 (local test chain 31337, automine)",
+    "manager": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "api": "http://127.0.0.1:5101/api, http://127.0.0.1:5102/api (server/app.py, 2 processes x 4 threads via waitress; IPFS·LLM 평가·등록원부 API 는 시험 대역)",
+    "host": {
+      "os": "Windows_NT 10.0.26200 x64",
+      "cpu": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+      "logicalCores": 8,
+      "memoryGB": 7.7,
+      "node": "v22.20.0"
+    },
+    "virtualUsers": 10,
+    "durationSeconds": 60,
+    "runs": 1
+  },
+  "summary": [
+    {
+      "id": "E07",
+      "api": "IP RWA화 API",
+      "name": "IP 가치평가서 등록",
+      "kind": "http",
+      "request": "POST /applications/{id}/evaluation-report",
+      "target": 5,
+      "tpsMean": 3.683333333333333,
+      "avgMsMean": 2570.726729864254,
+      "p95MsMean": 3884.471399999995,
+      "successRateMean": 100,
+      "success": 221,
+      "total": 221,
+      "verdict": "미달",
+      "runs": [
+        {
+          "endpoint": "E07",
+          "run": 1,
+          "start": "2026-11-17T06:10:53.226Z",
+          "end": "2026-11-17T06:11:53.226Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 221,
+          "success": 221,
+          "tps": 3.683333333333333,
+          "avgMs": 2570.726729864254,
+          "p50Ms": 2334.5,
+          "p95Ms": 3884.471399999995,
+          "maxMs": 5693.442900000002,
+          "successRate": 100,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {}
+        }
+      ]
+    }
+  ]
+}

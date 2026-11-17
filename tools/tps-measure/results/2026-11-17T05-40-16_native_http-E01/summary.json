@@ -1,0 +1,103 @@
+{
+  "environment": {
+    "measuredBy": "tools/tps-measure/tps-measure.mjs",
+    "network": "native",
+    "chain": "HardhatNetwork/3.0.0/@nomicfoundation/edr/0.3.8 (local test chain 31337, automine)",
+    "manager": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "api": "http://127.0.0.1:5101/api, http://127.0.0.1:5102/api (server/app.py, 2 processes x 4 threads via waitress; IPFS·LLM 평가·등록원부 API 는 시험 대역)",
+    "host": {
+      "os": "Windows_NT 10.0.26200 x64",
+      "cpu": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+      "logicalCores": 8,
+      "memoryGB": 7.7,
+      "node": "v22.20.0"
+    },
+    "virtualUsers": 10,
+    "durationSeconds": 60,
+    "runs": 3
+  },
+  "summary": [
+    {
+      "id": "E01",
+      "api": "LLM 가치평가 API",
+      "name": "IP 평가요청",
+      "kind": "http",
+      "request": "POST /applications",
+      "target": 10,
+      "tpsMean": 0.8555555555555556,
+      "avgMsMean": 9891.015388740632,
+      "p95MsMean": 19298.578333333335,
+      "successRateMean": 98.15297696653629,
+      "success": 154,
+      "total": 157,
+      "verdict": "미달",
+      "runs": [
+        {
+          "endpoint": "E01",
+          "run": 1,
+          "start": "2026-11-17T05:40:16.225Z",
+          "end": "2026-11-17T05:41:16.225Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 52,
+          "success": 50,
+          "tps": 0.8333333333333334,
+          "avgMs": 9807.515860000001,
+          "p50Ms": 8410.434599999999,
+          "p95Ms": 16362.310299999997,
+          "maxMs": 21910.845399999995,
+          "successRate": 96.15384615384616,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {
+            "400 {\"error\":\"chain_not_ready\",\"message\":\"체인 RPC에 연결하지 못했습니다.\"}": 1,
+            "error timeout": 1
+          }
+        },
+        {
+          "endpoint": "E01",
+          "run": 2,
+          "start": "2026-11-17T05:41:27.229Z",
+          "end": "2026-11-17T05:42:27.229Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 46,
+          "success": 46,
+          "tps": 0.7666666666666667,
+          "avgMs": 10073.333771739131,
+          "p50Ms": 8282.698600000003,
+          "p95Ms": 20995.350399999996,
+          "maxMs": 23253.607300000003,
+          "successRate": 100,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {}
+        },
+        {
+          "endpoint": "E01",
+          "run": 3,
+          "start": "2026-11-17T05:42:43.626Z",
+          "end": "2026-11-17T05:43:43.626Z",
+          "durationSeconds": 60,
+          "virtualUsers": 10,
+          "total": 59,
+          "success": 58,
+          "tps": 0.9666666666666667,
+          "avgMs": 9792.19653448276,
+          "p50Ms": 8837.114499999996,
+          "p95Ms": 20538.074300000007,
+          "maxMs": 23209.794599999994,
+          "successRate": 98.30508474576271,
+          "inFlightAtClose": 10,
+          "poolExhausted": false,
+          "blocks": 0,
+          "errors": {
+            "400 {\"error\":\"chain_not_ready\",\"message\":\"체인 RPC에 연결하지 못했습니다.\"}": 1
+          }
+        }
+      ]
+    }
+  ]
+}
