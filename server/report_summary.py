@@ -76,6 +76,29 @@ def clean_credit_rating(raw):
     return grade.group(0) if grade else None
 
 
+INDUSTRY_FIT_LABELS = {"match": "일치 예상", "unclear": "일치 불명확", "mismatch": "불일치 의심"}
+
+
+def clean_industry_fit(raw):
+    """Whether the industry applied in the valuation fits the patent's product, as the evaluation API judged it
+    (verdict match / unclear / mismatch). The evaluator is shown it; it changes no value, check or review."""
+    if not isinstance(raw, dict) or raw.get("verdict") not in INDUSTRY_FIT_LABELS:
+        return None
+
+    def text(value, limit):
+        return value.strip()[:limit] if isinstance(value, str) else ""
+
+    def industry(value):
+        value = value if isinstance(value, dict) else {}
+        return {"code": text(value.get("code"), 10), "name": text(value.get("name"), 100)}
+
+    return {
+        "verdict": raw["verdict"], "label": INDUSTRY_FIT_LABELS[raw["verdict"]],
+        "productClass": industry(raw.get("product_class")), "appliedIndustry": industry(raw.get("applied_industry")),
+        "reason": text(raw.get("reason"), 1000),
+    }
+
+
 def clean_financials(raw):
     """최근 3개 결산연도, 오래된 해부터. 자본잠식 여부는 자본총계로 다시 계산한다."""
     if not isinstance(raw, list):

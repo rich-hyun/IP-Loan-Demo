@@ -373,7 +373,9 @@ class LoanWorkflowTests(unittest.TestCase):
                 'valuation_date': '2026-10-21', 'report_number': 'PRE-IP-2026-10-000001', 'discount_rate': 0.1665},
                 'credit_rating': rating, 'financials': [
                     {'year': 2025, 'fiscal_date': '2025-12-31', 'source': 'nice_finance', 'total_equity_krw': -505_540_000,
-                     'operating_income_krw': -365_170_000, 'current_ratio_pct': 8.84, 'finance_costs_krw': 0}]}
+                     'operating_income_krw': -365_170_000, 'current_ratio_pct': 8.84, 'finance_costs_krw': 0}],
+                'industry_fit': {'verdict': 'mismatch', 'label': '불일치 의심', 'product_class': {'code': 'C28112', 'name': '변압기 제조업'},
+                                 'applied_industry': {'code': 'C26410', 'name': '유선 통신장비 제조업'}, 'reason': '변압기에 관한 특허로 보인다.'}}
 
     def clear_summary(self, app_id):
         # The state of a job that completed before the summary fields were stored.
@@ -390,6 +392,10 @@ class LoanWorkflowTests(unittest.TestCase):
         self.assertEqual({'ip_value_krw': 23_456_789, 'value_status': 'preliminary', 'valuation_date': '2026-10-21',
                           'report_number': 'PRE-IP-2026-10-000001'}, evaluation['valuation'])
         self.assertEqual('BB-', evaluation['creditRating'])
+        # The evaluator is told when the applied industry does not look like the patent product's industry.
+        self.assertEqual(('mismatch', '불일치 의심', 'C28112', 'C26410'), (
+            evaluation['industryFit']['verdict'], evaluation['industryFit']['label'],
+            evaluation['industryFit']['productClass']['code'], evaluation['industryFit']['appliedIndustry']['code']))
         self.assertEqual(['NICE BizAPI'], [row['source_label'] for row in evaluation['financials']])
         checks = {check['key']: check['result'] for check in evaluation['financialChecks']}
         self.assertEqual({'capital': 'fail', 'operating_income': 'fail', 'interest_coverage': 'pass', 'current_ratio': 'fail'}, checks)

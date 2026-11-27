@@ -21,13 +21,13 @@ if __package__:
     from . import auth
     from .patent_api import patent_api, PatentAPIError
     from .patent_value import html_valuation
-    from .report_summary import (auto_review, clean_credit_rating, clean_financials, clean_valuation, financial_checks,
+    from .report_summary import (auto_review, clean_credit_rating, clean_financials, clean_industry_fit, clean_valuation, financial_checks,
                                  public_financials)
 else:
     import auth
     from patent_api import patent_api, PatentAPIError
     from patent_value import html_valuation
-    from report_summary import (auto_review, clean_credit_rating, clean_financials, clean_valuation, financial_checks,
+    from report_summary import (auto_review, clean_credit_rating, clean_financials, clean_industry_fit, clean_valuation, financial_checks,
                                 public_financials)
 
 
@@ -71,7 +71,7 @@ def migrate(conn):
         if statement.strip():
             conn.execute(statement)
     existing = {row[1] for row in conn.execute('PRAGMA table_info(loan_evaluations)')}
-    for column in ('valueSource', 'valueReportHash', 'valueRaw', 'valuation', 'financials', 'creditRating'):
+    for column in ('valueSource', 'valueReportHash', 'valueRaw', 'valuation', 'financials', 'creditRating', 'industryFit'):
         if column not in existing:
             conn.execute(f'ALTER TABLE loan_evaluations ADD COLUMN {column} TEXT')
 
@@ -105,7 +105,9 @@ def summary(db, app_id):
         'reviewedAt', 'confirmedAt', 'preparedHash', 'valueSource', 'valueReportHash', 'valueRaw', 'creditRating')}
     financials = json.loads(row['financials'] or '[]')
     result.update(valuation=json.loads(row['valuation'] or 'null'), financials=public_financials(financials),
-                  financialChecks=financial_checks(financials))
+                  financialChecks=financial_checks(financials),
+                  # Shown to the evaluator only: not part of the hashed review manifest, the checks or the auto-review.
+                  industryFit=json.loads(row['industryFit'] or 'null'))
     # Only the verdict bound into the prepared (hashed) manifest; never a fresh one computed for display.
     prepared = db.execute('SELECT payload FROM evaluation_reports WHERE hash=?', (row['preparedHash'],)).fetchone() if row['preparedHash'] else None
     verdict = json.loads(prepared['payload']).get('autoReview') if prepared else None
@@ -237,10 +239,12 @@ def safe_error(exc):
 
 
 def summary_values(result):
-    """The completed status carries the report's summary: valuation (ip_value_krw in won), financials and credit_rating."""
+    """The completed status carries the report's summary: valuation (ip_value_krw in won), financials, credit_rating
+    and industry_fit (whether the applied industry fits the patent's product)."""
     valuation = clean_valuation(result.get('valuation'))
     return valuation, {'valuation': json.dumps(valuation), 'financials': json.dumps(clean_financials(result.get('financials'))),
-                       'creditRating': clean_credit_rating(result.get('credit_rating'))}
+                       'creditRating': clean_credit_rating(result.get('credit_rating')),
+                       'industryFit': json.dumps(clean_industry_fit(result.get('industry_fit')))}
 
 
 def value_message(valuation):
@@ -285,7 +289,7 @@ def submit(native, app_id):
     # Only an atomic claimant submits. A crash after this point is ambiguous and
     # must never automatically create a second provider job.
     claimed = db.execute("""UPDATE loan_evaluations SET state='submitting',attempt=attempt+1,jobId=NULL,
-        autoValue=NULL,valueSource=NULL,valueRaw=NULL,valueReportHash=NULL,valuation=NULL,financials=NULL,creditRating=NULL,
+        autoValue=NULL,valueSource=NULL,valueRaw=NULL,valueReportHash=NULL,valuation=NULL,financials=NULL,creditRating=NULL,industryFit=NULL,
         artifacts='[]',updatedAt=?,error=NULL
         WHERE appId=? AND state IN ('pending','submission_rejected','failed')""", (time.time(), app_id)).rowcount
     if claimed:

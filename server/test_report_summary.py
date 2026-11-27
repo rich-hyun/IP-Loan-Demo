@@ -2,7 +2,7 @@
 
 import unittest
 
-from server.report_summary import (CREDIT_GRADES, auto_review, clean_credit_rating, clean_financials, clean_valuation,
+from server.report_summary import (CREDIT_GRADES, auto_review, clean_credit_rating, clean_financials, clean_industry_fit, clean_valuation,
                                    financial_checks, public_financials)
 
 
@@ -28,6 +28,16 @@ class ValuationTests(unittest.TestCase):
 
 
 class CreditRatingTests(unittest.TestCase):
+    def test_industry_fit_keeps_the_verdict_and_names_and_drops_anything_else(self):
+        raw = {"verdict": "mismatch", "label": "<b>조작</b>", "product_class": {"code": "C28112", "name": "변압기 제조업", "x": 1},
+               "applied_industry": {"code": "C26410", "name": "유선 통신장비 제조업"}, "reason": " 변압기에 관한 특허로 보인다. ", "note": "쓰지 않음"}
+        self.assertEqual({"verdict": "mismatch", "label": "불일치 의심", "productClass": {"code": "C28112", "name": "변압기 제조업"},
+                          "appliedIndustry": {"code": "C26410", "name": "유선 통신장비 제조업"}, "reason": "변압기에 관한 특허로 보인다."},
+                         clean_industry_fit(raw))
+        self.assertEqual({"code": "", "name": ""}, clean_industry_fit({"verdict": "unclear"})["productClass"])
+        for bad in (None, "mismatch", {}, {"verdict": "wrong"}):
+            self.assertIsNone(clean_industry_fit(bad), bad)
+
     def test_report_grade_in_contract_form(self):
         self.assertEqual("BB", clean_credit_rating("bb"))
         self.assertEqual("BBB-", clean_credit_rating(" bbb- (안정적)"))
