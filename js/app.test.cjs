@@ -363,6 +363,24 @@ test('the evaluator sees the register beside the application and must record the
   assert.doesNotMatch(before, /LoanWorkflow.confirm\('RIGHTS-1'\)" disabled/);
 });
 
+test('the evaluator is told when the applied industry does not look like the patent product industry', async () => {
+  const page = await boot();
+  page.run(fs.readFileSync(`${__dirname}/workflow.js`, 'utf8'));
+  page.run("currentRole = 'evaluator'");
+  const fit = { verdict: 'mismatch', label: '불일치 의심', productClass: { code: 'C28112', name: '변압기 제조업' },
+    appliedIndustry: { code: 'C26410', name: '유선 통신장비 <b>제조업</b>' }, reason: '변압기에 관한 특허로 보인다.' };
+  const app = { id: 'FIT-1', workflow: true, chainStatus: 'Evaluating', company: '(주)예시', ipTitle: '고효율 변압기', amount: 70,
+    evaluation: { state: 'completed', artifacts: [] } };
+  const render = evaluation => { page.run(`LoanWorkflow.panel(${JSON.stringify({ ...app, evaluation: { ...app.evaluation, ...evaluation } })})`); return page.element('evalReportPanel').innerHTML; };
+  const red = render({ industryFit: fit });
+  assert.match(red, /<div class="inline-message error-message"><b>업종 확인 필요 · 불일치 의심<\/b><br>특허 제품은 변압기 제조업\(C28112\)에 해당하는 것으로 보이나, 평가에는 유선 통신장비 &lt;b&gt;제조업&lt;\/b&gt;\(C26410\) 통계를 적용했습니다\.<br>변압기에 관한 특허로 보인다\./);
+  assert.match(render({ industryFit: { ...fit, verdict: 'unclear', label: '일치 불명확' } }), /<div class="notice-box warn"><div><b>업종 확인 필요 · 일치 불명확/);
+  // A match, an API from before the judgment, and a job that has not finished show nothing.
+  assert.doesNotMatch(render({ industryFit: { ...fit, verdict: 'match', label: '일치 예상' } }), /업종 확인 필요/);
+  assert.doesNotMatch(render({}), /업종 확인 필요/);
+  assert.doesNotMatch(render({ state: 'running', industryFit: fit }), /업종 확인 필요/);
+});
+
 test('server auto-review verdict decides which final action the bank can sign', async () => {
   const page = await boot();
   const evaluation = (decision, label) => ({ state: 'completed', confirmedAt: 1, creditRating: 'BB-',

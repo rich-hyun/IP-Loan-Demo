@@ -131,6 +131,13 @@ globalThis.LoanWorkflow = (() => {
     if (!canCheck || app.patentRegister?.lapsedAt) return '';
     return `<div class="button-row"><button class="btn btn-outline" type="button" onclick="LoanWorkflow.rights('${app.id}', 'confirm')">권리 확인</button></div>`;
   }
+  // 평가에 적용한 업종이 특허 제품의 업종과 달라 보일 때 평가사에게 알린다(불일치 의심은 붉게, 일치 불명확은 노랗게). 값은 바꾸지 않는다.
+  function industryFitHTML(fit) {
+    const esc = escapeHtml;
+    const name = industry => `${esc(industry?.name || '업종 미상')}${industry?.code ? `(${esc(industry.code)})` : ''}`;
+    const text = `<b>업종 확인 필요 · ${esc(fit.label)}</b><br>특허 제품은 ${name(fit.productClass)}에 해당하는 것으로 보이나, 평가에는 ${name(fit.appliedIndustry)} 통계를 적용했습니다.${fit.reason ? `<br>${esc(fit.reason)}` : ''}`;
+    return fit.verdict === 'mismatch' ? `<div class="inline-message error-message">${text}</div>` : `<div class="notice-box warn"><div>${text}</div></div>`;
+  }
   const formatTime = seconds => seconds ? new Date(seconds * 1000).toLocaleString('ko-KR', { hour12: false }) : '—';
   function reportPanel(app) {
     const evaluation = app.evaluation || {};
@@ -154,6 +161,7 @@ globalThis.LoanWorkflow = (() => {
           ${evaluation.state === 'submission_unknown' ? `<button class="btn btn-outline btn-sm" onclick="LoanWorkflow.recover('${app.id}')">공급자 작업번호로 접수 복구</button>` : ''}
         </div>`;
     }
+    if (complete && ['mismatch', 'unclear'].includes(evaluation.industryFit?.verdict)) body += industryFitHTML(evaluation.industryFit);
     body += `<div class="report-downloads">${kinds.map(kind => `<a class="btn btn-outline btn-sm" href="${esc(artifactUrl(app.id, kind, true))}">${{ pdf: 'PDF 다운로드', html: 'HTML 다운로드', quality: '근거·검증 자료', trace: '근거 추적 자료', timing: '소요시간', log: '진행 로그' }[kind] || esc(kind.toUpperCase())}</a>`).join('')}${originalAllowed ? `<button class="btn btn-outline btn-sm" type="button" onclick="LoanWorkflow.download('${app.id}')">특허 원본 확인 (지갑 서명)</button>` : ''}</div>`;
     if (complete && preview) {
       body += `<div class="report-preview-heading"><b>특허평가 보고서</b><a class="text-button" href="${esc(artifactUrl(app.id, preview))}" target="_blank" rel="noopener noreferrer">새 창에서 열기 ↗</a></div><iframe class="report-preview" src="${esc(artifactUrl(app.id, preview))}" title="${esc(app.ipTitle)} 평가보고서" ${preview === 'html' ? 'sandbox=""' : ''}></iframe>`;
